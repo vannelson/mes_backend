@@ -2,7 +2,9 @@
 
 use App\Http\Controllers\AuthController;
 use App\Http\Controllers\CustomerController;
+use App\Http\Controllers\TemplateRouteController;
 use App\Http\Controllers\UserController;
+use App\Http\Controllers\WorkOrderController;
 use Illuminate\Support\Facades\Route;
 
 Route::prefix('v1')->group(function () {
@@ -20,5 +22,17 @@ Route::prefix('v1')->group(function () {
         Route::get('customers/{id}', [CustomerController::class, 'show']);
         Route::put('customers/{id}', [CustomerController::class, 'update']);
         Route::delete('customers/{id}', [CustomerController::class, 'destroy']);
+
+        Route::get('work-orders', [WorkOrderController::class, 'index']);
+        Route::post('work-orders', [WorkOrderController::class, 'store']);
+        Route::get('work-orders/{id}', [WorkOrderController::class, 'show']);
+        Route::put('work-orders/{id}', [WorkOrderController::class, 'update']);
+        Route::delete('work-orders/{id}', [WorkOrderController::class, 'destroy']);
+
+        Route::get('template-routes', [TemplateRouteController::class, 'index']);
+        Route::post('template-routes', [TemplateRouteController::class, 'store']);
+        Route::get('template-routes/{id}', [TemplateRouteController::class, 'show']);
+        Route::put('template-routes/{id}', [TemplateRouteController::class, 'update']);
+        Route::delete('template-routes/{id}', [TemplateRouteController::class, 'destroy']);
     });
 });

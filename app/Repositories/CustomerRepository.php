@@ -38,8 +38,8 @@ class CustomerRepository extends BaseRepository implements CustomerRepositoryInt
             $query->where('country', 'LIKE', "%{$country}%");
         }
 
-        if ($city = Arr::get($filters, 'city_municipality')) {
-            $query->where('city_municipality', 'LIKE', "%{$city}%");
+        if ($city = Arr::get($filters, 'city')) {
+            $query->where('city', 'LIKE', "%{$city}%");
         }
 
         [$orderBy, $direction] = !empty($order) ? $order : ['id', 'desc'];

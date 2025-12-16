@@ -59,7 +59,7 @@ return new class extends Migration
 
             // Helpful indexes
             $table->index(['customer_name']);
-            $table->index(['country', 'city_municipality']);
+            $table->index(['country', 'city']);
             $table->index(['status']);
         });
     }
