@@ -25,6 +25,7 @@ class User extends Authenticatable
         'middlename',
         'position',
         'address',
+        'picture_url',
         'user_type',
         'finger_print',
         'email',
