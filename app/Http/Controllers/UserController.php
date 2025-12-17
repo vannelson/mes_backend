@@ -39,15 +39,22 @@ class UserController extends Controller
 
     public function store(UserRegisterRequest $request): JsonResponse
     {
-        // try {
-            $user = $this->userService->register($request->validated());
+        try {
+            $data = $request->validated();
+
+            // Handle image upload if present
+            if ($request->has('picture_data')) {
+                $data['picture_data'] = $request->input('picture_data');
+            }
+
+            $user = $this->userService->register($data);
 
             return $this->success('User registered successfully!', $user);
-        // } catch (ValidationException $e) {
-        //     return $this->validationError($e);
-        // } catch (Throwable $e) {
-        //     return $this->error('Failed to register user.', 500);
-        // }
+        } catch (ValidationException $e) {
+            return $this->validationError($e);
+        } catch (Throwable $e) {
+            return $this->error('Failed to register user: ' . $e->getMessage(), 500);
+        }
     }
 
     public function show(int $id): JsonResponse
@@ -64,7 +71,14 @@ class UserController extends Controller
     public function update(UserUpdateRequest $request, int $id): JsonResponse
     {
         try {
-            $updated = $this->userService->update($id, $request->validated());
+            $data = $request->validated();
+
+            // Handle image upload if present
+            if ($request->has('picture_data')) {
+                $data['picture_data'] = $request->input('picture_data');
+            }
+
+            $updated = $this->userService->update($id, $data);
 
             return $updated
                 ? $this->success('User updated successfully!')
@@ -72,7 +86,7 @@ class UserController extends Controller
         } catch (ValidationException $e) {
             return $this->validationError($e);
         } catch (Throwable $e) {
-            return $this->error('Failed to update user.', 500);
+            return $this->error('Failed to update user: ' . $e->getMessage(), 500);
         }
     }
 

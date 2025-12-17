@@ -26,6 +26,7 @@ class UserUpdateRequest extends FormRequest
             'finger_print' => ['nullable', 'string'],
             'email' => ['sometimes', 'required', 'email', 'max:255', Rule::unique('users', 'email')->ignore($userId)],
             'password' => ['sometimes', 'nullable', 'string', 'min:8', 'confirmed'],
+            'picture_data' => ['nullable', 'string'], // Base64 image data
         ];
     }
 }

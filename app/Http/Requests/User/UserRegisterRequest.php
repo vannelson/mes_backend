@@ -24,6 +24,7 @@ class UserRegisterRequest extends FormRequest
             'finger_print' => ['nullable', 'string'],
             'email' => ['required', 'email', 'max:255', Rule::unique('users', 'email')],
             'password' => ['required', 'string', 'min:8', 'confirmed'],
+            'picture_data' => ['nullable', 'string'], // Base64 image data
         ];
     }
 }
