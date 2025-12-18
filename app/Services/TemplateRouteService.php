@@ -34,9 +34,17 @@ class TemplateRouteService implements TemplateRouteServiceInterface
         return (new TemplateRouteResource($templateRoute->load('manager')))->response()->getData(true);
     }
 
-    public function update(int $id, array $data): bool
+    public function update(int $id, array $data): array
     {
-        return (bool) $this->templateRouteRepository->update($id, $data);
+        $updated = (bool) $this->templateRouteRepository->update($id, $data);
+
+        if (! $updated) {
+            return [];
+        }
+
+        $templateRoute = $this->templateRouteRepository->findById($id)->load('manager');
+
+        return (new TemplateRouteResource($templateRoute))->response()->getData(true);
     }
 
     public function delete(int $id): bool

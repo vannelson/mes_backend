@@ -64,10 +64,10 @@ class TemplateRouteController extends Controller
     public function update(TemplateRouteUpdateRequest $request, int $id): JsonResponse
     {
         try {
-            $updated = $this->templateRouteService->update($id, $request->validated());
+            $templateRoute = $this->templateRouteService->update($id, $request->validated());
 
-            return $updated
-                ? $this->success('Template route updated successfully!')
+            return !empty($templateRoute)
+                ? $this->success('Template route updated successfully!', $templateRoute)
                 : $this->error('Nothing to update.', 422);
         } catch (ValidationException $e) {
             return $this->validationError($e);
