@@ -3,20 +3,24 @@
 namespace App\Providers;
 
 use App\Repositories\Contracts\CustomerRepositoryInterface;
+use App\Repositories\Contracts\MachineRepositoryInterface;
 use App\Repositories\Contracts\TemplateRouteRepositoryInterface;
 use App\Repositories\Contracts\UserRepositoryInterface;
 use App\Repositories\Contracts\WorkOrderRepositoryInterface;
 use App\Repositories\CustomerRepository;
+use App\Repositories\MachineRepository;
 use App\Repositories\TemplateRouteRepository;
 use App\Repositories\UserRepository;
 use App\Repositories\WorkOrderRepository;
 use App\Services\AuthService;
 use App\Services\Contracts\AuthServiceInterface;
 use App\Services\Contracts\CustomerServiceInterface;
+use App\Services\Contracts\MachineServiceInterface;
 use App\Services\Contracts\TemplateRouteServiceInterface;
 use App\Services\Contracts\UserServiceInterface;
 use App\Services\Contracts\WorkOrderServiceInterface;
 use App\Services\CustomerService;
+use App\Services\MachineService;
 use App\Services\TemplateRouteService;
 use App\Services\UserService;
 use App\Services\WorkOrderService;
@@ -39,6 +43,8 @@ class AppServiceProvider extends ServiceProvider
         $this->app->bind(WorkOrderRepositoryInterface::class, WorkOrderRepository::class);
         $this->app->bind(TemplateRouteServiceInterface::class, TemplateRouteService::class);
         $this->app->bind(TemplateRouteRepositoryInterface::class, TemplateRouteRepository::class);
+        $this->app->bind(MachineServiceInterface::class, MachineService::class);
+        $this->app->bind(MachineRepositoryInterface::class, MachineRepository::class);
     }
 
     /**
