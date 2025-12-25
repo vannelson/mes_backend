@@ -24,6 +24,15 @@ class MachineController extends Controller
     public function index(Request $request): JsonResponse
     {
         $filters = Arr::get($request->all(), 'filters', []);
+
+        // Accept top-level query params (e.g., ?q=FSK) as filters for compatibility with new UI
+        foreach (['q', 'production_area', 'machine_type', 'machine_no', 'cost_center_new'] as $key) {
+            $value = $request->get($key);
+            if ($value !== null && $value !== '') {
+                $filters[$key] = $value;
+            }
+        }
+
         $order = Arr::get($request->all(), 'order', ['id', 'desc']);
         $limit = (int) Arr::get($request->all(), 'limit', 10);
         $page = (int) Arr::get($request->all(), 'page', 1);
