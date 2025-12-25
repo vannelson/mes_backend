@@ -17,6 +17,7 @@ class DatabaseSeeder extends Seeder
             CustomerSeeder::class,
             TemplateRouteSeeder::class,
             WorkOrderSeeder::class,
+            MachineSeeder::class,
         ]);
     }
 }

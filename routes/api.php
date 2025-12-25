@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\AuthController;
 use App\Http\Controllers\CustomerController;
+use App\Http\Controllers\MachineController;
 use App\Http\Controllers\TemplateRouteController;
 use App\Http\Controllers\UserController;
 use App\Http\Controllers\WorkOrderController;
@@ -34,5 +35,11 @@ Route::prefix('v1')->group(function () {
         Route::get('template-routes/{id}', [TemplateRouteController::class, 'show']);
         Route::put('template-routes/{id}', [TemplateRouteController::class, 'update']);
         Route::delete('template-routes/{id}', [TemplateRouteController::class, 'destroy']);
+
+        Route::get('machines', [MachineController::class, 'index']);
+        Route::post('machines', [MachineController::class, 'store']);
+        Route::get('machines/{id}', [MachineController::class, 'show']);
+        Route::put('machines/{id}', [MachineController::class, 'update']);
+        Route::delete('machines/{id}', [MachineController::class, 'destroy']);
     });
 });
