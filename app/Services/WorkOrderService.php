@@ -21,9 +21,37 @@ class WorkOrderService implements WorkOrderServiceInterface
         )->response()->getData(true);
     }
 
+    public function getOptions(array $filters = [], array $order = [], int $limit = 10, int $page = 1): array
+    {
+        $paginator = $this->workOrderRepository->options($filters, $order, $limit, $page);
+        $items = $paginator->getCollection()->map(static function ($workOrder): array {
+            return [
+                'id' => $workOrder->id,
+                'work_order_no' => $workOrder->work_order_no,
+            ];
+        })->values();
+
+        return [
+            'data' => $items,
+            'meta' => [
+                'current_page' => $paginator->currentPage(),
+                'last_page' => $paginator->lastPage(),
+                'per_page' => $paginator->perPage(),
+                'total' => $paginator->total(),
+            ],
+        ];
+    }
+
     public function detail(int $id): array
     {
         $workOrder = $this->workOrderRepository->findById($id)->load(['customer', 'templateRoute']);
+
+        return (new WorkOrderResource($workOrder))->response()->getData(true);
+    }
+
+    public function detailBy(string $column, mixed $value): array
+    {
+        $workOrder = $this->workOrderRepository->findByColumn($column, $value)->load(['customer', 'templateRoute']);
 
         return (new WorkOrderResource($workOrder))->response()->getData(true);
     }

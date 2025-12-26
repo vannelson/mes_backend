@@ -14,6 +14,7 @@ class WorkOrder extends Model
         'customer_id',
         'template_route_id',
         'work_order_no',
+        'priority_type',
         'date',
         'posted_date',
         'document_date',

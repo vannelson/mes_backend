@@ -20,12 +20,15 @@ Route::prefix('v1')->group(function () {
 
         Route::get('customers', [CustomerController::class, 'index']);
         Route::post('customers', [CustomerController::class, 'store']);
+        Route::get('customers/options', [CustomerController::class, 'options']);
         Route::get('customers/{id}', [CustomerController::class, 'show']);
         Route::put('customers/{id}', [CustomerController::class, 'update']);
         Route::delete('customers/{id}', [CustomerController::class, 'destroy']);
 
         Route::get('work-orders', [WorkOrderController::class, 'index']);
         Route::post('work-orders', [WorkOrderController::class, 'store']);
+        Route::get('work-orders/detail', [WorkOrderController::class, 'detailBy']);
+        Route::get('work-orders/options', [WorkOrderController::class, 'options']);
         Route::get('work-orders/{id}', [WorkOrderController::class, 'show']);
         Route::put('work-orders/{id}', [WorkOrderController::class, 'update']);
         Route::delete('work-orders/{id}', [WorkOrderController::class, 'destroy']);

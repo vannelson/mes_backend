@@ -23,6 +23,7 @@ class WorkOrderSeeder extends Seeder
         $orders = [
             [
                 'work_order_no' => 'WO-2025-001',
+                'priority_type' => 'High(2 - 3)',
                 'date' => '2025-01-05',
                 'posted_date' => '2025-01-06',
                 'document_date' => '2025-01-05',
@@ -46,6 +47,7 @@ class WorkOrderSeeder extends Seeder
             ],
             [
                 'work_order_no' => 'WO-2025-002',
+                'priority_type' => 'normal',
                 'date' => '2025-01-08',
                 'posted_date' => '2025-01-09',
                 'document_date' => '2025-01-08',
@@ -69,6 +71,7 @@ class WorkOrderSeeder extends Seeder
             ],
             [
                 'work_order_no' => 'WO-2025-003',
+                'priority_type' => 'High(4 - 8)',
                 'date' => '2025-01-10',
                 'posted_date' => '2025-01-10',
                 'document_date' => '2025-01-10',
@@ -92,6 +95,7 @@ class WorkOrderSeeder extends Seeder
             ],
             [
                 'work_order_no' => 'WO-2025-004',
+                'priority_type' => 'low',
                 'date' => '2025-01-12',
                 'posted_date' => '2025-01-13',
                 'document_date' => '2025-01-12',
@@ -115,6 +119,7 @@ class WorkOrderSeeder extends Seeder
             ],
             [
                 'work_order_no' => 'WO-2025-005',
+                'priority_type' => 'normal',
                 'date' => '2025-01-14',
                 'posted_date' => '2025-01-15',
                 'document_date' => '2025-01-14',
@@ -138,6 +143,7 @@ class WorkOrderSeeder extends Seeder
             ],
             [
                 'work_order_no' => 'WO-2025-006',
+                'priority_type' => 'High(9 - 12)',
                 'date' => '2025-01-18',
                 'posted_date' => '2025-01-18',
                 'document_date' => '2025-01-18',
@@ -161,6 +167,7 @@ class WorkOrderSeeder extends Seeder
             ],
             [
                 'work_order_no' => 'WO-2025-007',
+                'priority_type' => 'Urgent(2 - 3)',
                 'date' => '2025-01-20',
                 'posted_date' => '2025-01-21',
                 'document_date' => '2025-01-20',
@@ -184,6 +191,7 @@ class WorkOrderSeeder extends Seeder
             ],
             [
                 'work_order_no' => 'WO-2025-008',
+                'priority_type' => 'Urgent(4 - 8)',
                 'date' => '2025-01-22',
                 'posted_date' => '2025-01-22',
                 'document_date' => '2025-01-22',
@@ -207,6 +215,7 @@ class WorkOrderSeeder extends Seeder
             ],
             [
                 'work_order_no' => 'WO-2025-009',
+                'priority_type' => 'Urgent(9 - 12)',
                 'date' => '2025-01-24',
                 'posted_date' => '2025-01-25',
                 'document_date' => '2025-01-24',
@@ -230,6 +239,7 @@ class WorkOrderSeeder extends Seeder
             ],
             [
                 'work_order_no' => 'WO-2025-010',
+                'priority_type' => 'High(2 - 3)',
                 'date' => '2025-01-28',
                 'posted_date' => '2025-01-29',
                 'document_date' => '2025-01-28',

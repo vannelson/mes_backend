@@ -10,9 +10,19 @@ interface WorkOrderServiceInterface
     public function getList(array $filters = [], array $order = [], int $limit = 10, int $page = 1): array;
 
     /**
+     * List work order options for dropdowns.
+     */
+    public function getOptions(array $filters = [], array $order = [], int $limit = 10, int $page = 1): array;
+
+    /**
      * Retrieve single work order.
      */
     public function detail(int $id): array;
+
+    /**
+     * Retrieve single work order by column.
+     */
+    public function detailBy(string $column, mixed $value): array;
 
     /**
      * Create Work Order

@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Http\Requests\WorkOrder\WorkOrderDetailRequest;
 use App\Http\Requests\WorkOrder\WorkOrderStoreRequest;
 use App\Http\Requests\WorkOrder\WorkOrderUpdateRequest;
 use App\Services\Contracts\WorkOrderServiceInterface;
@@ -37,6 +38,32 @@ class WorkOrderController extends Controller
         }
     }
 
+    public function options(Request $request): JsonResponse
+    {
+        $filters = Arr::get($request->all(), 'filters', []);
+        $order = Arr::get($request->all(), 'order', ['id', 'desc']);
+        $limit = (int) Arr::get($request->all(), 'limit', 10);
+        $page = (int) Arr::get($request->all(), 'page', 1);
+
+        $search = trim((string) $request->get('search', ''));
+        if ($search !== '') {
+            $filters['search'] = $search;
+        }
+
+        $customerId = $request->get('customer_id');
+        if (!is_null($customerId)) {
+            $filters['customer_id'] = $customerId;
+        }
+
+        try {
+            $data = $this->workOrderService->getOptions($filters, $order, $limit, $page);
+
+            return $this->successPagination('Work order options retrieved successfully!', $data);
+        } catch (Throwable $e) {
+            return $this->error('Failed to load work order options.', 500);
+        }
+    }
+
     public function store(WorkOrderStoreRequest $request): JsonResponse
     {
         try {
@@ -54,6 +81,20 @@ class WorkOrderController extends Controller
     {
         try {
             $workOrder = $this->workOrderService->detail($id);
+
+            return $this->success('Work order retrieved successfully!', $workOrder);
+        } catch (Throwable $e) {
+            return $this->error('Failed to load work order.', 500);
+        }
+    }
+
+    public function detailBy(WorkOrderDetailRequest $request): JsonResponse
+    {
+        $validated = $request->validated();
+
+        try {
+            sleep(5);
+            $workOrder = $this->workOrderService->detailBy($validated['column'], $validated['value']);
 
             return $this->success('Work order retrieved successfully!', $workOrder);
         } catch (Throwable $e) {

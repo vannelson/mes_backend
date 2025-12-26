@@ -3,9 +3,21 @@
 namespace App\Http\Requests\WorkOrder;
 
 use Illuminate\Foundation\Http\FormRequest;
+use Illuminate\Validation\Rule;
 
 class WorkOrderStoreRequest extends FormRequest
 {
+    private const PRIORITY_TYPES = [
+        'low',
+        'normal',
+        'High(2 - 3)',
+        'High(4 - 8)',
+        'High(9 - 12)',
+        'Urgent(2 - 3)',
+        'Urgent(4 - 8)',
+        'Urgent(9 - 12)',
+    ];
+
     public function authorize(): bool
     {
         return true;
@@ -17,6 +29,7 @@ class WorkOrderStoreRequest extends FormRequest
             'customer_id' => 'required|exists:customers,id',
             'template_route_id' => 'required|exists:template_routes,id',
             'work_order_no' => 'required|string|max:255',
+            'priority_type' => ['nullable', 'string', Rule::in(self::PRIORITY_TYPES)],
             'date' => 'required|date',
             'posted_date' => 'required|date',
             'document_date' => 'required|date',

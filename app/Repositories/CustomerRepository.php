@@ -47,4 +47,21 @@ class CustomerRepository extends BaseRepository implements CustomerRepositoryInt
 
         return $query->paginate($limit, ['*'], 'page', $page);
     }
+
+    public function options(array $filters = [], array $order = [], int $limit = 10, int $page = 1): LengthAwarePaginator
+    {
+        $query = $this->model->newQuery()->select(['id', 'customer_name', 'customer_code']);
+
+        if ($search = Arr::get($filters, 'search')) {
+            $query->where(function ($subQuery) use ($search) {
+                $subQuery->where('customer_name', 'LIKE', "%{$search}%")
+                    ->orWhere('customer_code', 'LIKE', "%{$search}%");
+            });
+        }
+
+        [$orderBy, $direction] = !empty($order) ? $order : ['id', 'desc'];
+        $query->orderBy($orderBy, $direction);
+
+        return $query->paginate($limit, ['id', 'customer_name', 'customer_code'], 'page', $page);
+    }
 }

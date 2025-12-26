@@ -23,6 +23,28 @@ class CustomerService implements CustomerServiceInterface
         )->response()->getData(true);
     }
 
+    public function getOptions(array $filters = [], array $order = [], int $limit = 10, int $page = 1): array
+    {
+        $paginator = $this->customerRepository->options($filters, $order, $limit, $page);
+        $items = $paginator->getCollection()->map(static function ($customer): array {
+            return [
+                'id' => $customer->id,
+                'customer_name' => $customer->customer_name,
+                'customer_code' => $customer->customer_code,
+            ];
+        })->values();
+
+        return [
+            'data' => $items,
+            'meta' => [
+                'current_page' => $paginator->currentPage(),
+                'last_page' => $paginator->lastPage(),
+                'per_page' => $paginator->perPage(),
+                'total' => $paginator->total(),
+            ],
+        ];
+    }
+
     /**
      * Load single customer by id.
      */

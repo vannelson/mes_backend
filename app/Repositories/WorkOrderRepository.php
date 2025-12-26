@@ -26,6 +26,14 @@ class WorkOrderRepository extends BaseRepository implements WorkOrderRepositoryI
             $query->where('document_type', $documentType);
         }
 
+        if ($customerId = Arr::get($filters, 'customer_id')) {
+            $query->where('customer_id', $customerId);
+        }
+
+        if ($priorityType = Arr::get($filters, 'priority_type')) {
+            $query->where('priority_type', $priorityType);
+        }
+
         if ($operatorCode = Arr::get($filters, 'operator_code')) {
             $query->where('operator_code', 'LIKE', "%{$operatorCode}%");
         }
@@ -50,5 +58,28 @@ class WorkOrderRepository extends BaseRepository implements WorkOrderRepositoryI
         $query->orderBy($orderBy, $direction);
 
         return $query->paginate($limit, ['*'], 'page', $page);
+    }
+
+    public function options(array $filters = [], array $order = [], int $limit = 10, int $page = 1): LengthAwarePaginator
+    {
+        $query = $this->model->newQuery()->select(['id', 'work_order_no']);
+
+        if ($search = Arr::get($filters, 'search')) {
+            $query->where('work_order_no', 'LIKE', "%{$search}%");
+        }
+
+        if ($customerId = Arr::get($filters, 'customer_id')) {
+            $query->where('customer_id', $customerId);
+        }
+
+        [$orderBy, $direction] = !empty($order) ? $order : ['id', 'desc'];
+        $query->orderBy($orderBy, $direction);
+
+        return $query->paginate($limit, ['id', 'work_order_no'], 'page', $page);
+    }
+
+    public function findByColumn(string $column, mixed $value)
+    {
+        return $this->model->newQuery()->where($column, $value)->firstOrFail();
     }
 }

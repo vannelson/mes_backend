@@ -19,6 +19,7 @@ class WorkOrderResource extends JsonResource
             'customer_id' => $this->customer_id,
             'template_route_id' => $this->template_route_id,
             'work_order_no' => $this->work_order_no,
+            'priority_type' => $this->priority_type,
             'date' => $this->date,
             'posted_date' => $this->posted_date,
             'document_date' => $this->document_date,

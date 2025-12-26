@@ -42,6 +42,30 @@ class CustomerController extends Controller
     }
 
     /**
+     * List customer options for dropdowns.
+     */
+    public function options(Request $request): JsonResponse
+    {
+        $filters = Arr::get($request->all(), 'filters', []);
+        $order = Arr::get($request->all(), 'order', ['id', 'desc']);
+        $limit = (int) Arr::get($request->all(), 'limit', 10);
+        $page = (int) Arr::get($request->all(), 'page', 1);
+
+        $search = trim((string) $request->get('search', ''));
+        if ($search !== '') {
+            $filters['search'] = $search;
+        }
+
+        try {
+            $data = $this->customerService->getOptions($filters, $order, $limit, $page);
+
+            return $this->successPagination('Customer options retrieved successfully!', $data);
+        } catch (Throwable $e) {
+            return $this->error('Failed to load customer options.', 500);
+        }
+    }
+
+    /**
      * Create Customer
      * @param CustomerStoreRequest $request
      */
