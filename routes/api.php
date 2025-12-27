@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\AuthController;
+use App\Http\Controllers\BatchLogController;
 use App\Http\Controllers\CustomerController;
 use App\Http\Controllers\MachineController;
 use App\Http\Controllers\TemplateRouteController;
@@ -25,8 +26,16 @@ Route::prefix('v1')->group(function () {
         Route::put('customers/{id}', [CustomerController::class, 'update']);
         Route::delete('customers/{id}', [CustomerController::class, 'destroy']);
 
+        Route::get('batch-logs', [BatchLogController::class, 'index']);
+        Route::post('batch-logs', [BatchLogController::class, 'store']);
+        Route::get('batch-logs/{id}', [BatchLogController::class, 'show']);
+        Route::put('batch-logs/{id}', [BatchLogController::class, 'update']);
+        Route::delete('batch-logs/{id}', [BatchLogController::class, 'destroy']);
+
         Route::get('work-orders', [WorkOrderController::class, 'index']);
         Route::post('work-orders', [WorkOrderController::class, 'store']);
+        Route::post('work-orders/batch', [WorkOrderController::class, 'batchStore']);
+        Route::post('work-orders/import', [WorkOrderController::class, 'import']);
         Route::get('work-orders/detail', [WorkOrderController::class, 'detailBy']);
         Route::get('work-orders/options', [WorkOrderController::class, 'options']);
         Route::get('work-orders/{id}', [WorkOrderController::class, 'show']);

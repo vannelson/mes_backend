@@ -2,11 +2,13 @@
 
 namespace App\Providers;
 
+use App\Repositories\Contracts\BatchLogRepositoryInterface;
 use App\Repositories\Contracts\CustomerRepositoryInterface;
 use App\Repositories\Contracts\MachineRepositoryInterface;
 use App\Repositories\Contracts\TemplateRouteRepositoryInterface;
 use App\Repositories\Contracts\UserRepositoryInterface;
 use App\Repositories\Contracts\WorkOrderRepositoryInterface;
+use App\Repositories\BatchLogRepository;
 use App\Repositories\CustomerRepository;
 use App\Repositories\MachineRepository;
 use App\Repositories\TemplateRouteRepository;
@@ -14,11 +16,13 @@ use App\Repositories\UserRepository;
 use App\Repositories\WorkOrderRepository;
 use App\Services\AuthService;
 use App\Services\Contracts\AuthServiceInterface;
+use App\Services\Contracts\BatchLogServiceInterface;
 use App\Services\Contracts\CustomerServiceInterface;
 use App\Services\Contracts\MachineServiceInterface;
 use App\Services\Contracts\TemplateRouteServiceInterface;
 use App\Services\Contracts\UserServiceInterface;
 use App\Services\Contracts\WorkOrderServiceInterface;
+use App\Services\BatchLogService;
 use App\Services\CustomerService;
 use App\Services\MachineService;
 use App\Services\TemplateRouteService;
@@ -39,6 +43,8 @@ class AppServiceProvider extends ServiceProvider
         $this->app->bind(AuthServiceInterface::class, AuthService::class);
         $this->app->bind(CustomerServiceInterface::class, CustomerService::class);
         $this->app->bind(CustomerRepositoryInterface::class, CustomerRepository::class);
+        $this->app->bind(BatchLogServiceInterface::class, BatchLogService::class);
+        $this->app->bind(BatchLogRepositoryInterface::class, BatchLogRepository::class);
         $this->app->bind(WorkOrderServiceInterface::class, WorkOrderService::class);
         $this->app->bind(WorkOrderRepositoryInterface::class, WorkOrderRepository::class);
         $this->app->bind(TemplateRouteServiceInterface::class, TemplateRouteService::class);

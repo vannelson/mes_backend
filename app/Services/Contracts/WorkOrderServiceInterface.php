@@ -2,6 +2,8 @@
 
 namespace App\Services\Contracts;
 
+use Illuminate\Http\UploadedFile;
+
 interface WorkOrderServiceInterface
 {
     /**
@@ -30,6 +32,11 @@ interface WorkOrderServiceInterface
     public function create(array $data): array;
 
     /**
+     * Create many work orders in a single request.
+     */
+    public function createBatch(array $workOrders): array;
+
+    /**
      * Update Work Order
      */
     public function update(int $id, array $data): bool;
@@ -38,4 +45,9 @@ interface WorkOrderServiceInterface
      * Delete Work Order
      */
     public function delete(int $id): bool;
+
+    /**
+     * Import work orders from spreadsheet.
+     */
+    public function importFromSpreadsheet(UploadedFile $file, string $sheet): array;
 }

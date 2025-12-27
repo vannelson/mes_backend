@@ -22,32 +22,48 @@ class WorkOrderRepository extends BaseRepository implements WorkOrderRepositoryI
             $query->where('work_order_no', 'LIKE', "%{$workOrderNo}%");
         }
 
-        if ($documentType = Arr::get($filters, 'document_type')) {
-            $query->where('document_type', $documentType);
+        if ($batchNumber = Arr::get($filters, 'batch_number')) {
+            $query->where('batch_number', 'LIKE', "%{$batchNumber}%");
         }
 
         if ($customerId = Arr::get($filters, 'customer_id')) {
             $query->where('customer_id', $customerId);
         }
 
-        if ($priorityType = Arr::get($filters, 'priority_type')) {
-            $query->where('priority_type', $priorityType);
+        if (($selected = Arr::get($filters, 'selected')) !== null) {
+            $query->where('selected', filter_var($selected, FILTER_VALIDATE_BOOLEAN, ['flags' => FILTER_NULL_ON_FAILURE]) ?? (bool) $selected);
         }
 
-        if ($operatorCode = Arr::get($filters, 'operator_code')) {
-            $query->where('operator_code', 'LIKE', "%{$operatorCode}%");
+        if ($mesBatchNo = Arr::get($filters, 'mes_batch_no')) {
+            $query->where('mes_batch_no', 'LIKE', "%{$mesBatchNo}%");
         }
 
-        if ($from = Arr::get($filters, 'date_from')) {
-            $query->whereDate('date', '>=', $from);
+        if ($customerCode = Arr::get($filters, 'customer_code')) {
+            $query->where('customer_code', 'LIKE', "%{$customerCode}%");
         }
 
-        if ($to = Arr::get($filters, 'date_to')) {
-            $query->whereDate('date', '<=', $to);
+        if ($customerName = Arr::get($filters, 'customer_name')) {
+            $query->where('customer_name', 'LIKE', "%{$customerName}%");
         }
 
-        if ($size = Arr::get($filters, 'size')) {
-            $query->where('size', $size);
+        if ($salesPersonCode = Arr::get($filters, 'sales_person_code')) {
+            $query->where('sales_person_code', 'LIKE', "%{$salesPersonCode}%");
+        }
+
+        if ($orderFrom = Arr::get($filters, 'order_date_from')) {
+            $query->whereDate('order_date', '>=', $orderFrom);
+        }
+
+        if ($orderTo = Arr::get($filters, 'order_date_to')) {
+            $query->whereDate('order_date', '<=', $orderTo);
+        }
+
+        if ($dueFrom = Arr::get($filters, 'production_due_from')) {
+            $query->whereDate('production_due_date', '>=', $dueFrom);
+        }
+
+        if ($dueTo = Arr::get($filters, 'production_due_to')) {
+            $query->whereDate('production_due_date', '<=', $dueTo);
         }
 
         if ($templateRouteId = Arr::get($filters, 'template_route_id')) {
