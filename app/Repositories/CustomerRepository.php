@@ -26,10 +26,6 @@ class CustomerRepository extends BaseRepository implements CustomerRepositoryInt
             $query->where('customer_code', 'LIKE', "%{$code}%");
         }
 
-        if ($type = Arr::get($filters, 'customer_type')) {
-            $query->where('customer_type', $type);
-        }
-
         if ($status = Arr::get($filters, 'status')) {
             $query->where('status', $status);
         }
