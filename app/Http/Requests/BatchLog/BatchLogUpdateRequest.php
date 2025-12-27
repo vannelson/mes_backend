@@ -17,6 +17,7 @@ class BatchLogUpdateRequest extends FormRequest
         $id = (int) $this->route('id');
 
         return [
+            'user_id' => ['sometimes', 'exists:users,id'],
             'batch_no' => [
                 'sometimes',
                 'string',

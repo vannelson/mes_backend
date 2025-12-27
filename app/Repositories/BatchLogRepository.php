@@ -16,7 +16,7 @@ class BatchLogRepository extends BaseRepository implements BatchLogRepositoryInt
 
     public function listing(array $filters = [], array $order = [], int $limit = 10, int $page = 1): LengthAwarePaginator
     {
-        $query = $this->model->newQuery();
+        $query = $this->model->newQuery()->with('user');
 
         if ($batchNo = Arr::get($filters, 'batch_no')) {
             $query->where('batch_no', 'LIKE', "%{$batchNo}%");
@@ -24,6 +24,10 @@ class BatchLogRepository extends BaseRepository implements BatchLogRepositoryInt
 
         if ($operator = Arr::get($filters, 'operator')) {
             $query->where('operator', 'LIKE', "%{$operator}%");
+        }
+
+        if ($userId = Arr::get($filters, 'user_id')) {
+            $query->where('user_id', $userId);
         }
 
         [$orderBy, $direction] = !empty($order) ? $order : ['id', 'desc'];

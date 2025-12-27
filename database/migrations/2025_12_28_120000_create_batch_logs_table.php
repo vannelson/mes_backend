@@ -9,6 +9,7 @@ return new class extends Migration {
     {
         Schema::create('batch_logs', function (Blueprint $table) {
             $table->id();
+            $table->foreignId('user_id')->constrained()->cascadeOnDelete();
             $table->string('batch_no', 100)->unique();
             $table->unsignedInteger('total_rows')->default(0);
             $table->string('operator', 120);

@@ -22,12 +22,12 @@ class BatchLogService implements BatchLogServiceInterface
 
     public function detail(int $id): array
     {
-        return (new BatchLogResource($this->batchLogRepository->findById($id)))->response()->getData(true);
+        return (new BatchLogResource($this->batchLogRepository->findById($id)->load('user')))->response()->getData(true);
     }
 
     public function create(array $data): array
     {
-        $batchLog = $this->batchLogRepository->create($data);
+        $batchLog = $this->batchLogRepository->create($data)->load('user');
 
         return (new BatchLogResource($batchLog))->response()->getData(true);
     }
@@ -40,7 +40,7 @@ class BatchLogService implements BatchLogServiceInterface
             return [];
         }
 
-        return (new BatchLogResource($this->batchLogRepository->findById($id)))->response()->getData(true);
+        return (new BatchLogResource($this->batchLogRepository->findById($id)->load('user')))->response()->getData(true);
     }
 
     public function delete(int $id): bool

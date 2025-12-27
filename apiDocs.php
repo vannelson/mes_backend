@@ -96,6 +96,7 @@ DELETE http://127.0.0.1:8000/api/v1/batch-logs/{id}
 
 Create/Update body JSON
 {
+  "user_id": 5,
   "batch_no": "270125T1015",
   "total_rows": 25,
   "operator": "jtan"
@@ -104,3 +105,4 @@ Create/Update body JSON
 Filters:
 - `batch_no` supports fuzzy search when passed either as `?batch_no=` or inside `filters[batch_no]`.
 - `operator` filter works the same way.
+- `user_id` can be supplied as `filters[user_id]` to show logs for a specific user; if `user_id` is omitted on create, the authenticated user's id is used automatically.

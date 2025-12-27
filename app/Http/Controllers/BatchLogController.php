@@ -47,15 +47,18 @@ class BatchLogController extends Controller
 
     public function store(BatchLogStoreRequest $request): JsonResponse
     {
-        try {
-            $payload = $this->batchLogService->create($request->validated());
+        // try {
+            $data = $request->validated();
+            $data['user_id'] = $data['user_id'] ?? $request->user()->id;
+
+            $payload = $this->batchLogService->create($data);
 
             return $this->success('Batch log created successfully!', $payload);
-        } catch (ValidationException $e) {
-            return $this->validationError($e);
-        } catch (Throwable $e) {
-            return $this->error('Failed to create batch log.', 500);
-        }
+        // } catch (ValidationException $e) {
+        //     return $this->validationError($e);
+        // } catch (Throwable $e) {
+        //     return $this->error('Failed to create batch log.', 500);
+        // }
     }
 
     public function show(int $id): JsonResponse
