@@ -14,6 +14,7 @@ class TemplateRoute extends Model
     protected $fillable = [
         'uuid',
         'template',
+        'wod_ref',
         'user_id',
         'metadata',
     ];

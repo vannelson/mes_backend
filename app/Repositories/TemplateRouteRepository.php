@@ -35,4 +35,9 @@ class TemplateRouteRepository extends BaseRepository implements TemplateRouteRep
 
         return $query->paginate($limit, ['*'], 'page', $page);
     }
+
+    public function findByTemplate(string $template): ?TemplateRoute
+    {
+        return $this->model->newQuery()->where('template', $template)->first();
+    }
 }

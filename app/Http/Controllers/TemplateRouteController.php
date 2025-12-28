@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Http\Requests\TemplateRoute\TemplateRouteStoreRequest;
+use App\Http\Requests\TemplateRoute\TemplateRouteImportRequest;
 use App\Http\Requests\TemplateRoute\TemplateRouteUpdateRequest;
 use App\Services\Contracts\TemplateRouteServiceInterface;
 use App\Traits\ResponseTrait;
@@ -34,6 +35,26 @@ class TemplateRouteController extends Controller
             return $this->successPagination('Template routes retrieved successfully!', $data);
         } catch (Throwable $e) {
             return $this->error('Failed to load template routes.', 500);
+        }
+    }
+
+    public function import(TemplateRouteImportRequest $request): JsonResponse
+    {
+        try {
+            $payload = $request->validated();
+
+            $result = $this->templateRouteService->importTemplates(
+                $payload['templates'],
+                (int) $payload['user_id']
+            );
+
+            return $this->success('Template routes imported successfully!', $result);
+        } catch (Throwable $e) {
+            \Log::error('Template route import failed', [
+                'message' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
+            ]);
+            return $this->error('Failed to import template routes.', 500);
         }
     }
 

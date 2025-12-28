@@ -139,6 +139,17 @@ class WorkOrderController extends Controller
         // }
     }
 
+    public function linkTemplateRoutes(): JsonResponse
+    {
+        try {
+            $result = $this->workOrderService->linkTemplateRoutesByReference();
+
+            return $this->success('Template routes linked to work orders.', $result);
+        } catch (Throwable $e) {
+            return $this->error('Failed to link template routes.', 500);
+        }
+    }
+
     public function update(WorkOrderUpdateRequest $request, int $id): JsonResponse
     {
         try {

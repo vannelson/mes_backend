@@ -36,6 +36,7 @@ Route::prefix('v1')->group(function () {
         Route::post('work-orders', [WorkOrderController::class, 'store']);
         Route::post('work-orders/batch', [WorkOrderController::class, 'batchStore']);
         Route::post('work-orders/import', [WorkOrderController::class, 'import']);
+        Route::post('work-orders/link-template-routes', [WorkOrderController::class, 'linkTemplateRoutes']);
         Route::get('work-orders/detail', [WorkOrderController::class, 'detailBy']);
         Route::get('work-orders/options', [WorkOrderController::class, 'options']);
         Route::get('work-orders/{id}', [WorkOrderController::class, 'show']);
@@ -43,6 +44,7 @@ Route::prefix('v1')->group(function () {
         Route::delete('work-orders/{id}', [WorkOrderController::class, 'destroy']);
 
         Route::get('template-routes', [TemplateRouteController::class, 'index']);
+        Route::post('template-routes/import', [TemplateRouteController::class, 'import']);
         Route::post('template-routes', [TemplateRouteController::class, 'store']);
         Route::get('template-routes/{id}', [TemplateRouteController::class, 'show']);
         Route::put('template-routes/{id}', [TemplateRouteController::class, 'update']);

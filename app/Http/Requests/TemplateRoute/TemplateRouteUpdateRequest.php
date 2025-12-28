@@ -15,6 +15,7 @@ class TemplateRouteUpdateRequest extends FormRequest
     {
         return [
             'template' => ['sometimes', 'required', 'string', 'max:255'],
+            'wod_ref' => ['sometimes', 'nullable', 'string'],
             'user_id' => ['sometimes', 'required', 'exists:users,id'],
             'metadata' => ['nullable', 'array'],
         ];

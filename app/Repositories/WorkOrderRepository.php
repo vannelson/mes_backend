@@ -71,7 +71,26 @@ class WorkOrderRepository extends BaseRepository implements WorkOrderRepositoryI
         }
 
         [$orderBy, $direction] = !empty($order) ? $order : ['id', 'desc'];
-        $query->orderBy($orderBy, $direction);
+        $direction = strtolower($direction) === 'asc' ? 'asc' : 'desc';
+
+        switch ($orderBy) {
+            case 'route_link':
+                // Order by presence of a linked template route, then by id for stability
+                $query
+                    ->orderByRaw("template_route_id IS NULL " . ($direction === 'asc' ? 'ASC' : 'DESC'))
+                    ->orderBy('template_route_id', $direction)
+                    ->orderBy('id', $direction);
+                break;
+            case 'production_due_date':
+            case 'requested_delivery_date':
+            case 'status':
+            case 'work_order_no':
+            case 'id':
+                $query->orderBy($orderBy, $direction);
+                break;
+            default:
+                $query->orderBy('id', 'desc');
+        }
 
         return $query->paginate($limit, ['*'], 'page', $page);
     }

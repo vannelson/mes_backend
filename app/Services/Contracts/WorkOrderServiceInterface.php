@@ -50,4 +50,9 @@ interface WorkOrderServiceInterface
      * Import work orders from spreadsheet.
      */
     public function importFromSpreadsheet(UploadedFile $file, string $sheet): array;
+
+    /**
+     * Link template routes to work orders using wod_ref references.
+     */
+    public function linkTemplateRoutesByReference(): array;
 }

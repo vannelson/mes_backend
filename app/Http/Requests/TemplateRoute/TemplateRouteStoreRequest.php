@@ -15,6 +15,7 @@ class TemplateRouteStoreRequest extends FormRequest
     {
         return [
             'template' => ['required', 'string', 'max:255'],
+            'wod_ref' => ['nullable', 'string'],
             'user_id' => ['required', 'exists:users,id'],
             'metadata' => ['nullable', 'array'],
         ];
