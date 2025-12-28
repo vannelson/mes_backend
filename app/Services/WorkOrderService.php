@@ -10,6 +10,7 @@ use App\Repositories\Contracts\WorkOrderRepositoryInterface;
 use App\Services\Contracts\WorkOrderServiceInterface;
 use App\Services\WorkOrderImportService;
 use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\DB;
 use Throwable;
 
@@ -77,8 +78,48 @@ class WorkOrderService implements WorkOrderServiceInterface
     {
         $created = [];
         $failed = [];
+        $compositeKeys = [];
 
         foreach ($workOrders as $workOrder) {
+            $key = $this->buildCompositeKey($workOrder);
+            if ($key !== '||') {
+                $compositeKeys[] = $key;
+            }
+        }
+
+        $existingKeyMap = $this->loadExistingCompositeKeys($compositeKeys);
+        $seenInPayload = [];
+
+        foreach ($workOrders as $workOrder) {
+            $compositeKey = $this->buildCompositeKey($workOrder);
+
+            if ($compositeKey === '||') {
+                $failed[] = [
+                    'work_order_no' => $workOrder['work_order_no'] ?? null,
+                    'message' => 'Missing identifiers to evaluate duplicates (Work Order No. + Customer Code + Customer Part No.).',
+                ];
+
+                continue;
+            }
+
+            if (isset($seenInPayload[$compositeKey])) {
+                $failed[] = [
+                    'work_order_no' => $workOrder['work_order_no'] ?? null,
+                    'message' => 'Duplicate in request skipped (Work Order No. + Customer Code + Customer Part No.).',
+                ];
+
+                continue;
+            }
+
+            if (isset($existingKeyMap[$compositeKey])) {
+                $failed[] = [
+                    'work_order_no' => $workOrder['work_order_no'] ?? null,
+                    'message' => 'Duplicate of an existing work order skipped (Work Order No. + Customer Code + Customer Part No.).',
+                ];
+
+                continue;
+            }
+
             try {
                 $this->syncCustomerSnapshot($workOrder);
                 $this->syncTemplateMetadata($workOrder);
@@ -87,6 +128,7 @@ class WorkOrderService implements WorkOrderServiceInterface
                 $created[] = $this->workOrderRepository
                     ->create($workOrder)
                     ->load(['customer', 'templateRoute']);
+                $seenInPayload[$compositeKey] = true;
             } catch (Throwable $e) {
                 $failed[] = [
                     'work_order_no' => $workOrder['work_order_no'] ?? null,
@@ -223,5 +265,32 @@ class WorkOrderService implements WorkOrderServiceInterface
         }
 
         $data['batch_number'] = now()->format('dmy\THi');
+    }
+
+    protected function buildCompositeKey(array $workOrder): string
+    {
+        $parts = [
+            strtolower(trim((string) Arr::get($workOrder, 'work_order_no', ''))),
+            strtolower(trim((string) Arr::get($workOrder, 'customer_code', ''))),
+            strtolower(trim((string) Arr::get($workOrder, 'customer_part_number', ''))),
+        ];
+
+        return implode('|', $parts);
+    }
+
+    protected function loadExistingCompositeKeys(array $compositeKeys): array
+    {
+        if (empty($compositeKeys)) {
+            return [];
+        }
+
+        $expression = "LOWER(CONCAT_WS('|', TRIM(COALESCE(work_order_no, '')), TRIM(COALESCE(customer_code, '')), TRIM(COALESCE(customer_part_number, ''))))";
+
+        return WorkOrder::query()
+            ->selectRaw("{$expression} AS composite_key")
+            ->whereIn(DB::raw($expression), array_values(array_unique($compositeKeys)))
+            ->pluck('composite_key')
+            ->mapWithKeys(fn ($key) => [$key => true])
+            ->all();
     }
 }
