@@ -6,6 +6,7 @@ use App\Models\WorkOrder;
 use App\Repositories\Contracts\WorkOrderRepositoryInterface;
 use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Arr;
+use Illuminate\Support\Collection;
 
 class WorkOrderRepository extends BaseRepository implements WorkOrderRepositoryInterface
 {
@@ -116,5 +117,23 @@ class WorkOrderRepository extends BaseRepository implements WorkOrderRepositoryI
     public function findByColumn(string $column, mixed $value)
     {
         return $this->model->newQuery()->where($column, $value)->firstOrFail();
+    }
+
+    public function withTemplateRoutes(): Collection
+    {
+        return $this->model
+            ->newQuery()
+            ->with(['customer', 'templateRoute'])
+            ->whereNotNull('template_route_id')
+            ->whereHas('templateRoute')
+            ->where(function ($query) {
+                $query
+                    ->whereNotNull('metadata')
+                    ->where('metadata', '<>', '')
+                    ->where('metadata', '<>', '[]')
+                    ->where('metadata', '<>', '{}');
+            })
+            ->orderBy('id', 'desc')
+            ->get();
     }
 }

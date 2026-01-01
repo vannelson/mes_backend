@@ -163,6 +163,29 @@ class WorkOrderService implements WorkOrderServiceInterface
         return $this->workOrderImportService->import($file, $sheet);
     }
 
+    public function listWithActiveTemplateRoutes(): array
+    {
+        $orders = $this->workOrderRepository->withTemplateRoutes();
+
+        $filtered = $orders->filter(function (WorkOrder $order): bool {
+            $template = $order->templateRoute;
+            if (! $template) {
+                return false;
+            }
+
+            if (! $this->metadataPresent($order->metadata)) {
+                return false;
+            }
+
+            return $this->templateRouteAppearsActive($template);
+        })->values();
+
+        return [
+            'data' => WorkOrderResource::collection($filtered)->resolve(),
+            'count' => $filtered->count(),
+        ];
+    }
+
     public function linkTemplateRoutesByReference(): array
     {
         $templates = TemplateRoute::query()
@@ -292,5 +315,80 @@ class WorkOrderService implements WorkOrderServiceInterface
             ->pluck('composite_key')
             ->mapWithKeys(fn ($key) => [$key => true])
             ->all();
+    }
+
+    protected function templateRouteAppearsActive(TemplateRoute $templateRoute): bool
+    {
+        $metadata = $templateRoute->metadata;
+        if (is_string($metadata)) {
+            $decoded = json_decode($metadata, true);
+            if (json_last_error() === JSON_ERROR_NONE && is_array($decoded)) {
+                $metadata = $decoded;
+            }
+        }
+
+        $candidates = [
+            $metadata['active'] ?? null,
+            $metadata['is_active'] ?? null,
+            $metadata['enabled'] ?? null,
+            $metadata['is_enabled'] ?? null,
+            $metadata['status'] ?? null,
+            $metadata['state'] ?? null,
+            Arr::get($metadata, 'state.status'),
+            Arr::get($metadata, 'state.active'),
+        ];
+
+        foreach ($candidates as $flag) {
+            if ($flag === null) {
+                continue;
+            }
+
+            if (is_bool($flag)) {
+                return $flag;
+            }
+
+            if (is_numeric($flag)) {
+                return (int) $flag === 1;
+            }
+
+            if (is_string($flag)) {
+                $value = strtolower(trim($flag));
+                if ($value === '') {
+                    continue;
+                }
+
+                if (in_array($value, ['inactive', 'disabled', 'archived', 'retired'], true)) {
+                    return false;
+                }
+
+                return in_array($value, ['active', 'enabled', 'published', 'in_use', 'inuse', 'true', '1'], true);
+            }
+        }
+
+        // Default to active if metadata does not specify; keeps backward compatibility.
+        return true;
+    }
+
+    protected function metadataPresent(mixed $metadata): bool
+    {
+        if (is_array($metadata)) {
+            return ! empty($metadata);
+        }
+
+        if (is_string($metadata)) {
+            $trimmed = trim($metadata);
+            if ($trimmed === '' || $trimmed === '[]' || $trimmed === '{}' || strtolower($trimmed) === 'null') {
+                return false;
+            }
+
+            $decoded = json_decode($metadata, true);
+            if (json_last_error() === JSON_ERROR_NONE) {
+                return $this->metadataPresent($decoded);
+            }
+
+            return true;
+        }
+
+        return ! is_null($metadata);
     }
 }

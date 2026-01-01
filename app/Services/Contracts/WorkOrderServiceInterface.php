@@ -55,4 +55,9 @@ interface WorkOrderServiceInterface
      * Link template routes to work orders using wod_ref references.
      */
     public function linkTemplateRoutesByReference(): array;
+
+    /**
+     * Return all work orders that have a linked template route.
+     */
+    public function listWithActiveTemplateRoutes(): array;
 }

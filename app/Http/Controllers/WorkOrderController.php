@@ -67,6 +67,17 @@ class WorkOrderController extends Controller
         }
     }
 
+    public function withActiveTemplateRoutes(): JsonResponse
+    {
+        try {
+            $data = $this->workOrderService->listWithActiveTemplateRoutes();
+
+            return $this->success('Work orders with active template routes retrieved successfully!', $data);
+        } catch (Throwable $e) {
+            return $this->error('Failed to load work orders with template routes.', 500);
+        }
+    }
+
     public function store(WorkOrderStoreRequest $request): JsonResponse
     {
         try {
