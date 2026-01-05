@@ -16,10 +16,10 @@ jobs:
       - name: FTP Deploy
         uses: SamKirkland/FTP-Deploy-Action@4.1.0
         with:
-          server: ftp.knp.edu.ph
+          server: ftp.ccldesignmes.com
           port: 21
-          username: ftp_mes_backend@knp-api.online
-          password: Eulerfermat143!
+          username: u768061773.mesapp
+          password: Superadmin143!
           local-dir: './'
           server-dir: '/'
           exclude: |
