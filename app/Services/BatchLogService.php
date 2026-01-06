@@ -4,12 +4,14 @@ namespace App\Services;
 
 use App\Http\Resources\BatchLog\BatchLogResource;
 use App\Repositories\Contracts\BatchLogRepositoryInterface;
+use App\Repositories\Contracts\WorkOrderRepositoryInterface;
 use App\Services\Contracts\BatchLogServiceInterface;
 
 class BatchLogService implements BatchLogServiceInterface
 {
     public function __construct(
-        protected BatchLogRepositoryInterface $batchLogRepository
+        protected BatchLogRepositoryInterface $batchLogRepository,
+        protected WorkOrderRepositoryInterface $workOrderRepository
     ) {
     }
 
@@ -43,8 +45,33 @@ class BatchLogService implements BatchLogServiceInterface
         return (new BatchLogResource($this->batchLogRepository->findById($id)->load('user')))->response()->getData(true);
     }
 
-    public function delete(int $id): bool
+    public function delete(int $id, bool $deleteWorkOrders = false): array
     {
-        return $this->batchLogRepository->delete($id);
+        $batchLog = $this->batchLogRepository->findById($id);
+        $batchNo = $batchLog->batch_no;
+        $workOrdersCount = $this->workOrderRepository->countByBatch($batchNo);
+
+        if ($workOrdersCount > 0 && ! $deleteWorkOrders) {
+            return [
+                'deleted' => false,
+                'blocked' => true,
+                'work_orders_count' => $workOrdersCount,
+                'message' => 'Work orders are still linked to this batch. Set delete_work_orders=1 to remove them along with the batch log.',
+            ];
+        }
+
+        $deletedWorkOrders = 0;
+        if ($workOrdersCount > 0 && $deleteWorkOrders) {
+            $deletedWorkOrders = $this->workOrderRepository->deleteByBatch($batchNo);
+        }
+
+        $this->batchLogRepository->delete($id);
+
+        return [
+            'deleted' => true,
+            'blocked' => false,
+            'work_orders_count' => $workOrdersCount,
+            'deleted_work_orders' => $deletedWorkOrders,
+        ];
     }
 }

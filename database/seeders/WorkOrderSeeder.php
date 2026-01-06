@@ -11,8 +11,10 @@ class WorkOrderSeeder extends Seeder
 {
     public function run(): void
     {
-        $customers = Customer::select('id', 'customer_code', 'customer_name')->get()->keyBy('id');
-        $customerIds = $customers->pluck('id')->all();
+        $customers = Customer::select('id', 'customer_code', 'customer_name')->get();
+        $customersById = $customers->keyBy('id');
+        $customersByCode = $customers->keyBy('customer_code');
+        $customerIds = $customersById->keys()->all();
         $templateRoutes = TemplateRoute::all();
 
         if (count($customerIds) === 0 || $templateRoutes->isEmpty()) {
@@ -266,15 +268,47 @@ class WorkOrderSeeder extends Seeder
 
         foreach ($orders as $index => $order) {
             $templateRoute = $templateRoutes[$index % $templateRoutes->count()];
-            $order['customer_id'] = $customerIds[$index % count($customerIds)];
-            $order['template_route_id'] = $templateRoute->id;
-            $customer = $customers->get($order['customer_id']);
-            if ($customer) {
-                $order['customer_code'] = $customer->customer_code;
-                $order['customer_name'] = $customer->customer_name;
+            $customer = null;
+
+            if (! empty($order['customer_id']) && $customersById->has($order['customer_id'])) {
+                $customer = $customersById->get($order['customer_id']);
             }
-            // persist template metadata snapshot on the work order
-            $order['metadata'] = $templateRoute->metadata;
+
+            if (! $customer && ! empty($order['customer_code'])) {
+                $customer = $customersByCode->get($order['customer_code']);
+
+                if (! $customer) {
+                    $customer = Customer::create([
+                        'customer_code' => $order['customer_code'],
+                        'customer_name' => $order['customer_name'] ?? $order['customer_code'],
+                        'status' => 'Active',
+                    ]);
+
+                    $customersById->put($customer->id, $customer);
+                    $customersByCode->put($customer->customer_code, $customer);
+                    $customerIds[] = $customer->id;
+                }
+            }
+
+            if (! $customer) {
+                $customerId = $customerIds[$index % count($customerIds)];
+                $customer = $customersById->get($customerId);
+            }
+
+            if (! $customer) {
+                $this->command?->warn('Skipping work order seeding because no customer could be resolved.');
+
+                continue;
+            }
+
+            $order['customer_id'] = $customer->id;
+            $order['customer_code'] = $customer->customer_code;
+            $order['customer_name'] = $customer->customer_name;
+            $order['template_route_id'] = $order['template_route_id'] ?? $templateRoute->id;
+
+            // Persist template metadata snapshot on the work order when none supplied
+            $order['metadata'] = $order['metadata'] ?? $templateRoute->metadata;
+
             WorkOrder::create($order);
         }
     }

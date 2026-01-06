@@ -190,38 +190,39 @@ class WorkOrderService implements WorkOrderServiceInterface
     {
         $templates = TemplateRoute::query()
             ->select(['id', 'wod_ref', 'metadata'])
-            ->whereNotNull('wod_ref')
-            ->whereRaw("TRIM(wod_ref) <> ''")
             ->get();
 
-        $referenceMap = $templates->flatMap(function (TemplateRoute $template): array {
+        if ($templates->isEmpty()) {
+            return [
+                'linked' => 0,
+                'skipped' => 0,
+                'eligible' => 0,
+                'template_routes' => 0,
+            ];
+        }
+
+        $templatesById = $templates->mapWithKeys(function (TemplateRoute $template): array {
+            return [
+                $template->id => [
+                    'id' => $template->id,
+                    'metadata' => $this->normalizeTemplateMetadata($template->metadata),
+                ],
+            ];
+        });
+
+        $templatesWithReferences = $templates
+            ->filter(fn (TemplateRoute $template) => trim((string) $template->wod_ref) !== '');
+
+        $referenceMap = $templatesWithReferences->flatMap(function (TemplateRoute $template): array {
             $refs = collect(preg_split('/[\s,]+/', (string) $template->wod_ref))
                 ->filter()
                 ->map(fn (string $ref) => strtoupper(trim($ref)))
                 ->filter();
 
-            $payload = $template->metadata;
-            if (is_string($payload)) {
-                $decoded = json_decode($payload, true);
-                $payload = $decoded ?? $payload;
-            }
-
             return $refs->mapWithKeys(fn (string $ref) => [
-                $ref => [
-                    'template_route_id' => $template->id,
-                    'metadata' => $payload,
-                ],
+                $ref => $template->id,
             ])->all();
         });
-
-        if ($referenceMap->isEmpty()) {
-            return [
-                'linked' => 0,
-                'skipped' => 0,
-                'eligible' => 0,
-                'template_routes' => $templates->count(),
-            ];
-        }
 
         $eligibleOrders = WorkOrder::query()
             ->select(['id', 'work_order_no', 'metadata', 'template_route_id'])
@@ -230,26 +231,47 @@ class WorkOrderService implements WorkOrderServiceInterface
                     ->whereNull('metadata')
                     ->orWhere('metadata', '')
                     ->orWhere('metadata', '[]')
-                    ->orWhere('metadata', '{}');
+                    ->orWhere('metadata', '{}')
+                    ->orWhereNull('template_route_id');
             })
             ->get();
+
+        if ($eligibleOrders->isEmpty()) {
+            return [
+                'linked' => 0,
+                'skipped' => 0,
+                'eligible' => 0,
+                'template_routes' => $templatesWithReferences->count(),
+            ];
+        }
 
         $linked = 0;
         $skipped = 0;
 
-        DB::transaction(function () use ($eligibleOrders, $referenceMap, &$linked, &$skipped) {
+        DB::transaction(function () use ($eligibleOrders, $referenceMap, $templatesById, &$linked, &$skipped) {
             foreach ($eligibleOrders as $order) {
-                $reference = strtoupper(trim((string) $order->work_order_no));
-                $matched = $reference !== '' ? $referenceMap->get($reference) : null;
+                $templateId = $order->template_route_id;
 
-                if (! $matched) {
+                if (empty($templateId)) {
+                    $reference = strtoupper(trim((string) $order->work_order_no));
+                    $templateId = $reference !== '' ? $referenceMap->get($reference) : null;
+                }
+
+                if (! $templateId) {
                     $skipped++;
 
                     continue;
                 }
 
-                $order->template_route_id = $matched['template_route_id'];
-                $order->metadata = $matched['metadata'];
+                $templateData = $templatesById->get($templateId);
+                if (! $templateData) {
+                    $skipped++;
+
+                    continue;
+                }
+
+                $order->template_route_id = $templateData['id'];
+                $order->metadata = $templateData['metadata'];
                 $order->save();
                 $linked++;
             }
@@ -259,8 +281,49 @@ class WorkOrderService implements WorkOrderServiceInterface
             'linked' => $linked,
             'skipped' => $skipped,
             'eligible' => $eligibleOrders->count(),
-            'template_routes' => $templates->count(),
+            'template_routes' => $templatesWithReferences->count(),
         ];
+    }
+
+    public function listByBatch(string $batchNumber, int $limit = 10, int $page = 1): array
+    {
+        $filters = [
+            'batch_number' => $batchNumber,
+        ];
+
+        return WorkOrderResource::collection(
+            $this->workOrderRepository->listing($filters, ['id', 'desc'], $limit, $page)
+        )->response()->getData(true);
+    }
+
+    public function replaceBatch(string $batchNumber, array $workOrders): array
+    {
+        $deleted = $this->workOrderRepository->deleteByBatch($batchNumber);
+
+        $normalizedOrders = array_map(function (array $order) use ($batchNumber): array {
+            $order['batch_number'] = $batchNumber;
+
+            return $order;
+        }, $workOrders);
+
+        $result = $this->createBatch($normalizedOrders);
+
+        return array_merge($result, [
+            'batch_number' => $batchNumber,
+            'deleted' => $deleted,
+        ]);
+    }
+
+    protected function normalizeTemplateMetadata(mixed $metadata): mixed
+    {
+        if (is_string($metadata)) {
+            $decoded = json_decode($metadata, true);
+            if (json_last_error() === JSON_ERROR_NONE) {
+                return $decoded;
+            }
+        }
+
+        return $metadata;
     }
 
     protected function syncTemplateMetadata(array &$data): void

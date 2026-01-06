@@ -40,4 +40,28 @@ class TemplateRouteRepository extends BaseRepository implements TemplateRouteRep
     {
         return $this->model->newQuery()->where('template', $template)->first();
     }
+
+    public function orderedByWorkOrders(int $limit = 10, int $page = 1): LengthAwarePaginator
+    {
+        return $this->model->newQuery()
+            ->with([
+                'manager',
+                'workOrders' => function ($query) {
+                    $query->select([
+                        'id',
+                        'template_route_id',
+                        'work_order_no',
+                        'customer_code',
+                        'customer_name',
+                        'metadata',
+                        'created_at',
+                        'updated_at',
+                    ]);
+                },
+            ])
+            ->withCount('workOrders')
+            ->orderByDesc('work_orders_count')
+            ->orderBy('id')
+            ->paginate($limit, ['*'], 'page', $page);
+    }
 }

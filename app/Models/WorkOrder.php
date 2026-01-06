@@ -37,6 +37,7 @@ class WorkOrder extends Model
         'production_date_completed',
         'production_qty_completed',
         'qr_code',
+        'sheet',
         'metadata',
     ];
 

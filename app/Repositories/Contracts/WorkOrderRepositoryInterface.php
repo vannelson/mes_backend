@@ -23,4 +23,14 @@ interface WorkOrderRepositoryInterface extends RepositoryInterface
      * Fetch all work orders that are linked to a template route.
      */
     public function withTemplateRoutes(): Collection;
+
+    /**
+     * Count work orders belonging to a specific batch number.
+     */
+    public function countByBatch(string $batchNumber): int;
+
+    /**
+     * Delete work orders belonging to a specific batch number.
+     */
+    public function deleteByBatch(string $batchNumber): int;
 }

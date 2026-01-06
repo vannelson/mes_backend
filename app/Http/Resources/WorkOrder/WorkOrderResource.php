@@ -42,6 +42,7 @@ class WorkOrderResource extends JsonResource
             'production_date_completed' => $this->production_date_completed,
             'production_qty_completed' => $this->production_qty_completed,
             'qr_code' => $this->qr_code,
+            'sheet' => $this->sheet,
             'metadata' => $this->metadata,
             'customer' => CustomerResource::make($this->whenLoaded('customer')),
             'template_route' => TemplateRouteResource::make($this->whenLoaded('templateRoute')),

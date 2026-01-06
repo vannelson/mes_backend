@@ -136,4 +136,18 @@ class WorkOrderRepository extends BaseRepository implements WorkOrderRepositoryI
             ->orderBy('id', 'desc')
             ->get();
     }
+
+    public function countByBatch(string $batchNumber): int
+    {
+        return $this->model->newQuery()
+            ->where('batch_number', $batchNumber)
+            ->count();
+    }
+
+    public function deleteByBatch(string $batchNumber): int
+    {
+        return $this->model->newQuery()
+            ->where('batch_number', $batchNumber)
+            ->delete();
+    }
 }

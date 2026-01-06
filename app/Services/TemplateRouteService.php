@@ -104,6 +104,15 @@ class TemplateRouteService implements TemplateRouteServiceInterface
         ];
     }
 
+    public function listOrderedByWorkOrders(int $limit = 10, int $page = 1): array
+    {
+        $routes = $this->templateRouteRepository->orderedByWorkOrders($limit, $page);
+
+        return TemplateRouteResource::collection($routes)
+            ->response()
+            ->getData(true);
+    }
+
     protected function dedupeTemplates(array $templates): array
     {
         $map = [];

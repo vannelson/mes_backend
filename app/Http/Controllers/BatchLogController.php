@@ -87,12 +87,22 @@ class BatchLogController extends Controller
         }
     }
 
-    public function destroy(int $id): JsonResponse
+    public function destroy(Request $request, int $id): JsonResponse
     {
-        try {
-            $this->batchLogService->delete($id);
+        $deleteWorkOrdersInput = $request->get('delete_work_orders', false);
+        $deleteWorkOrders = filter_var($deleteWorkOrdersInput, FILTER_VALIDATE_BOOL, FILTER_NULL_ON_FAILURE);
+        if ($deleteWorkOrders === null) {
+            $deleteWorkOrders = in_array($deleteWorkOrdersInput, ['1', 1, 'true', true], true);
+        }
 
-            return $this->success('Batch log deleted successfully!');
+        try {
+            $result = $this->batchLogService->delete($id, (bool) $deleteWorkOrders);
+
+            if (! $result['deleted']) {
+                return $this->error($result['message'] ?? 'Cannot delete batch log while work orders still reference it.', 422);
+            }
+
+            return $this->success('Batch log deleted successfully!', $result);
         } catch (Throwable $e) {
             return $this->error('Failed to delete batch log.', 500);
         }

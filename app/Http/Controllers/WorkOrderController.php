@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Http\Requests\WorkOrder\WorkOrderBatchReplaceRequest;
 use App\Http\Requests\WorkOrder\WorkOrderBatchStoreRequest;
 use App\Http\Requests\WorkOrder\WorkOrderDetailRequest;
 use App\Http\Requests\WorkOrder\WorkOrderImportRequest;
@@ -121,7 +122,6 @@ class WorkOrderController extends Controller
         $validated = $request->validated();
 
         try {
-            sleep(5);
             $workOrder = $this->workOrderService->detailBy($validated['column'], $validated['value']);
 
             return $this->success('Work order retrieved successfully!', $workOrder);
@@ -184,6 +184,38 @@ class WorkOrderController extends Controller
             return $this->success('Work order deleted successfully!');
         } catch (Throwable $e) {
             return $this->error('Failed to delete work order.', 500);
+        }
+    }
+
+    public function listByBatch(Request $request): JsonResponse
+    {
+        $batchNumber = trim((string) $request->get('batch_number', ''));
+        $limit = (int) $request->get('limit', 10);
+        $page = (int) $request->get('page', 1);
+
+        if ($batchNumber === '') {
+            return $this->error('Batch number is required.', 422);
+        }
+
+        try {
+            $data = $this->workOrderService->listByBatch($batchNumber, $limit, $page);
+
+            return $this->successPagination('Work orders retrieved successfully!', $data);
+        } catch (Throwable $e) {
+            return $this->error('Failed to load work orders.', 500);
+        }
+    }
+
+    public function replaceBatch(WorkOrderBatchReplaceRequest $request): JsonResponse
+    {
+        $payload = $request->validated();
+
+        try {
+            $result = $this->workOrderService->replaceBatch($payload['batch_number'], $payload['work_orders']);
+
+            return $this->success('Batch work orders replaced successfully!', $result);
+        } catch (Throwable $e) {
+            return $this->error('Failed to replace batch work orders.', 500);
         }
     }
 }

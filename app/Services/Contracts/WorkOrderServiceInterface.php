@@ -60,4 +60,14 @@ interface WorkOrderServiceInterface
      * Return all work orders that have a linked template route.
      */
     public function listWithActiveTemplateRoutes(): array;
+
+    /**
+     * Paginated list of work orders filtered by batch number.
+     */
+    public function listByBatch(string $batchNumber, int $limit = 10, int $page = 1): array;
+
+    /**
+     * Replace work orders for a specific batch (delete then re-import).
+     */
+    public function replaceBatch(string $batchNumber, array $workOrders): array;
 }

@@ -107,4 +107,18 @@ class TemplateRouteController extends Controller
             return $this->error('Failed to delete template route.', 500);
         }
     }
+
+    public function orderedByWorkOrders(Request $request): JsonResponse
+    {
+        $limit = (int) $request->get('limit', 10);
+        $page = (int) $request->get('page', 1);
+
+        try {
+            $data = $this->templateRouteService->listOrderedByWorkOrders($limit, $page);
+
+            return $this->successPagination('Template routes ordered by work order usage retrieved successfully!', $data);
+        } catch (Throwable $e) {
+            return $this->error('Failed to load template routes ordered by work orders.', 500);
+        }
+    }
 }

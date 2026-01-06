@@ -17,7 +17,7 @@ class WorkOrderStoreRequest extends FormRequest
             'customer_id' => ['required', 'exists:customers,id'],
             'template_route_id' => ['required', 'exists:template_routes,id'],
             'work_order_no' => ['required', 'string', 'max:255'],
-            'batch_number' => ['nullable', 'string', 'max:20'],
+            'batch_number' => ['nullable', 'string', 'max:100'],
             'selected' => ['sometimes', 'boolean'],
             'mes_batch_no' => ['nullable', 'string', 'max:100'],
             'customer_code' => ['nullable', 'string', 'max:100'],
@@ -40,6 +40,7 @@ class WorkOrderStoreRequest extends FormRequest
             'production_date_completed' => ['nullable', 'date'],
             'production_qty_completed' => ['nullable', 'string', 'max:100'],
             'qr_code' => ['nullable', 'string', 'max:255'],
+            'sheet' => ['nullable', 'string', 'max:255'],
             'metadata' => ['nullable', 'array'],
         ];
     }
@@ -49,3 +50,4 @@ class WorkOrderStoreRequest extends FormRequest
         return self::baseRules();
     }
 }
+

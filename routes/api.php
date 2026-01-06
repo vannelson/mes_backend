@@ -33,8 +33,10 @@ Route::prefix('v1')->group(function () {
         Route::delete('batch-logs/{id}', [BatchLogController::class, 'destroy']);
 
         Route::get('work-orders', [WorkOrderController::class, 'index']);
+        Route::get('work-orders/by-batch', [WorkOrderController::class, 'listByBatch']);
         Route::post('work-orders', [WorkOrderController::class, 'store']);
         Route::post('work-orders/batch', [WorkOrderController::class, 'batchStore']);
+        Route::post('work-orders/batch/replace', [WorkOrderController::class, 'replaceBatch']);
         Route::post('work-orders/import', [WorkOrderController::class, 'import']);
         Route::post('work-orders/link-template-routes', [WorkOrderController::class, 'linkTemplateRoutes']);
         Route::get('work-orders/detail', [WorkOrderController::class, 'detailBy']);
@@ -45,6 +47,7 @@ Route::prefix('v1')->group(function () {
         Route::delete('work-orders/{id}', [WorkOrderController::class, 'destroy']);
 
         Route::get('template-routes', [TemplateRouteController::class, 'index']);
+        Route::get('template-routes/ordered-by-work-orders', [TemplateRouteController::class, 'orderedByWorkOrders']);
         Route::post('template-routes/import', [TemplateRouteController::class, 'import']);
         Route::post('template-routes', [TemplateRouteController::class, 'store']);
         Route::get('template-routes/{id}', [TemplateRouteController::class, 'show']);
