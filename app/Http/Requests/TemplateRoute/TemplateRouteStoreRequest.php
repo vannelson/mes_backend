@@ -16,6 +16,8 @@ class TemplateRouteStoreRequest extends FormRequest
         return [
             'template' => ['required', 'string', 'max:255'],
             'wod_ref' => ['nullable', 'string'],
+            'batch_number' => ['nullable', 'string', 'max:100'],
+            'sheet' => ['nullable', 'string', 'max:255'],
             'user_id' => ['required', 'exists:users,id'],
             'metadata' => ['nullable', 'array'],
         ];

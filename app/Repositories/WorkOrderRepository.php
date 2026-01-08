@@ -71,6 +71,12 @@ class WorkOrderRepository extends BaseRepository implements WorkOrderRepositoryI
             $query->where('template_route_id', $templateRouteId);
         }
 
+        if ($templateRouteBatch = Arr::get($filters, 'template_route_batch_number')) {
+            $query->whereHas('templateRoute', function ($q) use ($templateRouteBatch) {
+                $q->where('batch_number', $templateRouteBatch);
+            });
+        }
+
         [$orderBy, $direction] = !empty($order) ? $order : ['id', 'desc'];
         $direction = strtolower($direction) === 'asc' ? 'asc' : 'desc';
 

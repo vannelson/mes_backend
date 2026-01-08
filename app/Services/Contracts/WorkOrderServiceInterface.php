@@ -70,4 +70,9 @@ interface WorkOrderServiceInterface
      * Replace work orders for a specific batch (delete then re-import).
      */
     public function replaceBatch(string $batchNumber, array $workOrders): array;
+
+    /**
+     * Paginated list of work orders filtered by template route batch number.
+     */
+    public function listByTemplateRouteBatch(string $batchNumber, int $limit = 10, int $page = 1): array;
 }

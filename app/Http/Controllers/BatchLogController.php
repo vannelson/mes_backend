@@ -29,7 +29,7 @@ class BatchLogController extends Controller
         $page = (int) Arr::get($request->all(), 'page', 1);
 
         // allow shorthand query params (?batch_no=XYZ)
-        foreach (['batch_no', 'operator'] as $key) {
+        foreach (['batch_no', 'operator', 'type'] as $key) {
             $value = $request->get($key);
             if ($value !== null && $value !== '') {
                 $filters[$key] = $value;

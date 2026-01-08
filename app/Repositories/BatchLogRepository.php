@@ -30,6 +30,10 @@ class BatchLogRepository extends BaseRepository implements BatchLogRepositoryInt
             $query->where('user_id', $userId);
         }
 
+        if ($type = Arr::get($filters, 'type')) {
+            $query->where('type', $type);
+        }
+
         [$orderBy, $direction] = !empty($order) ? $order : ['id', 'desc'];
         $query->orderBy($orderBy, $direction);
 

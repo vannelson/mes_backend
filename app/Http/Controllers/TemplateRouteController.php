@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Http\Requests\TemplateRoute\TemplateRouteBatchReplaceRequest;
 use App\Http\Requests\TemplateRoute\TemplateRouteStoreRequest;
 use App\Http\Requests\TemplateRoute\TemplateRouteImportRequest;
 use App\Http\Requests\TemplateRoute\TemplateRouteUpdateRequest;
@@ -119,6 +120,19 @@ class TemplateRouteController extends Controller
             return $this->successPagination('Template routes ordered by work order usage retrieved successfully!', $data);
         } catch (Throwable $e) {
             return $this->error('Failed to load template routes ordered by work orders.', 500);
+        }
+    }
+
+    public function replaceBatch(TemplateRouteBatchReplaceRequest $request): JsonResponse
+    {
+        $payload = $request->validated();
+
+        try {
+            $result = $this->templateRouteService->replaceBatch($payload['batch_number'], $payload['templates']);
+
+            return $this->success('Template routes replaced successfully!', $result);
+        } catch (Throwable $e) {
+            return $this->error('Failed to replace template routes.', 500);
         }
     }
 }

@@ -314,6 +314,17 @@ class WorkOrderService implements WorkOrderServiceInterface
         ]);
     }
 
+    public function listByTemplateRouteBatch(string $batchNumber, int $limit = 10, int $page = 1): array
+    {
+        $filters = [
+            'template_route_batch_number' => $batchNumber,
+        ];
+
+        return WorkOrderResource::collection(
+            $this->workOrderRepository->listing($filters, ['id', 'desc'], $limit, $page)
+        )->response()->getData(true);
+    }
+
     protected function normalizeTemplateMetadata(mixed $metadata): mixed
     {
         if (is_string($metadata)) {

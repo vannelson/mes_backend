@@ -14,8 +14,10 @@ class BatchLog extends Model
     protected $fillable = [
         'user_id',
         'batch_no',
+        'type',
         'total_rows',
         'operator',
+        'sheet',
     ];
 
     public function user(): BelongsTo

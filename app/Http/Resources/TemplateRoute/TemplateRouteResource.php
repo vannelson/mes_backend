@@ -15,6 +15,8 @@ class TemplateRouteResource extends JsonResource
             'uuid' => $this->uuid,
             'template' => $this->template,
             'wod_ref' => $this->wod_ref,
+            'batch_number' => $this->batch_number,
+            'sheet' => $this->sheet,
             'user_id' => $this->user_id,
             'metadata' => $this->metadata,
             'manager' => $this->whenLoaded('manager'),

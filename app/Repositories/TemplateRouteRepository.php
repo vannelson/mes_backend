@@ -64,4 +64,11 @@ class TemplateRouteRepository extends BaseRepository implements TemplateRouteRep
             ->orderBy('id')
             ->paginate($limit, ['*'], 'page', $page);
     }
+
+    public function deleteByBatch(string $batchNumber): int
+    {
+        return $this->model->newQuery()
+            ->where('batch_number', $batchNumber)
+            ->delete();
+    }
 }

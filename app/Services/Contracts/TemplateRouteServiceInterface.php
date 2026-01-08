@@ -17,4 +17,6 @@ interface TemplateRouteServiceInterface
     public function importTemplates(array $templates, int $userId): array;
 
     public function listOrderedByWorkOrders(int $limit = 10, int $page = 1): array;
+
+    public function replaceBatch(string $batchNumber, array $templates): array;
 }

@@ -113,6 +113,34 @@ class TemplateRouteService implements TemplateRouteServiceInterface
             ->getData(true);
     }
 
+    public function replaceBatch(string $batchNumber, array $templates): array
+    {
+        $deleted = $this->templateRouteRepository->deleteByBatch($batchNumber);
+        $created = [];
+
+        foreach ($templates as $template) {
+            $payload = [
+                'template' => $template['template'],
+                'wod_ref' => $template['wod_ref'] ?? null,
+                'batch_number' => $batchNumber,
+                'sheet' => $template['sheet'] ?? null,
+                'user_id' => $template['user_id'],
+                'metadata' => $template['metadata'] ?? [],
+                'uuid' => $template['uuid'] ?? (string) Str::uuid(),
+            ];
+
+            $model = $this->templateRouteRepository->create($payload)->load('manager');
+            $created[] = (new TemplateRouteResource($model))->resolve();
+        }
+
+        return [
+            'batch_number' => $batchNumber,
+            'deleted' => $deleted,
+            'created' => count($created),
+            'templates' => $created,
+        ];
+    }
+
     protected function dedupeTemplates(array $templates): array
     {
         $map = [];
