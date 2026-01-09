@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\AuthController;
 use App\Http\Controllers\BatchLogController;
+use App\Http\Controllers\BomController;
 use App\Http\Controllers\CustomerController;
 use App\Http\Controllers\MachineController;
 use App\Http\Controllers\TemplateRouteController;
@@ -47,6 +48,11 @@ Route::prefix('v1')->group(function () {
         Route::get('work-orders/{id}', [WorkOrderController::class, 'show']);
         Route::put('work-orders/{id}', [WorkOrderController::class, 'update']);
         Route::delete('work-orders/{id}', [WorkOrderController::class, 'destroy']);
+
+        Route::get('boms', [BomController::class, 'index']);
+        Route::get('boms/by-batch', [BomController::class, 'listByBatch']);
+        Route::post('boms/batch', [BomController::class, 'batchStore']);
+        Route::post('boms/batch/replace', [BomController::class, 'replaceBatch']);
 
         Route::get('template-routes', [TemplateRouteController::class, 'index']);
         Route::get('template-routes/ordered-by-work-orders', [TemplateRouteController::class, 'orderedByWorkOrders']);

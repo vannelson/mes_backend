@@ -89,17 +89,20 @@ class BatchLogController extends Controller
 
     public function destroy(Request $request, int $id): JsonResponse
     {
-        $deleteWorkOrdersInput = $request->get('delete_work_orders', false);
-        $deleteWorkOrders = filter_var($deleteWorkOrdersInput, FILTER_VALIDATE_BOOL, FILTER_NULL_ON_FAILURE);
-        if ($deleteWorkOrders === null) {
-            $deleteWorkOrders = in_array($deleteWorkOrdersInput, ['1', 1, 'true', true], true);
+        $deleteRelatedInput = $request->get(
+            'delete_related',
+            $request->get('delete_work_orders', $request->get('delete_boms', false))
+        );
+        $deleteRelated = filter_var($deleteRelatedInput, FILTER_VALIDATE_BOOL, FILTER_NULL_ON_FAILURE);
+        if ($deleteRelated === null) {
+            $deleteRelated = in_array($deleteRelatedInput, ['1', 1, 'true', true], true);
         }
 
         try {
-            $result = $this->batchLogService->delete($id, (bool) $deleteWorkOrders);
+            $result = $this->batchLogService->delete($id, (bool) $deleteRelated);
 
             if (! $result['deleted']) {
-                return $this->error($result['message'] ?? 'Cannot delete batch log while work orders still reference it.', 422);
+                return $this->error($result['message'] ?? 'Cannot delete batch log while related records still reference it.', 422);
             }
 
             return $this->success('Batch log deleted successfully!', $result);
