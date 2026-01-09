@@ -15,6 +15,7 @@ class TemplateRoute extends Model
         'uuid',
         'template',
         'wod_ref',
+        'customer_part_number_ref',
         'batch_number',
         'sheet',
         'user_id',
