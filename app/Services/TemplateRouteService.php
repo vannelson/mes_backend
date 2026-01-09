@@ -64,11 +64,15 @@ class TemplateRouteService implements TemplateRouteServiceInterface
             $templateName = $template['template'] ?: $this->labelFromSequence($sequenceKey);
             $templateName = Str::limit($templateName, 250, '');
             $wodRefs = $this->stringifyRefs($template['wod_refs'] ?? []);
+            $batchNumber = Arr::get($template, 'batch_number');
+            $sheet = Arr::get($template, 'sheet');
 
             $payload = [
                 'template' => $templateName,
                 'metadata' => $template['metadata'] ?? [],
                 'wod_ref' => $wodRefs,
+                'batch_number' => $batchNumber,
+                'sheet' => $sheet,
                 'user_id' => $userId,
             ];
 
@@ -171,6 +175,8 @@ class TemplateRouteService implements TemplateRouteServiceInterface
                     'template' => Arr::get($template, 'template') ?: $this->labelFromSequence($sequenceKey),
                     'metadata' => $metadata,
                     'wod_refs' => $wodRefs,
+                    'batch_number' => Arr::get($template, 'batch_number'),
+                    'sheet' => Arr::get($template, 'sheet'),
                 ];
 
                 continue;
@@ -184,6 +190,14 @@ class TemplateRouteService implements TemplateRouteServiceInterface
 
             if (empty($map[$sequenceKey]['metadata']) && !empty($metadata)) {
                 $map[$sequenceKey]['metadata'] = $metadata;
+            }
+
+            if (empty($map[$sequenceKey]['batch_number']) && !empty($template['batch_number'])) {
+                $map[$sequenceKey]['batch_number'] = $template['batch_number'];
+            }
+
+            if (empty($map[$sequenceKey]['sheet']) && !empty($template['sheet'])) {
+                $map[$sequenceKey]['sheet'] = $template['sheet'];
             }
         }
 

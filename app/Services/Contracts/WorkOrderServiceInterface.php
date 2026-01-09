@@ -75,4 +75,9 @@ interface WorkOrderServiceInterface
      * Paginated list of work orders filtered by template route batch number.
      */
     public function listByTemplateRouteBatch(string $batchNumber, int $limit = 10, int $page = 1): array;
+
+    /**
+     * Count work orders linked to template routes belonging to a batch number.
+     */
+    public function countByTemplateRouteBatch(string $batchNumber): int;
 }

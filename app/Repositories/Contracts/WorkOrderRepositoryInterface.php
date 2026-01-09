@@ -33,4 +33,9 @@ interface WorkOrderRepositoryInterface extends RepositoryInterface
      * Delete work orders belonging to a specific batch number.
      */
     public function deleteByBatch(string $batchNumber): int;
+
+    /**
+     * Count work orders whose template routes belong to a batch.
+     */
+    public function countByTemplateRouteBatch(string $batchNumber): int;
 }

@@ -225,6 +225,26 @@ class WorkOrderController extends Controller
         }
     }
 
+    public function countByTemplateRouteBatch(Request $request): JsonResponse
+    {
+        $batchNumber = trim((string) $request->get('batch_number', ''));
+
+        if ($batchNumber === '') {
+            return $this->error('Batch number is required.', 422);
+        }
+
+        try {
+            $count = $this->workOrderService->countByTemplateRouteBatch($batchNumber);
+
+            return $this->success('Work order count retrieved successfully!', [
+                'batch_number' => $batchNumber,
+                'count' => $count,
+            ]);
+        } catch (Throwable $e) {
+            return $this->error('Failed to count work orders.', 500);
+        }
+    }
+
     public function replaceBatch(WorkOrderBatchReplaceRequest $request): JsonResponse
     {
         $payload = $request->validated();

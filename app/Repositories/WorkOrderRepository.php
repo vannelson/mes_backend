@@ -156,4 +156,13 @@ class WorkOrderRepository extends BaseRepository implements WorkOrderRepositoryI
             ->where('batch_number', $batchNumber)
             ->delete();
     }
+
+    public function countByTemplateRouteBatch(string $batchNumber): int
+    {
+        return $this->model->newQuery()
+            ->whereHas('templateRoute', function ($q) use ($batchNumber) {
+                $q->where('batch_number', $batchNumber);
+            })
+            ->count();
+    }
 }

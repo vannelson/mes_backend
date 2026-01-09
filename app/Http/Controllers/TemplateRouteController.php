@@ -30,6 +30,10 @@ class TemplateRouteController extends Controller
         $limit = (int) Arr::get($request->all(), 'limit', 10);
         $page = (int) Arr::get($request->all(), 'page', 1);
 
+        if ($request->filled('batch_number')) {
+            $filters['batch_number'] = $request->get('batch_number');
+        }
+
         try {
             $data = $this->templateRouteService->getList($filters, $order, $limit, $page);
 

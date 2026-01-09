@@ -18,6 +18,10 @@ class TemplateRouteRepository extends BaseRepository implements TemplateRouteRep
     {
         $query = $this->model->newQuery()->with('manager');
 
+        if ($batchNumber = Arr::get($filters, 'batch_number')) {
+            $query->where('batch_number', $batchNumber);
+        }
+
         if ($template = Arr::get($filters, 'template')) {
             $query->where('template', 'LIKE', "%{$template}%");
         }

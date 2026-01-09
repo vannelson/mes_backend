@@ -325,6 +325,11 @@ class WorkOrderService implements WorkOrderServiceInterface
         )->response()->getData(true);
     }
 
+    public function countByTemplateRouteBatch(string $batchNumber): int
+    {
+        return $this->workOrderRepository->countByTemplateRouteBatch($batchNumber);
+    }
+
     protected function normalizeTemplateMetadata(mixed $metadata): mixed
     {
         if (is_string($metadata)) {

@@ -35,6 +35,7 @@ Route::prefix('v1')->group(function () {
         Route::get('work-orders', [WorkOrderController::class, 'index']);
         Route::get('work-orders/by-batch', [WorkOrderController::class, 'listByBatch']);
         Route::get('work-orders/by-template-route-batch', [WorkOrderController::class, 'listByTemplateRouteBatch']);
+        Route::get('work-orders/by-template-route-batch/count', [WorkOrderController::class, 'countByTemplateRouteBatch']);
         Route::post('work-orders', [WorkOrderController::class, 'store']);
         Route::post('work-orders/batch', [WorkOrderController::class, 'batchStore']);
         Route::post('work-orders/batch/replace', [WorkOrderController::class, 'replaceBatch']);
