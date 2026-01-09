@@ -63,14 +63,17 @@ class TemplateRouteService implements TemplateRouteServiceInterface
         foreach ($deduped as $sequenceKey => $template) {
             $templateName = $template['template'] ?: $this->labelFromSequence($sequenceKey);
             $templateName = Str::limit($templateName, 250, '');
-            $wodRefs = $this->stringifyRefs($template['wod_refs'] ?? []);
+            $customerPartNumberRefs = $this->resolveCustomerPartNumberRefs($template);
+            $customerPartNumberRef = !empty($customerPartNumberRefs)
+                ? $this->stringifyRefs($customerPartNumberRefs)
+                : null;
             $batchNumber = Arr::get($template, 'batch_number');
             $sheet = Arr::get($template, 'sheet');
 
             $payload = [
                 'template' => $templateName,
                 'metadata' => $template['metadata'] ?? [],
-                'wod_ref' => $wodRefs,
+                'customer_part_number_ref' => $customerPartNumberRef,
                 'batch_number' => $batchNumber,
                 'sheet' => $sheet,
                 'user_id' => $userId,
@@ -80,12 +83,14 @@ class TemplateRouteService implements TemplateRouteServiceInterface
 
             if ($existing) {
                 $mergedRefs = $this->mergeRefs(
-                    $this->splitRefs((string) $existing->wod_ref),
-                    $template['wod_refs'] ?? []
+                    $this->splitRefs((string) $existing->customer_part_number_ref),
+                    $customerPartNumberRefs
                 );
 
                 $updatePayload = $payload;
-                $updatePayload['wod_ref'] = $this->stringifyRefs($mergedRefs);
+                $updatePayload['customer_part_number_ref'] = !empty($mergedRefs)
+                    ? $this->stringifyRefs($mergedRefs)
+                    : null;
                 $updatePayload['user_id'] = $existing->user_id ?: $userId;
 
                 $this->templateRouteRepository->update($existing->id, $updatePayload);
@@ -123,9 +128,14 @@ class TemplateRouteService implements TemplateRouteServiceInterface
         $created = [];
 
         foreach ($templates as $template) {
+            $customerPartNumberRefs = $this->resolveCustomerPartNumberRefs($template);
+            $customerPartNumberRef = !empty($customerPartNumberRefs)
+                ? $this->stringifyRefs($customerPartNumberRefs)
+                : null;
             $payload = [
                 'template' => $template['template'],
                 'wod_ref' => $template['wod_ref'] ?? null,
+                'customer_part_number_ref' => $customerPartNumberRef,
                 'batch_number' => $batchNumber,
                 'sheet' => $template['sheet'] ?? null,
                 'user_id' => $template['user_id'],
@@ -164,17 +174,13 @@ class TemplateRouteService implements TemplateRouteServiceInterface
                 $sequenceKey = (string) Str::uuid();
             }
 
-            $wodRefs = $this->normalizeRefs(
-                Arr::get($template, 'wod_refs', []),
-                Arr::get($template, 'work_orders', []),
-                $this->splitRefs((string) Arr::get($template, 'wod_ref', ''))
-            );
+            $customerPartNumberRefs = $this->resolveCustomerPartNumberRefs($template);
 
             if (!isset($map[$sequenceKey])) {
                 $map[$sequenceKey] = [
                     'template' => Arr::get($template, 'template') ?: $this->labelFromSequence($sequenceKey),
                     'metadata' => $metadata,
-                    'wod_refs' => $wodRefs,
+                    'customer_part_number_refs' => $customerPartNumberRefs,
                     'batch_number' => Arr::get($template, 'batch_number'),
                     'sheet' => Arr::get($template, 'sheet'),
                 ];
@@ -182,7 +188,10 @@ class TemplateRouteService implements TemplateRouteServiceInterface
                 continue;
             }
 
-            $map[$sequenceKey]['wod_refs'] = $this->mergeRefs($map[$sequenceKey]['wod_refs'], $wodRefs);
+            $map[$sequenceKey]['customer_part_number_refs'] = $this->mergeRefs(
+                $map[$sequenceKey]['customer_part_number_refs'],
+                $customerPartNumberRefs
+            );
 
             if (empty($map[$sequenceKey]['template']) && !empty($template['template'])) {
                 $map[$sequenceKey]['template'] = $template['template'];
@@ -280,6 +289,15 @@ class TemplateRouteService implements TemplateRouteServiceInterface
         }
 
         return array_values(array_unique($refs));
+    }
+
+    protected function resolveCustomerPartNumberRefs(array $template): array
+    {
+        return $this->normalizeRefs(
+            Arr::get($template, 'customer_part_number_refs', []),
+            Arr::get($template, 'customer_part_numbers', []),
+            $this->splitRefs((string) Arr::get($template, 'customer_part_number_ref', ''))
+        );
     }
 
     protected function mergeRefs(array ...$sources): array

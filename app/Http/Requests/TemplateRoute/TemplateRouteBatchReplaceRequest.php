@@ -20,6 +20,7 @@ class TemplateRouteBatchReplaceRequest extends FormRequest
 
         $rules['templates.*.template'] = ['required', 'string', 'max:255'];
         $rules['templates.*.wod_ref'] = ['nullable', 'string'];
+        $rules['templates.*.customer_part_number_ref'] = ['nullable', 'string'];
         $rules['templates.*.sheet'] = ['nullable', 'string', 'max:255'];
         $rules['templates.*.user_id'] = ['required', 'exists:users,id'];
         $rules['templates.*.metadata'] = ['nullable', 'array'];

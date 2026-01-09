@@ -12,6 +12,7 @@ use App\Services\WorkOrderImportService;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 use Throwable;
 
 class WorkOrderService implements WorkOrderServiceInterface
@@ -186,19 +187,71 @@ class WorkOrderService implements WorkOrderServiceInterface
         ];
     }
 
-    public function linkTemplateRoutesByReference(): array
+    public function linkTemplateRoutesByReference(?string $reference = null, ?string $batchNumber = null): array
     {
-        $templates = TemplateRoute::query()
-            ->select(['id', 'wod_ref', 'metadata'])
-            ->get();
+        $referenceMode = strtolower(trim((string) $reference));
+        if (in_array($referenceMode, ['customer_part_number_ref', 'customer_part_number', 'customer_part_no'], true)) {
+            $referenceMode = 'customer_part_number';
+        } elseif (in_array($referenceMode, ['work_order_no', 'work_order', 'wod_ref'], true)) {
+            $referenceMode = 'work_order_no';
+        } else {
+            $referenceMode = 'auto';
+        }
 
-        if ($templates->isEmpty()) {
-            return [
+        $batchNumber = trim((string) $batchNumber);
+        $batchNumber = $batchNumber !== '' ? $batchNumber : null;
+
+        $hasTemplatePartNumberRef = Schema::hasColumn('template_routes', 'customer_part_number_ref');
+        $hasTemplateWorkOrderRef = Schema::hasColumn('template_routes', 'wod_ref');
+        $hasWorkOrderPartNumber = Schema::hasColumn('work_orders', 'customer_part_number');
+        $hasWorkOrderBatchNumber = Schema::hasColumn('work_orders', 'batch_number');
+
+        if ($referenceMode === 'customer_part_number' && (! $hasTemplatePartNumberRef || ! $hasWorkOrderPartNumber)) {
+            $result = [
                 'linked' => 0,
                 'skipped' => 0,
                 'eligible' => 0,
                 'template_routes' => 0,
+                'reference' => $referenceMode,
+                'warning' => 'Customer part number reference is unavailable. Run the migration to add customer_part_number_ref.',
             ];
+            if ($batchNumber !== null) {
+                $result['batch_number'] = $batchNumber;
+            }
+
+            return $result;
+        }
+
+        $useCustomerPartNumber = $referenceMode !== 'work_order_no'
+            && $hasTemplatePartNumberRef
+            && $hasWorkOrderPartNumber;
+        $allowWorkOrderFallback = $referenceMode !== 'customer_part_number' && $hasTemplateWorkOrderRef;
+
+        $templateSelect = ['id', 'metadata'];
+        if ($hasTemplatePartNumberRef) {
+            $templateSelect[] = 'customer_part_number_ref';
+        }
+        if ($hasTemplateWorkOrderRef) {
+            $templateSelect[] = 'wod_ref';
+        }
+
+        $templates = TemplateRoute::query()
+            ->select($templateSelect)
+            ->get();
+
+        if ($templates->isEmpty()) {
+            $result = [
+                'linked' => 0,
+                'skipped' => 0,
+                'eligible' => 0,
+                'template_routes' => 0,
+                'reference' => $referenceMode,
+            ];
+            if ($batchNumber !== null) {
+                $result['batch_number'] = $batchNumber;
+            }
+
+            return $result;
         }
 
         $templatesById = $templates->mapWithKeys(function (TemplateRoute $template): array {
@@ -210,22 +263,71 @@ class WorkOrderService implements WorkOrderServiceInterface
             ];
         });
 
-        $templatesWithReferences = $templates
-            ->filter(fn (TemplateRoute $template) => trim((string) $template->wod_ref) !== '');
+        $templatesWithPartNumberRefs = $useCustomerPartNumber
+            ? $templates->filter(
+                fn (TemplateRoute $template) => trim((string) $template->customer_part_number_ref) !== ''
+            )
+            : collect();
 
-        $referenceMap = $templatesWithReferences->flatMap(function (TemplateRoute $template): array {
-            $refs = collect(preg_split('/[\s,]+/', (string) $template->wod_ref))
-                ->filter()
-                ->map(fn (string $ref) => strtoupper(trim($ref)))
-                ->filter();
+        $templatesWithWorkOrderRefs = $allowWorkOrderFallback
+            ? $templates->filter(
+                function (TemplateRoute $template) use ($useCustomerPartNumber): bool {
+                    $hasWorkOrderRef = trim((string) $template->wod_ref) !== '';
+                    if (! $hasWorkOrderRef) {
+                        return false;
+                    }
 
-            return $refs->mapWithKeys(fn (string $ref) => [
-                $ref => $template->id,
-            ])->all();
-        });
+                    if (! $useCustomerPartNumber) {
+                        return true;
+                    }
 
-        $eligibleOrders = WorkOrder::query()
-            ->select(['id', 'work_order_no', 'metadata', 'template_route_id'])
+                    return trim((string) $template->customer_part_number_ref) === '';
+                }
+            )
+            : collect();
+
+        $partNumberReferenceMap = $useCustomerPartNumber
+            ? $templatesWithPartNumberRefs->flatMap(
+                function (TemplateRoute $template): array {
+                    $refs = collect(preg_split('/[\s,]+/', (string) $template->customer_part_number_ref))
+                        ->filter()
+                        ->map(fn (string $ref) => strtoupper(trim($ref)))
+                        ->filter();
+
+                    return $refs->mapWithKeys(fn (string $ref) => [
+                        $ref => $template->id,
+                    ])->all();
+                }
+            )
+            : collect();
+
+        $workOrderReferenceMap = $allowWorkOrderFallback
+            ? $templatesWithWorkOrderRefs->flatMap(
+                function (TemplateRoute $template): array {
+                    $refs = collect(preg_split('/[\s,]+/', (string) $template->wod_ref))
+                        ->filter()
+                        ->map(fn (string $ref) => strtoupper(trim($ref)))
+                        ->filter();
+
+                    return $refs->mapWithKeys(fn (string $ref) => [
+                        $ref => $template->id,
+                    ])->all();
+                }
+            )
+            : collect();
+
+        $orderSelect = [
+            'id',
+            'work_order_no',
+            'metadata',
+            'template_route_id',
+        ];
+        if ($hasWorkOrderPartNumber) {
+            $orderSelect[] = 'customer_part_number';
+        }
+
+        $eligibleOrdersQuery = WorkOrder::query()
+            ->select($orderSelect)
             ->where(function ($query) {
                 $query
                     ->whereNull('metadata')
@@ -233,28 +335,56 @@ class WorkOrderService implements WorkOrderServiceInterface
                     ->orWhere('metadata', '[]')
                     ->orWhere('metadata', '{}')
                     ->orWhereNull('template_route_id');
-            })
-            ->get();
+            });
+
+        if ($batchNumber !== null && $hasWorkOrderBatchNumber) {
+            $eligibleOrdersQuery->where('batch_number', $batchNumber);
+        }
+
+        $eligibleOrders = $eligibleOrdersQuery->get();
 
         if ($eligibleOrders->isEmpty()) {
-            return [
+            $result = [
                 'linked' => 0,
                 'skipped' => 0,
                 'eligible' => 0,
-                'template_routes' => $templatesWithReferences->count(),
+                'template_routes' => $templatesWithPartNumberRefs->count()
+                    + $templatesWithWorkOrderRefs->count(),
+                'reference' => $referenceMode,
             ];
+            if ($batchNumber !== null) {
+                $result['batch_number'] = $batchNumber;
+            }
+
+            return $result;
         }
 
         $linked = 0;
         $skipped = 0;
 
-        DB::transaction(function () use ($eligibleOrders, $referenceMap, $templatesById, &$linked, &$skipped) {
+        DB::transaction(function () use (
+            $eligibleOrders,
+            $partNumberReferenceMap,
+            $workOrderReferenceMap,
+            $templatesById,
+            $useCustomerPartNumber,
+            $allowWorkOrderFallback,
+            &$linked,
+            &$skipped
+        ) {
             foreach ($eligibleOrders as $order) {
                 $templateId = $order->template_route_id;
 
-                if (empty($templateId)) {
-                    $reference = strtoupper(trim((string) $order->work_order_no));
-                    $templateId = $reference !== '' ? $referenceMap->get($reference) : null;
+                if (empty($templateId) && $useCustomerPartNumber) {
+                    $reference = strtoupper(trim((string) $order->customer_part_number));
+                    $templateId = $reference !== '' ? $partNumberReferenceMap->get($reference) : null;
+                }
+
+                if (! $templateId && $allowWorkOrderFallback) {
+                    $legacyReference = strtoupper(trim((string) $order->work_order_no));
+                    $templateId = $legacyReference !== ''
+                        ? $workOrderReferenceMap->get($legacyReference)
+                        : null;
                 }
 
                 if (! $templateId) {
@@ -277,12 +407,19 @@ class WorkOrderService implements WorkOrderServiceInterface
             }
         });
 
-        return [
+        $result = [
             'linked' => $linked,
             'skipped' => $skipped,
             'eligible' => $eligibleOrders->count(),
-            'template_routes' => $templatesWithReferences->count(),
+            'template_routes' => $templatesWithPartNumberRefs->count()
+                + $templatesWithWorkOrderRefs->count(),
+            'reference' => $referenceMode,
         ];
+        if ($batchNumber !== null) {
+            $result['batch_number'] = $batchNumber;
+        }
+
+        return $result;
     }
 
     public function listByBatch(string $batchNumber, int $limit = 10, int $page = 1): array

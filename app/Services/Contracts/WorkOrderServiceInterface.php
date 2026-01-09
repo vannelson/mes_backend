@@ -52,9 +52,12 @@ interface WorkOrderServiceInterface
     public function importFromSpreadsheet(UploadedFile $file, string $sheet): array;
 
     /**
-     * Link template routes to work orders using wod_ref references.
+     * Link template routes to work orders using customer_part_number_ref references.
      */
-    public function linkTemplateRoutesByReference(): array;
+    public function linkTemplateRoutesByReference(
+        ?string $reference = null,
+        ?string $batchNumber = null
+    ): array;
 
     /**
      * Return all work orders that have a linked template route.

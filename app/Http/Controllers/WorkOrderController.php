@@ -150,10 +150,20 @@ class WorkOrderController extends Controller
         // }
     }
 
-    public function linkTemplateRoutes(): JsonResponse
+    public function linkTemplateRoutes(Request $request): JsonResponse
     {
         try {
-            $result = $this->workOrderService->linkTemplateRoutesByReference();
+            $reference = $request->get('reference')
+                ?? $request->get('reference_column')
+                ?? null;
+            $batchNumber = $request->get('batch_number');
+            if (is_string($batchNumber)) {
+                $batchNumber = trim($batchNumber);
+                if ($batchNumber === '') {
+                    $batchNumber = null;
+                }
+            }
+            $result = $this->workOrderService->linkTemplateRoutesByReference($reference, $batchNumber);
 
             return $this->success('Template routes linked to work orders.', $result);
         } catch (Throwable $e) {
