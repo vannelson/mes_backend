@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Http\Resources\BatchLog\BatchLogResource;
 use App\Repositories\Contracts\BatchLogRepositoryInterface;
+use App\Repositories\Contracts\BomRepositoryInterface;
 use App\Repositories\Contracts\WorkOrderRepositoryInterface;
 use App\Services\Contracts\BatchLogServiceInterface;
 
@@ -11,7 +12,8 @@ class BatchLogService implements BatchLogServiceInterface
 {
     public function __construct(
         protected BatchLogRepositoryInterface $batchLogRepository,
-        protected WorkOrderRepositoryInterface $workOrderRepository
+        protected WorkOrderRepositoryInterface $workOrderRepository,
+        protected BomRepositoryInterface $bomRepository
     ) {
     }
 
@@ -45,23 +47,61 @@ class BatchLogService implements BatchLogServiceInterface
         return (new BatchLogResource($this->batchLogRepository->findById($id)->load('user')))->response()->getData(true);
     }
 
-    public function delete(int $id, bool $deleteWorkOrders = false): array
+    public function delete(int $id, bool $deleteRelated = false): array
     {
         $batchLog = $this->batchLogRepository->findById($id);
         $batchNo = $batchLog->batch_no;
+        $type = $batchLog->type ?: 'work_order';
+
+        if ($type === 'bom') {
+            $bomCount = $this->bomRepository->countByBatch($batchNo);
+
+            if ($bomCount > 0 && ! $deleteRelated) {
+                return [
+                    'deleted' => false,
+                    'blocked' => true,
+                    'bom_count' => $bomCount,
+                    'message' => 'BOM rows are still linked to this batch. Set delete_related=1 to remove them along with the batch log.',
+                ];
+            }
+
+            $deletedBoms = 0;
+            if ($bomCount > 0 && $deleteRelated) {
+                $deletedBoms = $this->bomRepository->deleteByBatch($batchNo);
+            }
+
+            $this->batchLogRepository->delete($id);
+
+            return [
+                'deleted' => true,
+                'blocked' => false,
+                'bom_count' => $bomCount,
+                'deleted_boms' => $deletedBoms,
+            ];
+        }
+
+        if ($type !== 'work_order') {
+            $this->batchLogRepository->delete($id);
+
+            return [
+                'deleted' => true,
+                'blocked' => false,
+            ];
+        }
+
         $workOrdersCount = $this->workOrderRepository->countByBatch($batchNo);
 
-        if ($workOrdersCount > 0 && ! $deleteWorkOrders) {
+        if ($workOrdersCount > 0 && ! $deleteRelated) {
             return [
                 'deleted' => false,
                 'blocked' => true,
                 'work_orders_count' => $workOrdersCount,
-                'message' => 'Work orders are still linked to this batch. Set delete_work_orders=1 to remove them along with the batch log.',
+                'message' => 'Work orders are still linked to this batch. Set delete_related=1 to remove them along with the batch log.',
             ];
         }
 
         $deletedWorkOrders = 0;
-        if ($workOrdersCount > 0 && $deleteWorkOrders) {
+        if ($workOrdersCount > 0 && $deleteRelated) {
             $deletedWorkOrders = $this->workOrderRepository->deleteByBatch($batchNo);
         }
 
