@@ -59,6 +59,7 @@ Route::prefix('v1')->group(function () {
         Route::get('boms', [BomController::class, 'index']);
         Route::get('boms/stats', [BomController::class, 'stats']);
         Route::get('boms/by-batch', [BomController::class, 'listByBatch']);
+        Route::get('boms/by-customer-part', [BomController::class, 'listByCustomerPart']);
         Route::post('boms/batch', [BomController::class, 'batchStore']);
         Route::post('boms/batch/replace', [BomController::class, 'replaceBatch']);
 

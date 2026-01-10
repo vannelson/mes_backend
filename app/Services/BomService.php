@@ -104,6 +104,18 @@ class BomService implements BomServiceInterface
         )->response()->getData(true);
     }
 
+    public function listByCustomerPart(string $customerCode, string $partNo, int $limit = 10, int $page = 1): array
+    {
+        $filters = [
+            'customer_code' => $customerCode,
+            'part_no' => $partNo,
+        ];
+
+        return BomResource::collection(
+            $this->bomRepository->listing($filters, ['id', 'desc'], $limit, $page)
+        )->response()->getData(true);
+    }
+
     public function replaceBatch(string $batchNumber, array $boms): array
     {
         $deleted = $this->bomRepository->deleteByBatch($batchNumber);

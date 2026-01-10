@@ -20,6 +20,11 @@ interface BomServiceInterface
     public function listByBatch(string $batchNumber, int $limit = 10, int $page = 1): array;
 
     /**
+     * Paginated list of BOM rows filtered by customer code + part number.
+     */
+    public function listByCustomerPart(string $customerCode, string $partNo, int $limit = 10, int $page = 1): array;
+
+    /**
      * Replace BOM rows for a specific batch (delete then re-import).
      */
     public function replaceBatch(string $batchNumber, array $boms): array;

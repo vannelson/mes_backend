@@ -82,6 +82,26 @@ class BomController extends Controller
         }
     }
 
+    public function listByCustomerPart(Request $request): JsonResponse
+    {
+        $customerCode = trim((string) $request->get('customer_code', ''));
+        $partNo = trim((string) $request->get('part_no', ''));
+        $limit = (int) $request->get('limit', 10);
+        $page = (int) $request->get('page', 1);
+
+        if ($customerCode === '' || $partNo === '') {
+            return $this->error('Customer code and part number are required.', 422);
+        }
+
+        try {
+            $data = $this->bomService->listByCustomerPart($customerCode, $partNo, $limit, $page);
+
+            return $this->successPagination('BOM rows retrieved successfully!', $data);
+        } catch (Throwable $e) {
+            return $this->error('Failed to load BOM rows.', 500);
+        }
+    }
+
     public function replaceBatch(BomBatchReplaceRequest $request): JsonResponse
     {
         $payload = $request->validated();
