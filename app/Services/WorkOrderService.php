@@ -467,6 +467,218 @@ class WorkOrderService implements WorkOrderServiceInterface
         return $this->workOrderRepository->countByTemplateRouteBatch($batchNumber);
     }
 
+    public function summary(array $options = []): array
+    {
+        $onTimeDays = max(1, (int) ($options['on_time_days'] ?? 30));
+        $throughputDays = max(1, (int) ($options['throughput_days'] ?? 7));
+        $dueSoonDays = max(1, (int) ($options['due_soon_days'] ?? 7));
+
+        $asOf = now()->startOfDay();
+        $onTimeStart = (clone $asOf)->subDays($onTimeDays - 1);
+        $throughputStart = (clone $asOf)->subDays($throughputDays - 1);
+        $dueSoonEnd = (clone $asOf)->addDays($dueSoonDays);
+
+        $orders = WorkOrder::query()
+            ->select([
+                'id',
+                'work_order_no',
+                'production_due_date',
+                'requested_delivery_date',
+                'order_date',
+                'production_date_completed',
+                'quantity_to_produce',
+                'quantity_produced',
+                'production_qty_completed',
+                'metadata',
+                'created_at',
+                'updated_at',
+            ])
+            ->get();
+
+        $totals = [
+            'total_orders' => 0,
+            'open_orders' => 0,
+            'completed_orders' => 0,
+            'released_orders' => 0,
+            'wip_orders' => 0,
+            'overdue_orders' => 0,
+            'due_soon_orders' => 0,
+            'planned_units' => 0.0,
+            'produced_units' => 0.0,
+            'scrap_units' => 0.0,
+            'wip_units' => 0.0,
+        ];
+
+        $statusCounts = [];
+        $wipByCenter = [];
+        $scrapReasons = [];
+        $throughputBuckets = $this->buildDateBuckets($throughputStart, $throughputDays);
+
+        $onTimeEligible = 0;
+        $onTimeHit = 0;
+        $leadTimeSum = 0.0;
+        $leadTimeCount = 0;
+
+        foreach ($orders as $order) {
+            $totals['total_orders']++;
+
+            $metadata = $this->normalizeMetadata($order->metadata);
+            $state = is_array($metadata['state'] ?? null) ? $metadata['state'] : [];
+            $statusRaw = $state['status'] ?? $metadata['status'] ?? null;
+            $currentStep = $state['currentStep'] ?? null;
+
+            $routes = $this->extractRoutes($metadata);
+            $routesCompleted = $this->routesCompleted($routes);
+
+            $completionDate = $this->resolveCompletionDate($order, $routes);
+            $isCompleted = $completionDate !== null || $routesCompleted;
+
+            $status = $this->normalizeStatus($statusRaw, $isCompleted);
+
+            $planned = $this->numericValue($order->quantity_to_produce);
+            if ($planned <= 0) {
+                $planned = $this->numericValue($state['qty'] ?? null);
+            }
+
+            $produced = $this->numericValue($order->quantity_produced);
+            if ($produced <= 0) {
+                $produced = $this->numericValue($order->production_qty_completed);
+            }
+            if ($produced <= 0) {
+                $produced = $this->numericValue($state['quantityProduced'] ?? null);
+            }
+
+            $totals['planned_units'] += $planned;
+            $totals['produced_units'] += $produced;
+
+            $scrapTotal = $this->accumulateScrap($routes, $scrapReasons);
+            $totals['scrap_units'] += $scrapTotal;
+
+            if ($isCompleted) {
+                $totals['completed_orders']++;
+            } else {
+                $totals['open_orders']++;
+                $totals['wip_units'] += $planned;
+            }
+
+            if ($status === 'Released') {
+                $totals['released_orders']++;
+            }
+
+            if (! $isCompleted && $status !== 'Draft') {
+                $totals['wip_orders']++;
+            }
+
+            $statusCounts[$status] = ($statusCounts[$status] ?? 0) + 1;
+
+            $dueDate = $this->resolveDueDate($order);
+            if (! $isCompleted && $dueDate) {
+                if ($dueDate->lt($asOf)) {
+                    $totals['overdue_orders']++;
+                } elseif ($dueDate->lte($dueSoonEnd)) {
+                    $totals['due_soon_orders']++;
+                }
+            }
+
+            if (! $isCompleted) {
+                $activeRoute = $this->resolveActiveRoute($routes, $currentStep);
+                $centerLabel = $this->resolveWorkCenter($activeRoute);
+                if ($centerLabel === '') {
+                    $centerLabel = 'Unassigned';
+                }
+                $wipByCenter[$centerLabel] = ($wipByCenter[$centerLabel] ?? 0) + 1;
+            }
+
+            if ($completionDate) {
+                $completionDay = $completionDate->copy()->startOfDay();
+
+                if ($completionDay->gte($throughputStart) && $completionDay->lte($asOf)) {
+                    $key = $completionDay->toDateString();
+                    if (isset($throughputBuckets[$key])) {
+                        $throughputBuckets[$key]['count'] += 1;
+                        $throughputBuckets[$key]['units'] += $produced > 0 ? $produced : $planned;
+                    }
+                }
+
+                if ($completionDay->gte($onTimeStart) && $completionDay->lte($asOf)) {
+                    if ($dueDate) {
+                        $onTimeEligible++;
+                        if ($completionDay->lte($dueDate)) {
+                            $onTimeHit++;
+                        }
+                    }
+
+                    $orderDate = $this->resolveOrderDate($order);
+                    if ($orderDate) {
+                        $leadTimeSum += $orderDate->diffInDays($completionDay);
+                        $leadTimeCount++;
+                    }
+                }
+            }
+        }
+
+        $goodUnits = max($totals['planned_units'] - $totals['scrap_units'], 0);
+        $yieldRate = $totals['planned_units'] > 0
+            ? ($goodUnits / $totals['planned_units']) * 100
+            : 0;
+
+        $onTimeRate = $onTimeEligible > 0 ? ($onTimeHit / $onTimeEligible) * 100 : 0;
+        $avgLeadTime = $leadTimeCount > 0 ? $leadTimeSum / $leadTimeCount : 0;
+
+        $statusSeries = $this->buildStatusSeries($statusCounts);
+        $wipSeries = $this->buildSortedSeries($wipByCenter, 'center', 8);
+        $scrapSeries = $this->buildSortedSeries($scrapReasons, 'reason', 6);
+        $throughputSeries = array_values($throughputBuckets);
+
+        $futureOrders = max($totals['open_orders'] - $totals['overdue_orders'] - $totals['due_soon_orders'], 0);
+
+        $throughputOrders = array_reduce($throughputSeries, function ($sum, $row) {
+            return $sum + ($row['count'] ?? 0);
+        }, 0);
+        $throughputUnits = array_reduce($throughputSeries, function ($sum, $row) {
+            return $sum + ($row['units'] ?? 0);
+        }, 0.0);
+
+        return [
+            'summary' => [
+                'total_orders' => $totals['total_orders'],
+                'open_orders' => $totals['open_orders'],
+                'completed_orders' => $totals['completed_orders'],
+                'released_orders' => $totals['released_orders'],
+                'wip_orders' => $totals['wip_orders'],
+                'overdue_orders' => $totals['overdue_orders'],
+                'due_soon_orders' => $totals['due_soon_orders'],
+                'planned_units' => round($totals['planned_units'], 2),
+                'produced_units' => round($totals['produced_units'], 2),
+                'wip_units' => round($totals['wip_units'], 2),
+                'good_units' => round($goodUnits, 2),
+                'scrap_units' => round($totals['scrap_units'], 2),
+                'yield_rate' => round($yieldRate, 1),
+                'on_time_rate' => round($onTimeRate, 1),
+                'avg_lead_time_days' => round($avgLeadTime, 1),
+                'throughput_orders' => $throughputOrders,
+                'throughput_units' => round($throughputUnits, 2),
+                'as_of' => $asOf->toDateString(),
+            ],
+            'charts' => [
+                'status' => $statusSeries,
+                'wip_by_center' => $wipSeries,
+                'throughput' => $throughputSeries,
+                'scrap_reasons' => $scrapSeries,
+                'due_risk' => [
+                    ['bucket' => 'Overdue', 'count' => $totals['overdue_orders']],
+                    ['bucket' => 'Due Soon', 'count' => $totals['due_soon_orders']],
+                    ['bucket' => 'Future', 'count' => $futureOrders],
+                ],
+            ],
+            'window' => [
+                'on_time_days' => $onTimeDays,
+                'throughput_days' => $throughputDays,
+                'due_soon_days' => $dueSoonDays,
+            ],
+        ];
+    }
+
     protected function normalizeTemplateMetadata(mixed $metadata): mixed
     {
         if (is_string($metadata)) {
@@ -606,5 +818,318 @@ class WorkOrderService implements WorkOrderServiceInterface
         }
 
         return ! is_null($metadata);
+    }
+
+    protected function normalizeMetadata(mixed $metadata): array
+    {
+        if (is_array($metadata)) {
+            return $metadata;
+        }
+
+        if (is_string($metadata)) {
+            $decoded = json_decode($metadata, true);
+            if (json_last_error() === JSON_ERROR_NONE && is_array($decoded)) {
+                return $decoded;
+            }
+        }
+
+        return [];
+    }
+
+    protected function extractRoutes(array $metadata): array
+    {
+        $routes = $metadata['routes'] ?? $metadata['data'] ?? $metadata['steps'] ?? [];
+        if (! is_array($routes)) {
+            return [];
+        }
+
+        $flattened = [];
+        foreach ($routes as $entry) {
+            if (! is_array($entry)) {
+                continue;
+            }
+
+            if (array_key_exists('routes', $entry) && is_array($entry['routes'])) {
+                foreach ($entry['routes'] as $route) {
+                    if (is_array($route)) {
+                        $flattened[] = $route;
+                    }
+                }
+                continue;
+            }
+
+            $flattened[] = $entry;
+        }
+
+        return $flattened;
+    }
+
+    protected function routesCompleted(array $routes): bool
+    {
+        if (empty($routes)) {
+            return false;
+        }
+
+        foreach ($routes as $route) {
+            $status = strtolower(trim((string) ($route['status'] ?? '')));
+            if ($status === '') {
+                return false;
+            }
+            if (! in_array($status, ['completed', 'complete', 'done'], true)) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    protected function resolveCompletionDate(WorkOrder $order, array $routes): ?\Illuminate\Support\Carbon
+    {
+        $date = $order->production_date_completed;
+        if ($date) {
+            return $date instanceof \Illuminate\Support\Carbon ? $date->copy() : \Illuminate\Support\Carbon::parse($date);
+        }
+
+        $latest = null;
+        foreach ($routes as $route) {
+            $raw = $route['completed_at'] ?? $route['completedAt'] ?? null;
+            if (! $raw) {
+                continue;
+            }
+
+            try {
+                $candidate = \Illuminate\Support\Carbon::parse($raw);
+            } catch (Throwable $e) {
+                continue;
+            }
+
+            if ($latest === null || $candidate->gt($latest)) {
+                $latest = $candidate;
+            }
+        }
+
+        return $latest ? $latest->copy() : null;
+    }
+
+    protected function resolveDueDate(WorkOrder $order): ?\Illuminate\Support\Carbon
+    {
+        $date = $order->production_due_date ?? $order->requested_delivery_date ?? null;
+        if (! $date) {
+            return null;
+        }
+
+        return $date instanceof \Illuminate\Support\Carbon ? $date->copy()->startOfDay() : \Illuminate\Support\Carbon::parse($date)->startOfDay();
+    }
+
+    protected function resolveOrderDate(WorkOrder $order): ?\Illuminate\Support\Carbon
+    {
+        $date = $order->order_date ?? $order->created_at ?? null;
+        if (! $date) {
+            return null;
+        }
+
+        return $date instanceof \Illuminate\Support\Carbon ? $date->copy()->startOfDay() : \Illuminate\Support\Carbon::parse($date)->startOfDay();
+    }
+
+    protected function normalizeStatus(mixed $status, bool $isCompleted): string
+    {
+        if ($isCompleted) {
+            return 'Completed';
+        }
+
+        $raw = strtolower(trim((string) $status));
+        if ($raw === '') {
+            return 'In Progress';
+        }
+
+        $map = [
+            'draft' => 'Draft',
+            'planned' => 'Draft',
+            'new' => 'Draft',
+            'released' => 'Released',
+            'release' => 'Released',
+            'ready' => 'Released',
+            'in_progress' => 'In Progress',
+            'in-progress' => 'In Progress',
+            'in progress' => 'In Progress',
+            'active' => 'In Progress',
+            'hold' => 'On Hold',
+            'on hold' => 'On Hold',
+            'blocked' => 'On Hold',
+            'paused' => 'On Hold',
+        ];
+
+        if (isset($map[$raw])) {
+            return $map[$raw];
+        }
+
+        if (str_contains($raw, 'release')) {
+            return 'Released';
+        }
+        if (str_contains($raw, 'hold') || str_contains($raw, 'block')) {
+            return 'On Hold';
+        }
+
+        return ucwords($raw);
+    }
+
+    protected function numericValue(mixed $value): float
+    {
+        if ($value === null || $value === '') {
+            return 0.0;
+        }
+
+        if (is_numeric($value)) {
+            return (float) $value;
+        }
+
+        return 0.0;
+    }
+
+    protected function accumulateScrap(array $routes, array &$scrapReasons): float
+    {
+        $total = 0.0;
+
+        foreach ($routes as $route) {
+            $scrap = $this->numericValue($route['scrap'] ?? $route['scrap_qty'] ?? null);
+            if ($scrap <= 0) {
+                continue;
+            }
+
+            $total += $scrap;
+            $reason = trim((string) ($route['scrapReason'] ?? $route['scrap_reason'] ?? 'Unspecified'));
+            if ($reason === '') {
+                $reason = 'Unspecified';
+            }
+            $scrapReasons[$reason] = ($scrapReasons[$reason] ?? 0) + $scrap;
+        }
+
+        return $total;
+    }
+
+    protected function resolveActiveRoute(array $routes, mixed $currentStep): array
+    {
+        if (empty($routes)) {
+            return [];
+        }
+
+        $index = null;
+        if (is_numeric($currentStep)) {
+            $index = (int) $currentStep;
+        }
+
+        if ($index !== null && isset($routes[$index])) {
+            return $routes[$index];
+        }
+
+        foreach ($routes as $route) {
+            $status = strtolower(trim((string) ($route['status'] ?? '')));
+            if (! in_array($status, ['completed', 'complete', 'done'], true)) {
+                return $route;
+            }
+        }
+
+        return $routes[array_key_last($routes)] ?? [];
+    }
+
+    protected function resolveWorkCenter(array $route): string
+    {
+        if (empty($route)) {
+            return '';
+        }
+
+        $machine =
+            $route['machine'] ??
+            Arr::get($route, 'metadata.machine') ??
+            Arr::get($route, 'validation.machine') ??
+            ($route['machine_name'] ?? null);
+
+        if (is_array($machine)) {
+            $name = trim((string) ($machine['name'] ?? $machine['label'] ?? $machine['machine_name'] ?? ''));
+            if ($name !== '') {
+                return $name;
+            }
+            $code = trim((string) ($machine['code'] ?? $machine['machine_code'] ?? ''));
+            if ($code !== '') {
+                return 'Machine ' . $code;
+            }
+        }
+
+        if (is_string($machine)) {
+            $label = trim($machine);
+            if ($label !== '') {
+                return $label;
+            }
+        }
+
+        $fallback = trim((string) ($route['name'] ?? $route['step'] ?? $route['route'] ?? ''));
+        if ($fallback !== '') {
+            return $fallback;
+        }
+
+        return '';
+    }
+
+    protected function buildDateBuckets(\Illuminate\Support\Carbon $start, int $days): array
+    {
+        $buckets = [];
+        for ($i = 0; $i < $days; $i++) {
+            $day = $start->copy()->addDays($i);
+            $key = $day->toDateString();
+            $buckets[$key] = [
+                'date' => $key,
+                'count' => 0,
+                'units' => 0.0,
+            ];
+        }
+
+        return $buckets;
+    }
+
+    protected function buildStatusSeries(array $statusCounts): array
+    {
+        $order = ['Completed', 'Released', 'In Progress', 'Draft', 'On Hold'];
+        $series = [];
+
+        foreach ($order as $label) {
+            if (! isset($statusCounts[$label])) {
+                continue;
+            }
+            $series[] = [
+                'status' => $label,
+                'count' => $statusCounts[$label],
+            ];
+            unset($statusCounts[$label]);
+        }
+
+        foreach ($statusCounts as $label => $count) {
+            $series[] = [
+                'status' => $label,
+                'count' => $count,
+            ];
+        }
+
+        return $series;
+    }
+
+    protected function buildSortedSeries(array $source, string $labelKey, int $limit): array
+    {
+        if (empty($source)) {
+            return [];
+        }
+
+        arsort($source);
+        $series = [];
+        foreach ($source as $label => $value) {
+            $series[] = [
+                $labelKey => $label,
+                'count' => $value,
+            ];
+            if (count($series) >= $limit) {
+                break;
+            }
+        }
+
+        return $series;
     }
 }

@@ -79,6 +79,19 @@ class WorkOrderController extends Controller
         }
     }
 
+    public function summary(Request $request): JsonResponse
+    {
+        $options = $request->only(['on_time_days', 'throughput_days', 'due_soon_days']);
+
+        try {
+            $data = $this->workOrderService->summary($options);
+
+            return $this->success('Work order summary retrieved successfully!', $data);
+        } catch (Throwable $e) {
+            return $this->error('Failed to load work order summary.', 500);
+        }
+    }
+
     public function store(WorkOrderStoreRequest $request): JsonResponse
     {
         try {

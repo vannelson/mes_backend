@@ -83,4 +83,9 @@ interface WorkOrderServiceInterface
      * Count work orders linked to template routes belonging to a batch number.
      */
     public function countByTemplateRouteBatch(string $batchNumber): int;
+
+    /**
+     * Provide aggregated work order summary metrics for dashboards.
+     */
+    public function summary(array $options = []): array;
 }
