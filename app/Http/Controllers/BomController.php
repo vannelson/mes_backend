@@ -42,6 +42,25 @@ class BomController extends Controller
         }
     }
 
+    public function stats(Request $request): JsonResponse
+    {
+        $filters = Arr::get($request->all(), 'filters', []);
+        foreach (['q', 'customer_code', 'part_no', 'material_code', 'batch_number', 'description'] as $key) {
+            $value = $request->get($key);
+            if ($value !== null && $value !== '') {
+                $filters[$key] = $value;
+            }
+        }
+
+        try {
+            $data = $this->bomService->getStats($filters);
+
+            return $this->success('BOM summary generated successfully!', $data);
+        } catch (Throwable $e) {
+            return $this->error('Failed to load BOM summary.', 500);
+        }
+    }
+
     public function batchStore(BomBatchStoreRequest $request): JsonResponse
     {
         $payload = $request->validated();
@@ -62,6 +81,38 @@ class BomController extends Controller
 
         try {
             $data = $this->bomService->listByBatch($batchNumber, $limit, $page);
+
+            return $this->successPagination('BOM rows retrieved successfully!', $data);
+        } catch (Throwable $e) {
+            return $this->error('Failed to load BOM rows.', 500);
+        }
+    }
+
+    public function listByCustomerPart(Request $request): JsonResponse
+    {
+        $filters = Arr::get($request->all(), 'filters', []);
+        $customerCode = trim((string) $request->get('customer_code', Arr::get($filters, 'customer_code', '')));
+        $partNo = trim((string) $request->get('part_no', Arr::get($filters, 'part_no', '')));
+        $limit = (int) $request->get('limit', 10);
+        $page = (int) $request->get('page', 1);
+        $order = Arr::get($request->all(), 'order', ['id', 'desc']);
+
+        if ($customerCode === '' || $partNo === '') {
+            return $this->error('Customer code and part number are required.', 422);
+        }
+
+        $filters['customer_code'] = $customerCode;
+        $filters['part_no'] = $partNo;
+
+        foreach (['q', 'material_code'] as $key) {
+            $value = $request->get($key);
+            if ($value !== null && $value !== '') {
+                $filters[$key] = $value;
+            }
+        }
+
+        try {
+            $data = $this->bomService->getList($filters, $order, $limit, $page);
 
             return $this->successPagination('BOM rows retrieved successfully!', $data);
         } catch (Throwable $e) {
