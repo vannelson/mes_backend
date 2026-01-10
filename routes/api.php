@@ -4,6 +4,7 @@ use App\Http\Controllers\AuthController;
 use App\Http\Controllers\BatchLogController;
 use App\Http\Controllers\BomController;
 use App\Http\Controllers\CustomerController;
+use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\MachineController;
 use App\Http\Controllers\TemplateRouteController;
 use App\Http\Controllers\UserController;
@@ -37,6 +38,7 @@ Route::prefix('v1')->group(function () {
         Route::get('work-orders/by-batch', [WorkOrderController::class, 'listByBatch']);
         Route::get('work-orders/by-template-route-batch', [WorkOrderController::class, 'listByTemplateRouteBatch']);
         Route::get('work-orders/by-template-route-batch/count', [WorkOrderController::class, 'countByTemplateRouteBatch']);
+        Route::get('work-orders/summary', [WorkOrderController::class, 'summary']);
         Route::post('work-orders', [WorkOrderController::class, 'store']);
         Route::post('work-orders/batch', [WorkOrderController::class, 'batchStore']);
         Route::post('work-orders/batch/replace', [WorkOrderController::class, 'replaceBatch']);
@@ -68,5 +70,7 @@ Route::prefix('v1')->group(function () {
         Route::get('machines/{id}', [MachineController::class, 'show']);
         Route::put('machines/{id}', [MachineController::class, 'update']);
         Route::delete('machines/{id}', [MachineController::class, 'destroy']);
+
+        Route::get('dashboard/overview', [DashboardController::class, 'overview']);
     });
 });
