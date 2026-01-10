@@ -7,6 +7,7 @@ use App\Repositories\Contracts\WorkOrderRepositoryInterface;
 use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\DB;
 
 class WorkOrderRepository extends BaseRepository implements WorkOrderRepositoryInterface
 {
@@ -67,6 +68,26 @@ class WorkOrderRepository extends BaseRepository implements WorkOrderRepositoryI
             $query->whereDate('production_due_date', '<=', $dueTo);
         }
 
+        if ($requestedFrom = Arr::get($filters, 'requested_delivery_from')) {
+            $query->whereDate('requested_delivery_date', '>=', $requestedFrom);
+        }
+
+        if ($requestedTo = Arr::get($filters, 'requested_delivery_to')) {
+            $query->whereDate('requested_delivery_date', '<=', $requestedTo);
+        }
+
+        if ($orderDays = Arr::get($filters, 'order_date_days')) {
+            $this->applyDayOfWeekFilter($query, 'order_date', $orderDays);
+        }
+
+        if ($dueDays = Arr::get($filters, 'production_due_days')) {
+            $this->applyDayOfWeekFilter($query, 'production_due_date', $dueDays);
+        }
+
+        if ($requestedDays = Arr::get($filters, 'requested_delivery_days')) {
+            $this->applyDayOfWeekFilter($query, 'requested_delivery_date', $requestedDays);
+        }
+
         if ($templateRouteId = Arr::get($filters, 'template_route_id')) {
             $query->where('template_route_id', $templateRouteId);
         }
@@ -89,6 +110,7 @@ class WorkOrderRepository extends BaseRepository implements WorkOrderRepositoryI
                     ->orderBy('id', $direction);
                 break;
             case 'production_due_date':
+            case 'order_date':
             case 'requested_delivery_date':
             case 'status':
             case 'work_order_no':
@@ -164,5 +186,101 @@ class WorkOrderRepository extends BaseRepository implements WorkOrderRepositoryI
                 $q->where('batch_number', $batchNumber);
             })
             ->count();
+    }
+
+    protected function applyDayOfWeekFilter($query, string $column, mixed $days): void
+    {
+        $tokens = $this->normalizeDayTokens($days);
+        if (empty($tokens)) {
+            return;
+        }
+
+        $driver = DB::getDriverName();
+        $mysqlMap = [
+            'mon' => 0,
+            'tue' => 1,
+            'wed' => 2,
+            'thu' => 3,
+            'fri' => 4,
+            'sat' => 5,
+            'sun' => 6,
+        ];
+        $isoMap = [
+            'sun' => 0,
+            'mon' => 1,
+            'tue' => 2,
+            'wed' => 3,
+            'thu' => 4,
+            'fri' => 5,
+            'sat' => 6,
+        ];
+
+        if ($driver === 'mysql') {
+            $values = array_values(array_unique(array_map(fn ($d) => $mysqlMap[$d], $tokens)));
+            $query->whereNotNull($column)
+                ->whereIn(DB::raw("WEEKDAY({$column})"), $values);
+            return;
+        }
+
+        if ($driver === 'pgsql') {
+            $values = array_values(array_unique(array_map(fn ($d) => $isoMap[$d], $tokens)));
+            $query->whereNotNull($column)
+                ->whereIn(DB::raw("EXTRACT(DOW FROM {$column})"), $values);
+            return;
+        }
+
+        if ($driver === 'sqlite') {
+            $values = array_values(array_unique(array_map(fn ($d) => $isoMap[$d], $tokens)));
+            $query->whereNotNull($column)
+                ->whereIn(DB::raw("strftime('%w', {$column})"), $values);
+            return;
+        }
+
+        if ($driver === 'sqlsrv') {
+            $names = array_values(array_unique(array_map([$this, 'dayTokenToName'], $tokens)));
+            $query->whereNotNull($column)
+                ->whereIn(DB::raw("DATENAME(WEEKDAY, {$column})"), $names);
+        }
+    }
+
+    protected function normalizeDayTokens(mixed $days): array
+    {
+        if ($days === null) {
+            return [];
+        }
+
+        $raw = is_array($days) ? $days : preg_split('/[,\s]+/', (string) $days);
+        $valid = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
+        $tokens = [];
+
+        foreach ($raw as $day) {
+            if ($day === null) {
+                continue;
+            }
+            $label = strtolower(trim((string) $day));
+            if ($label === '') {
+                continue;
+            }
+            $short = substr($label, 0, 3);
+            if (in_array($short, $valid, true)) {
+                $tokens[] = $short;
+            }
+        }
+
+        return array_values(array_unique($tokens));
+    }
+
+    protected function dayTokenToName(string $token): string
+    {
+        return match ($token) {
+            'mon' => 'Monday',
+            'tue' => 'Tuesday',
+            'wed' => 'Wednesday',
+            'thu' => 'Thursday',
+            'fri' => 'Friday',
+            'sat' => 'Saturday',
+            'sun' => 'Sunday',
+            default => $token,
+        };
     }
 }
