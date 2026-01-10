@@ -23,4 +23,9 @@ interface BomServiceInterface
      * Replace BOM rows for a specific batch (delete then re-import).
      */
     public function replaceBatch(string $batchNumber, array $boms): array;
+
+    /**
+     * Return aggregate BOM stats for summary dashboards.
+     */
+    public function getStats(int $limit = 7): array;
 }

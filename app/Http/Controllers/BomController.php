@@ -42,6 +42,19 @@ class BomController extends Controller
         }
     }
 
+    public function stats(Request $request): JsonResponse
+    {
+        $limit = (int) $request->get('limit', 7);
+
+        try {
+            $data = $this->bomService->getStats($limit);
+
+            return $this->success('BOM stats retrieved successfully!', $data);
+        } catch (Throwable $e) {
+            return $this->error('Failed to load BOM stats.', 500);
+        }
+    }
+
     public function batchStore(BomBatchStoreRequest $request): JsonResponse
     {
         $payload = $request->validated();

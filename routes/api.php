@@ -6,8 +6,13 @@ use App\Http\Controllers\BomController;
 use App\Http\Controllers\CustomerController;
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\MachineController;
+use App\Http\Controllers\PlaylistItemController;
+use App\Http\Controllers\PublicMediaController;
+use App\Http\Controllers\PublicScreenController;
+use App\Http\Controllers\ScreenMediaController;
 use App\Http\Controllers\TemplateRouteController;
 use App\Http\Controllers\UserController;
+use App\Http\Controllers\VirtualScreenController;
 use App\Http\Controllers\WorkOrderController;
 use Illuminate\Support\Facades\Route;
 
@@ -52,6 +57,7 @@ Route::prefix('v1')->group(function () {
         Route::delete('work-orders/{id}', [WorkOrderController::class, 'destroy']);
 
         Route::get('boms', [BomController::class, 'index']);
+        Route::get('boms/stats', [BomController::class, 'stats']);
         Route::get('boms/by-batch', [BomController::class, 'listByBatch']);
         Route::post('boms/batch', [BomController::class, 'batchStore']);
         Route::post('boms/batch/replace', [BomController::class, 'replaceBatch']);
@@ -72,5 +78,34 @@ Route::prefix('v1')->group(function () {
         Route::delete('machines/{id}', [MachineController::class, 'destroy']);
 
         Route::get('dashboard/overview', [DashboardController::class, 'overview']);
+
+        // Virtual Screens
+        Route::get('virtual-screens', [VirtualScreenController::class, 'index']);
+        Route::post('virtual-screens', [VirtualScreenController::class, 'store']);
+        Route::get('virtual-screens/{id}', [VirtualScreenController::class, 'show']);
+        Route::put('virtual-screens/{id}', [VirtualScreenController::class, 'update']);
+        Route::delete('virtual-screens/{id}', [VirtualScreenController::class, 'destroy']);
+        Route::post('virtual-screens/{id}/toggle-active', [VirtualScreenController::class, 'toggleActive']);
+        Route::post('virtual-screens/{id}/regenerate-token', [VirtualScreenController::class, 'regenerateToken']);
+
+        // Playlist Items
+        Route::get('virtual-screens/{screenId}/playlist-items', [PlaylistItemController::class, 'index']);
+        Route::post('playlist-items', [PlaylistItemController::class, 'store']);
+        Route::put('playlist-items/{id}', [PlaylistItemController::class, 'update']);
+        Route::delete('playlist-items/{id}', [PlaylistItemController::class, 'destroy']);
+        Route::post('virtual-screens/{screenId}/playlist-items/reorder', [PlaylistItemController::class, 'reorder']);
+        Route::post('playlist-items/{id}/toggle-active', [PlaylistItemController::class, 'toggleActive']);
+
+        // Screen Media
+        Route::get('virtual-screens/{screenId}/media', [ScreenMediaController::class, 'index']);
+        Route::post('virtual-screens/{screenId}/media', [ScreenMediaController::class, 'upload']);
+        Route::get('screen-media/{id}', [ScreenMediaController::class, 'show']);
+        Route::delete('screen-media/{id}', [ScreenMediaController::class, 'destroy']);
+    });
+
+    // Public Virtual Screen Player (rate-limited, no auth)
+    Route::middleware('throttle:60,1')->group(function () {
+        Route::get('public/screens/{shareToken}', [PublicScreenController::class, 'show']);
+        Route::get('public/screens/{shareToken}/media/{mediaId}', [PublicMediaController::class, 'show']);
     });
 });

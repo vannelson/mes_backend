@@ -121,6 +121,51 @@ class BomService implements BomServiceInterface
         ]);
     }
 
+    public function getStats(int $limit = 7): array
+    {
+        $limit = max(1, $limit);
+        $materialColumns = ['material_1_code', 'material_2_code', 'material_3_code', 'material_4_code'];
+        $colorColumns = ['colour_code_1', 'colour_code_2', 'colour_code_3', 'colour_code_4'];
+
+        $totalRows = Bom::query()->count();
+        $uniqueCustomers = $this->countDistinctNonEmpty('customer_code');
+        $uniqueParts = $this->countDistinctNonEmpty('part_no');
+        $uniqueBatches = $this->countDistinctNonEmpty('batch_number');
+        $uniqueMaterials = $this->countDistinctUnion($materialColumns);
+        $uniqueColors = $this->countDistinctUnion($colorColumns);
+
+        $rowsWithMaterials = $this->countRowsWithAny($materialColumns);
+        $rowsWithColors = $this->countRowsWithAny($colorColumns);
+
+        $materialSlots = $this->sumColumnPresence($materialColumns);
+        $colorSlots = $this->sumColumnPresence($colorColumns);
+
+        $materialCoverage = $totalRows > 0 ? ($rowsWithMaterials / $totalRows) * 100 : 0.0;
+        $colorCoverage = $totalRows > 0 ? ($rowsWithColors / $totalRows) * 100 : 0.0;
+        $avgMaterials = $totalRows > 0 ? $materialSlots / $totalRows : 0.0;
+        $avgColors = $totalRows > 0 ? $colorSlots / $totalRows : 0.0;
+
+        return [
+            'total_rows' => $totalRows,
+            'unique_customers' => $uniqueCustomers,
+            'unique_parts' => $uniqueParts,
+            'unique_materials' => $uniqueMaterials,
+            'unique_colors' => $uniqueColors,
+            'unique_batches' => $uniqueBatches,
+            'rows_with_materials' => $rowsWithMaterials,
+            'rows_with_colors' => $rowsWithColors,
+            'material_coverage' => $materialCoverage,
+            'color_coverage' => $colorCoverage,
+            'avg_materials' => $avgMaterials,
+            'avg_colors' => $avgColors,
+            'top_materials' => $this->topUnionValues($materialColumns, $limit, 'label'),
+            'color_mix' => $this->topUnionValues($colorColumns, $limit, 'name'),
+            'top_customers' => $this->topColumnCounts('customer_code', $limit),
+            'top_parts' => $this->topColumnCounts('part_no', $limit),
+            'top_batches' => $this->topColumnCounts('batch_number', $limit),
+        ];
+    }
+
     protected function buildCompositeKey(array $bom): string
     {
         $customerCode = strtolower(trim((string) Arr::get($bom, 'customer_code', '')));
@@ -156,5 +201,123 @@ class BomService implements BomServiceInterface
         }
 
         $data['batch_number'] = now()->format('dmy\THi');
+    }
+
+    protected function countDistinctNonEmpty(string $column): int
+    {
+        return (int) Bom::query()
+            ->whereNotNull($column)
+            ->where($column, '!=', '')
+            ->distinct()
+            ->count($column);
+    }
+
+    protected function countRowsWithAny(array $columns): int
+    {
+        if (empty($columns)) {
+            return 0;
+        }
+
+        return (int) Bom::query()
+            ->where(function ($query) use ($columns) {
+                foreach ($columns as $column) {
+                    $query->orWhere(function ($inner) use ($column) {
+                        $inner->whereNotNull($column)->where($column, '!=', '');
+                    });
+                }
+            })
+            ->count();
+    }
+
+    protected function sumColumnPresence(array $columns): int
+    {
+        if (empty($columns)) {
+            return 0;
+        }
+
+        $parts = [];
+        foreach ($columns as $column) {
+            $parts[] = "(CASE WHEN {$column} IS NULL OR {$column} = '' THEN 0 ELSE 1 END)";
+        }
+        $expression = implode(' + ', $parts);
+
+        return (int) Bom::query()->selectRaw("COALESCE(SUM({$expression}), 0) as total")->value('total');
+    }
+
+    protected function buildUnionValuesQuery(array $columns)
+    {
+        $union = null;
+
+        foreach ($columns as $column) {
+            $sub = DB::table('boms')
+                ->selectRaw("{$column} as value")
+                ->whereNotNull($column)
+                ->where($column, '!=', '');
+
+            if ($union === null) {
+                $union = $sub;
+            } else {
+                $union->unionAll($sub);
+            }
+        }
+
+        return $union;
+    }
+
+    protected function countDistinctUnion(array $columns): int
+    {
+        $union = $this->buildUnionValuesQuery($columns);
+        if (!$union) {
+            return 0;
+        }
+
+        return (int) DB::query()
+            ->fromSub($union, 'values')
+            ->distinct()
+            ->count('value');
+    }
+
+    protected function topUnionValues(array $columns, int $limit, string $labelKey): array
+    {
+        $union = $this->buildUnionValuesQuery($columns);
+        if (!$union) {
+            return [];
+        }
+
+        return DB::query()
+            ->fromSub($union, 'values')
+            ->select('value', DB::raw('COUNT(*) as total'))
+            ->groupBy('value')
+            ->orderByDesc('total')
+            ->limit($limit)
+            ->get()
+            ->map(function ($row) use ($labelKey) {
+                return [
+                    $labelKey => $row->value,
+                    'value' => (int) $row->total,
+                ];
+            })
+            ->values()
+            ->all();
+    }
+
+    protected function topColumnCounts(string $column, int $limit, string $labelKey = 'label'): array
+    {
+        return Bom::query()
+            ->select($column, DB::raw('COUNT(*) as total'))
+            ->whereNotNull($column)
+            ->where($column, '!=', '')
+            ->groupBy($column)
+            ->orderByDesc('total')
+            ->limit($limit)
+            ->get()
+            ->map(function ($row) use ($column, $labelKey) {
+                return [
+                    $labelKey => $row->{$column},
+                    'value' => (int) $row->total,
+                ];
+            })
+            ->values()
+            ->all();
     }
 }
