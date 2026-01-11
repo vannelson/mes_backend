@@ -87,6 +87,26 @@ class ScreenMedia extends Model
     }
 
     /**
+     * Check if the media is a video.
+     *
+     * @return bool
+     */
+    public function isVideo(): bool
+    {
+        return str_starts_with($this->mime_type, 'video/');
+    }
+
+    /**
+     * Check if the media is an audio file.
+     *
+     * @return bool
+     */
+    public function isAudio(): bool
+    {
+        return str_starts_with($this->mime_type, 'audio/');
+    }
+
+    /**
      * Get human-readable file size.
      *
      * @return string
