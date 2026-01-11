@@ -91,4 +91,17 @@ class VirtualScreenRepository extends BaseRepository implements VirtualScreenRep
             ])
             ->first();
     }
+
+    public function findByAccessCode(string $accessCode): ?Model
+    {
+        return $this->model
+            ->where('access_code', $accessCode)
+            ->where('is_active', true)
+            ->with([
+                'playlistItems' => function ($query) {
+                    $query->orderBy('order');
+                },
+            ])
+            ->first();
+    }
 }

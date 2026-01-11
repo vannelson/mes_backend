@@ -34,4 +34,19 @@ class PublicScreenController extends Controller
             return $this->error('Failed to load playlist: ' . $e->getMessage(), 500);
         }
     }
+
+    public function showByAccessCode(string $accessCode): JsonResponse
+    {
+        try {
+            $data = $this->virtualScreenService->getPublicPlaylistByAccessCode($accessCode);
+
+            if (!$data) {
+                return $this->error('Virtual screen not found or inactive.', 404);
+            }
+
+            return $this->success('Playlist retrieved successfully.', $data);
+        } catch (Throwable $e) {
+            return $this->error('Failed to load playlist: ' . $e->getMessage(), 500);
+        }
+    }
 }

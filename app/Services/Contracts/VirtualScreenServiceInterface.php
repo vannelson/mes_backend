@@ -58,6 +58,14 @@ interface VirtualScreenServiceInterface
     public function getPublicPlaylist(string $shareToken): ?array;
 
     /**
+     * Get public playlist by access code.
+     *
+     * @param string $accessCode
+     * @return array|null
+     */
+    public function getPublicPlaylistByAccessCode(string $accessCode): ?array;
+
+    /**
      * Toggle screen active status.
      *
      * @param int $id
