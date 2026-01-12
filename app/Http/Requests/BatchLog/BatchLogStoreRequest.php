@@ -16,7 +16,7 @@ class BatchLogStoreRequest extends FormRequest
         return [
             'user_id' => ['nullable', 'exists:users,id'],
             'batch_no' => ['required', 'string', 'max:100', 'unique:batch_logs,batch_no'],
-            'type' => ['required', 'in:work_order,template_route,bom'],
+            'type' => ['required', 'in:work_order,template_route,bom,packing'],
             'total_rows' => ['required', 'integer', 'min:0'],
             'operator' => ['required', 'string', 'max:120'],
             'sheet' => ['nullable', 'string', 'max:255'],

@@ -6,6 +6,7 @@ use App\Http\Controllers\BomController;
 use App\Http\Controllers\CustomerController;
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\MachineController;
+use App\Http\Controllers\PackingController;
 use App\Http\Controllers\PlaylistItemController;
 use App\Http\Controllers\PublicMediaController;
 use App\Http\Controllers\PublicScreenController;
@@ -77,6 +78,14 @@ Route::prefix('v1')->group(function () {
         Route::get('machines/{id}', [MachineController::class, 'show']);
         Route::put('machines/{id}', [MachineController::class, 'update']);
         Route::delete('machines/{id}', [MachineController::class, 'destroy']);
+
+        Route::get('packings', [PackingController::class, 'index']);
+        Route::get('packings/by-batch', [PackingController::class, 'listByBatch']);
+        Route::post('packings', [PackingController::class, 'store']);
+        Route::post('packings/batch', [PackingController::class, 'batchStore']);
+        Route::get('packings/{id}', [PackingController::class, 'show']);
+        Route::put('packings/{id}', [PackingController::class, 'update']);
+        Route::delete('packings/{id}', [PackingController::class, 'destroy']);
 
         Route::get('dashboard/overview', [DashboardController::class, 'overview']);
 

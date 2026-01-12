@@ -24,7 +24,7 @@ class BatchLogUpdateRequest extends FormRequest
                 'max:100',
                 Rule::unique('batch_logs', 'batch_no')->ignore($id),
             ],
-            'type' => ['sometimes', 'in:work_order,template_route,bom'],
+            'type' => ['sometimes', 'in:work_order,template_route,bom,packing'],
             'total_rows' => ['sometimes', 'integer', 'min:0'],
             'operator' => ['sometimes', 'string', 'max:120'],
             'sheet' => ['sometimes', 'nullable', 'string', 'max:255'],
