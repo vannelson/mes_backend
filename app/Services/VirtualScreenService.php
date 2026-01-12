@@ -70,6 +70,7 @@ class VirtualScreenService implements VirtualScreenServiceInterface
         $data['timezone'] = $data['timezone'] ?? 'UTC';
         $data['refresh_interval'] = $data['refresh_interval'] ?? 300;
         $data['is_active'] = $data['is_active'] ?? true;
+        $data['access_code'] = $data['access_code'] ?? VirtualScreen::generateAccessCode();
 
         $screen = $this->virtualScreenRepository->create($data);
 
@@ -140,50 +141,22 @@ class VirtualScreenService implements VirtualScreenServiceInterface
             return null;
         }
 
-        $timezone = $this->resolveTimezone($screen->timezone ?? null);
-        $now = Carbon::now($timezone);
+        $this->ensureAccessCode($screen);
 
-        $playlistItems = $screen->playlistItems
-            ->filter(function ($item) use ($now, $timezone) {
-                if (!$item->is_active) {
-                    return false;
-                }
+        return $this->buildPublicPlaylist($screen);
+    }
 
-                $start = $this->parseScheduleTime($item->schedule_start, $timezone);
-                $end = $this->parseScheduleTime($item->schedule_end, $timezone);
+    public function getPublicPlaylistByAccessCode(string $accessCode): ?array
+    {
+        $screen = $this->virtualScreenRepository->findByAccessCode($accessCode);
 
-                if ($start && $now->lt($start)) {
-                    return false;
-                }
+        if (!$screen) {
+            return null;
+        }
 
-                if ($end && $now->gt($end)) {
-                    return false;
-                }
+        $this->ensureAccessCode($screen);
 
-                return true;
-            })
-            ->values();
-
-        $mediaMap = $this->loadMediaMap($playlistItems);
-
-        return [
-            'id' => $screen->id,
-            'name' => $screen->name,
-            'orientation' => $screen->orientation,
-            'aspect_ratio' => $screen->aspect_ratio,
-            'timezone' => $screen->timezone,
-            'refresh_interval' => $screen->refresh_interval,
-            'settings' => $screen->settings ?? [],
-            'playlist_items' => $playlistItems->map(function ($item) use ($mediaMap, $shareToken) {
-                return [
-                    'id' => $item->id,
-                    'type' => $item->type,
-                    'content' => $this->hydrateContent($item, $mediaMap, $shareToken),
-                    'duration' => $item->duration,
-                    'order' => $item->order,
-                ];
-            })->values()->all(),
-        ];
+        return $this->buildPublicPlaylist($screen);
     }
 
     /**
@@ -217,7 +190,11 @@ class VirtualScreenService implements VirtualScreenServiceInterface
 
         $oldToken = $screen->share_token;
         $newToken = VirtualScreen::generateUniqueShareToken();
-        $this->virtualScreenRepository->update($id, ['share_token' => $newToken]);
+        $newCode = VirtualScreen::generateAccessCode();
+        $this->virtualScreenRepository->update($id, [
+            'share_token' => $newToken,
+            'access_code' => $newCode,
+        ]);
 
         $this->clearPublicCacheByToken($oldToken);
 
@@ -241,6 +218,7 @@ class VirtualScreenService implements VirtualScreenServiceInterface
             'name' => $screen->name,
             'description' => $screen->description,
             'share_token' => $screen->share_token,
+            'access_code' => $screen->access_code,
             'player_url' => $screen->player_url,
             'orientation' => $screen->orientation,
             'aspect_ratio' => $screen->aspect_ratio,
@@ -314,6 +292,66 @@ class VirtualScreenService implements VirtualScreenServiceInterface
         } catch (\Throwable $e) {
             return null;
         }
+    }
+
+    protected function ensureAccessCode(VirtualScreen $screen): void
+    {
+        if ($screen->access_code) {
+            return;
+        }
+
+        $screen->access_code = VirtualScreen::generateAccessCode();
+        $screen->saveQuietly();
+    }
+
+    protected function buildPublicPlaylist(VirtualScreen $screen): array
+    {
+        $timezone = $this->resolveTimezone($screen->timezone ?? null);
+        $now = Carbon::now($timezone);
+
+        $playlistItems = $screen->playlistItems
+            ->filter(function ($item) use ($now, $timezone) {
+                if (!$item->is_active) {
+                    return false;
+                }
+
+                $start = $this->parseScheduleTime($item->schedule_start, $timezone);
+                $end = $this->parseScheduleTime($item->schedule_end, $timezone);
+
+                if ($start && $now->lt($start)) {
+                    return false;
+                }
+
+                if ($end && $now->gt($end)) {
+                    return false;
+                }
+
+                return true;
+            })
+            ->values();
+
+        $mediaMap = $this->loadMediaMap($playlistItems);
+
+        return [
+            'id' => $screen->id,
+            'name' => $screen->name,
+            'orientation' => $screen->orientation,
+            'aspect_ratio' => $screen->aspect_ratio,
+            'timezone' => $screen->timezone,
+            'refresh_interval' => $screen->refresh_interval,
+            'settings' => $screen->settings ?? [],
+            'share_token' => $screen->share_token,
+            'access_code' => $screen->access_code,
+            'playlist_items' => $playlistItems->map(function ($item) use ($mediaMap, $screen) {
+                return [
+                    'id' => $item->id,
+                    'type' => $item->type,
+                    'content' => $this->hydrateContent($item, $mediaMap, $screen->share_token),
+                    'duration' => $item->duration,
+                    'order' => $item->order,
+                ];
+            })->values()->all(),
+        ];
     }
 
     protected function loadMediaMap($playlistItems)

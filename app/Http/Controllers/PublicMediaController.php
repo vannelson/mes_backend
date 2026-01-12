@@ -4,7 +4,6 @@ namespace App\Http\Controllers;
 
 use App\Models\ScreenMedia;
 use App\Models\VirtualScreen;
-use Illuminate\Http\Response;
 use Illuminate\Support\Facades\Storage;
 
 class PublicMediaController extends Controller

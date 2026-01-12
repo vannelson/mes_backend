@@ -115,6 +115,7 @@ Route::prefix('v1')->group(function () {
 
     // Public Virtual Screen Player (rate-limited, no auth)
     Route::middleware('throttle:60,1')->group(function () {
+        Route::get('public/screens/access-code/{accessCode}', [PublicScreenController::class, 'showByAccessCode']);
         Route::get('public/screens/{shareToken}', [PublicScreenController::class, 'show']);
         Route::get('public/screens/{shareToken}/media/{mediaId}', [PublicMediaController::class, 'show']);
     });

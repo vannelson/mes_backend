@@ -22,6 +22,7 @@ class VirtualScreen extends Model
         'name',
         'description',
         'share_token',
+        'access_code',
         'orientation',
         'aspect_ratio',
         'timezone',
@@ -67,6 +68,20 @@ class VirtualScreen extends Model
         } while (static::where('share_token', $token)->exists());
 
         return $token;
+    }
+
+    /**
+     * Generate a unique 6-digit access code.
+     *
+     * @return string
+     */
+    public static function generateAccessCode(): string
+    {
+        do {
+            $code = str_pad((string) random_int(0, 999999), 6, "0", STR_PAD_LEFT);
+        } while (static::where('access_code', $code)->exists());
+
+        return $code;
     }
 
     /**

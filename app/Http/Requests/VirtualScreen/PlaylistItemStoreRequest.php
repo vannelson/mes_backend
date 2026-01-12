@@ -15,7 +15,7 @@ class PlaylistItemStoreRequest extends FormRequest
     {
         return [
             'virtual_screen_id' => ['required', 'integer', 'exists:virtual_screens,id'],
-            'type' => ['required', 'in:url,widget,image,pdf'],
+            'type' => ['required', 'in:url,widget,image,pdf,video,audio'],
             'content' => ['required', 'array'],
             'duration' => ['nullable', 'integer', 'min:1', 'max:300'],
             'order' => ['nullable', 'integer', 'min:0'],
@@ -31,7 +31,7 @@ class PlaylistItemStoreRequest extends FormRequest
             'virtual_screen_id.required' => 'Virtual screen ID is required.',
             'virtual_screen_id.exists' => 'Virtual screen does not exist.',
             'type.required' => 'Item type is required.',
-            'type.in' => 'Item type must be one of: url, widget, image, pdf.',
+            'type.in' => 'Item type must be one of: url, widget, image, pdf, video, audio.',
             'content.required' => 'Content is required.',
             'content.array' => 'Content must be a valid JSON object.',
             'duration.min' => 'Duration must be at least 1 second.',
@@ -69,6 +69,8 @@ class PlaylistItemStoreRequest extends FormRequest
 
                 case 'image':
                 case 'pdf':
+                case 'video':
+                case 'audio':
                     if (empty($content['media_id']) && empty($content['url'])) {
                         $validator->errors()->add('content', 'Either media_id or url is required for media items.');
                     }
