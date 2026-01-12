@@ -357,7 +357,7 @@ class VirtualScreenService implements VirtualScreenServiceInterface
     protected function loadMediaMap($playlistItems)
     {
         $mediaIds = $playlistItems
-            ->filter(fn ($item) => in_array($item->type, ['image', 'pdf'], true))
+            ->filter(fn ($item) => in_array($item->type, ['image', 'pdf', 'video', 'audio'], true))
             ->map(function ($item) {
                 $content = is_array($item->content) ? $item->content : [];
                 return $content['media_id'] ?? null;
@@ -381,7 +381,7 @@ class VirtualScreenService implements VirtualScreenServiceInterface
     {
         $content = is_array($item->content) ? $item->content : [];
 
-        if (!in_array($item->type, ['image', 'pdf'], true)) {
+        if (!in_array($item->type, ['image', 'pdf', 'video', 'audio'], true)) {
             return $content;
         }
 
