@@ -16,7 +16,7 @@ class PackingRepository extends BaseRepository implements PackingRepositoryInter
 
     public function listing(array $filters = [], array $order = [], int $limit = 10, int $page = 1): LengthAwarePaginator
     {
-        $query = $this->model->newQuery()->with('customer');
+        $query = $this->model->newQuery()->with(['customer', 'packingChecklist']);
 
         $stringFilters = [
             'wd_part_no',

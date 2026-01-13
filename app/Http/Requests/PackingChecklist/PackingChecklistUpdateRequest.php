@@ -3,12 +3,13 @@
 namespace App\Http\Requests\PackingChecklist;
 
 use Illuminate\Foundation\Http\FormRequest;
+use Illuminate\Validation\Rule;
 
 class PackingChecklistUpdateRequest extends FormRequest
 {
     protected function prepareForValidation(): void
     {
-        foreach (['double_bag_checklist', 'carton_label_data'] as $field) {
+        foreach (['double_bag_checklist', 'quantity_verification', 'carton_label_data'] as $field) {
             $value = $this->input($field);
             if (is_string($value)) {
                 $decoded = json_decode($value, true);
@@ -28,12 +29,24 @@ class PackingChecklistUpdateRequest extends FormRequest
     {
         return [
             'work_order_no' => ['sometimes', 'nullable', 'string', 'max:100'],
-            'wd_part_no' => ['sometimes', 'nullable', 'string', 'max:100'],
+            'wd_part_no' => [
+                'sometimes',
+                'nullable',
+                'string',
+                'max:100',
+                Rule::unique('packing_checklists', 'wd_part_no')->ignore($this->route('id')),
+            ],
             'double_bag_checklist' => ['nullable', 'array'],
             'double_bag_checklist.inner_bag_sealed' => ['nullable', 'boolean'],
             'double_bag_checklist.outer_bag_sealed' => ['nullable', 'boolean'],
+            'quantity_verification' => ['nullable', 'array'],
+            'quantity_verification.expected_qty' => ['nullable', 'string', 'max:255'],
+            'quantity_verification.actual_qty' => ['nullable', 'string', 'max:255'],
+            'quantity_verification.verified' => ['nullable', 'boolean'],
             'roll_per_box' => ['nullable', 'boolean'],
             'ul_label_image' => ['nullable', 'image', 'mimes:jpg,jpeg,png,webp', 'max:1048576'],
+            'product_image' => ['nullable', 'image', 'mimes:jpg,jpeg,png,webp', 'max:1048576'],
+            'core_image' => ['nullable', 'image', 'mimes:jpg,jpeg,png,webp', 'max:1048576'],
             'carton_label_data' => ['nullable', 'array'],
             'carton_label_data.wo_no' => ['nullable', 'string', 'max:255'],
             'carton_label_data.part_no' => ['nullable', 'string', 'max:255'],

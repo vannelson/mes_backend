@@ -10,9 +10,30 @@ interface PackingChecklistServiceInterface
 
     public function detail(int $id): array;
 
-    public function create(array $data, ?UploadedFile $ulLabelImage = null, ?UploadedFile $cartonLabelImage = null): array;
+    public function upsertByWdPartNo(
+        array $data,
+        ?UploadedFile $ulLabelImage = null,
+        ?UploadedFile $cartonLabelImage = null,
+        ?UploadedFile $productImage = null,
+        ?UploadedFile $coreImage = null
+    ): array;
 
-    public function update(int $id, array $data, ?UploadedFile $ulLabelImage = null, ?UploadedFile $cartonLabelImage = null): array;
+    public function create(
+        array $data,
+        ?UploadedFile $ulLabelImage = null,
+        ?UploadedFile $cartonLabelImage = null,
+        ?UploadedFile $productImage = null,
+        ?UploadedFile $coreImage = null
+    ): array;
+
+    public function update(
+        int $id,
+        array $data,
+        ?UploadedFile $ulLabelImage = null,
+        ?UploadedFile $cartonLabelImage = null,
+        ?UploadedFile $productImage = null,
+        ?UploadedFile $coreImage = null
+    ): array;
 
     public function delete(int $id): bool;
 }

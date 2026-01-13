@@ -5,6 +5,7 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 
 class Packing extends Model
 {
@@ -50,5 +51,10 @@ class Packing extends Model
     public function customer(): BelongsTo
     {
         return $this->belongsTo(Customer::class, 'customer_code', 'customer_code');
+    }
+
+    public function packingChecklist(): HasOne
+    {
+        return $this->hasOne(PackingChecklist::class, 'wd_part_no', 'wd_part_no');
     }
 }

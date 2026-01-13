@@ -29,10 +29,41 @@ class PackingChecklistService implements PackingChecklistServiceInterface
         return (new PackingChecklistResource($this->packingChecklistRepository->findById($id)))->response()->getData(true);
     }
 
-    public function create(array $data, ?UploadedFile $ulLabelImage = null, ?UploadedFile $cartonLabelImage = null): array
+    public function upsertByWdPartNo(
+        array $data,
+        ?UploadedFile $ulLabelImage = null,
+        ?UploadedFile $cartonLabelImage = null,
+        ?UploadedFile $productImage = null,
+        ?UploadedFile $coreImage = null
+    ): array
+    {
+        $wdPartNo = (string) ($data['wd_part_no'] ?? '');
+        $wdPartNo = trim($wdPartNo);
+
+        if ($wdPartNo === '') {
+            return $this->create($data, $ulLabelImage, $cartonLabelImage, $productImage, $coreImage);
+        }
+
+        $existing = $this->packingChecklistRepository->findByWdPartNo($wdPartNo);
+        if (! $existing) {
+            return $this->create($data, $ulLabelImage, $cartonLabelImage, $productImage, $coreImage);
+        }
+
+        return $this->update($existing->id, $data, $ulLabelImage, $cartonLabelImage, $productImage, $coreImage);
+    }
+
+    public function create(
+        array $data,
+        ?UploadedFile $ulLabelImage = null,
+        ?UploadedFile $cartonLabelImage = null,
+        ?UploadedFile $productImage = null,
+        ?UploadedFile $coreImage = null
+    ): array
     {
         $newUlLabelPath = null;
         $newCartonLabelPath = null;
+        $newProductImagePath = null;
+        $newCoreImagePath = null;
 
         if ($ulLabelImage) {
             $newUlLabelPath = $this->storeImage($ulLabelImage);
@@ -42,6 +73,14 @@ class PackingChecklistService implements PackingChecklistServiceInterface
         if ($cartonLabelImage) {
             $newCartonLabelPath = $this->storeImage($cartonLabelImage);
             $data['carton_label_image'] = $newCartonLabelPath;
+        }
+        if ($productImage) {
+            $newProductImagePath = $this->storeImage($productImage);
+            $data['product_image'] = $newProductImagePath;
+        }
+        if ($coreImage) {
+            $newCoreImagePath = $this->storeImage($coreImage);
+            $data['core_image'] = $newCoreImagePath;
         }
 
         try {
@@ -53,17 +92,32 @@ class PackingChecklistService implements PackingChecklistServiceInterface
             if ($newCartonLabelPath) {
                 Storage::disk('public')->delete($newCartonLabelPath);
             }
+            if ($newProductImagePath) {
+                Storage::disk('public')->delete($newProductImagePath);
+            }
+            if ($newCoreImagePath) {
+                Storage::disk('public')->delete($newCoreImagePath);
+            }
             throw $e;
         }
 
         return (new PackingChecklistResource($checklist))->response()->getData(true);
     }
 
-    public function update(int $id, array $data, ?UploadedFile $ulLabelImage = null, ?UploadedFile $cartonLabelImage = null): array
+    public function update(
+        int $id,
+        array $data,
+        ?UploadedFile $ulLabelImage = null,
+        ?UploadedFile $cartonLabelImage = null,
+        ?UploadedFile $productImage = null,
+        ?UploadedFile $coreImage = null
+    ): array
     {
         $checklist = $this->packingChecklistRepository->findById($id);
         $newUlLabelPath = null;
         $newCartonLabelPath = null;
+        $newProductImagePath = null;
+        $newCoreImagePath = null;
 
         if ($ulLabelImage) {
             $newUlLabelPath = $this->storeImage($ulLabelImage);
@@ -73,6 +127,14 @@ class PackingChecklistService implements PackingChecklistServiceInterface
         if ($cartonLabelImage) {
             $newCartonLabelPath = $this->storeImage($cartonLabelImage);
             $data['carton_label_image'] = $newCartonLabelPath;
+        }
+        if ($productImage) {
+            $newProductImagePath = $this->storeImage($productImage);
+            $data['product_image'] = $newProductImagePath;
+        }
+        if ($coreImage) {
+            $newCoreImagePath = $this->storeImage($coreImage);
+            $data['core_image'] = $newCoreImagePath;
         }
 
         $updated = (bool) $this->packingChecklistRepository->update($id, $data);
@@ -84,6 +146,12 @@ class PackingChecklistService implements PackingChecklistServiceInterface
             if ($newCartonLabelPath) {
                 Storage::disk('public')->delete($newCartonLabelPath);
             }
+            if ($newProductImagePath) {
+                Storage::disk('public')->delete($newProductImagePath);
+            }
+            if ($newCoreImagePath) {
+                Storage::disk('public')->delete($newCoreImagePath);
+            }
             return [];
         }
 
@@ -92,6 +160,12 @@ class PackingChecklistService implements PackingChecklistServiceInterface
         }
         if ($newCartonLabelPath && $checklist->carton_label_image) {
             Storage::disk('public')->delete($checklist->carton_label_image);
+        }
+        if ($newProductImagePath && $checklist->product_image) {
+            Storage::disk('public')->delete($checklist->product_image);
+        }
+        if ($newCoreImagePath && $checklist->core_image) {
+            Storage::disk('public')->delete($checklist->core_image);
         }
 
         return (new PackingChecklistResource($this->packingChecklistRepository->findById($id)))->response()->getData(true);

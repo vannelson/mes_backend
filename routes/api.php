@@ -16,6 +16,7 @@ use App\Http\Controllers\TemplateRouteController;
 use App\Http\Controllers\UserController;
 use App\Http\Controllers\VirtualScreenController;
 use App\Http\Controllers\WorkOrderController;
+use App\Http\Controllers\WorkOrderCommentController;
 use Illuminate\Support\Facades\Route;
 
 Route::prefix('v1')->group(function () {
@@ -42,6 +43,11 @@ Route::prefix('v1')->group(function () {
         Route::delete('batch-logs/{id}', [BatchLogController::class, 'destroy']);
 
         Route::get('work-orders', [WorkOrderController::class, 'index']);
+        Route::get('work-order-comments', [WorkOrderCommentController::class, 'index']);
+        Route::post('work-order-comments', [WorkOrderCommentController::class, 'store']);
+        Route::get('work-order-comments/{id}', [WorkOrderCommentController::class, 'show']);
+        Route::put('work-order-comments/{id}', [WorkOrderCommentController::class, 'update']);
+        Route::delete('work-order-comments/{id}', [WorkOrderCommentController::class, 'destroy']);
         Route::get('work-orders/by-batch', [WorkOrderController::class, 'listByBatch']);
         Route::get('work-orders/by-template-route-batch', [WorkOrderController::class, 'listByTemplateRouteBatch']);
         Route::get('work-orders/by-template-route-batch/count', [WorkOrderController::class, 'countByTemplateRouteBatch']);

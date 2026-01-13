@@ -4,6 +4,7 @@ namespace App\Http\Resources\Packing;
 
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
+use App\Http\Resources\PackingChecklist\PackingChecklistResource;
 use Illuminate\Support\Facades\Storage;
 
 class PackingResource extends JsonResource
@@ -23,6 +24,9 @@ class PackingResource extends JsonResource
             'shipping_location' => $this->shipping_location,
             'customer_code' => $this->customer_code,
             'customer_name' => $this->customer?->customer_name,
+            'packing_checklist' => $this->packingChecklist
+                ? (new PackingChecklistResource($this->packingChecklist))->resolve()
+                : false,
             'box_size' => $this->box_size,
             'qty_per_box' => $this->qty_per_box,
             'rolls_per_box' => $this->rolls_per_box,

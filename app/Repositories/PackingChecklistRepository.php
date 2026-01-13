@@ -47,4 +47,9 @@ class PackingChecklistRepository extends BaseRepository implements PackingCheckl
 
         return $query->paginate($limit, ['*'], 'page', $page);
     }
+
+    public function findByWdPartNo(string $wdPartNo)
+    {
+        return $this->model->newQuery()->where('wd_part_no', $wdPartNo)->first();
+    }
 }

@@ -136,7 +136,11 @@ class PackingController extends Controller
             $data = $request->validated();
             unset($data['image']);
             unset($data['design']);
-            $packing = $this->packingService->create($data, $request->file('image'), $request->file('design'));
+            $packing = $this->packingService->create(
+                $data,
+                $request->file('image'),
+                $request->file('design')
+            );
 
             return $this->success('Packing created successfully!', $packing, 201);
         } catch (ValidationException $e) {
@@ -169,7 +173,6 @@ class PackingController extends Controller
         $rawDesignsCount = isset($_FILES['designs']['name']) && is_array($_FILES['designs']['name'])
             ? count($_FILES['designs']['name'])
             : 0;
-
         if ($imageCount !== $packingsCount || $designCount !== $packingsCount) {
             $imageKeys = is_array($images) ? array_map('intval', array_keys($images)) : [];
             $designKeys = is_array($designs) ? array_map('intval', array_keys($designs)) : [];
@@ -224,7 +227,12 @@ class PackingController extends Controller
             $data = $request->validated();
             unset($data['image']);
             unset($data['design']);
-            $updated = $this->packingService->update((int) $id, $data, $request->file('image'), $request->file('design'));
+            $updated = $this->packingService->update(
+                (int) $id,
+                $data,
+                $request->file('image'),
+                $request->file('design')
+            );
 
             return $updated
                 ? $this->success('Packing updated successfully!', $updated)

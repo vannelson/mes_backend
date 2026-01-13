@@ -16,8 +16,11 @@ class PackingChecklist extends Model
         'work_order_no',
         'wd_part_no',
         'double_bag_checklist',
+        'quantity_verification',
         'roll_per_box',
         'ul_label_image',
+        'product_image',
+        'core_image',
         'carton_label_data',
         'carton_label_image',
         'no_of_cartons',
@@ -29,6 +32,7 @@ class PackingChecklist extends Model
      */
     protected $casts = [
         'double_bag_checklist' => 'array',
+        'quantity_verification' => 'array',
         'carton_label_data' => 'array',
         'roll_per_box' => 'boolean',
     ];

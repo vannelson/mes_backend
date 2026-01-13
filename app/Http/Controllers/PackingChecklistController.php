@@ -45,25 +45,27 @@ class PackingChecklistController extends Controller
 
     public function store(PackingChecklistStoreRequest $request): JsonResponse
     {
-        try {
+        // try {
             $data = $request->validated();
-            unset($data['ul_label_image'], $data['carton_label_image']);
+            unset($data['ul_label_image'], $data['carton_label_image'], $data['product_image'], $data['core_image']);
             if (empty($data['user_id']) && $request->user()) {
                 $data['user_id'] = $request->user()->id;
             }
 
-            $checklist = $this->packingChecklistService->create(
+            $checklist = $this->packingChecklistService->upsertByWdPartNo(
                 $data,
                 $request->file('ul_label_image'),
-                $request->file('carton_label_image')
+                $request->file('carton_label_image'),
+                $request->file('product_image'),
+                $request->file('core_image')
             );
 
-            return $this->success('Packing checklist created successfully!', $checklist, 201);
-        } catch (ValidationException $e) {
-            return $this->validationError($e);
-        } catch (Throwable $e) {
-            return $this->error('Failed to create packing checklist.', 500);
-        }
+            return $this->success('Packing checklist saved successfully!', $checklist, 201);
+        // } catch (ValidationException $e) {
+        //     return $this->validationError($e);
+        // } catch (Throwable $e) {
+        //     return $this->error('Failed to create packing checklist.', 500);
+        // }
     }
 
     public function show(string $id): JsonResponse
@@ -89,7 +91,7 @@ class PackingChecklistController extends Controller
             }
 
             $data = $request->validated();
-            unset($data['ul_label_image'], $data['carton_label_image']);
+            unset($data['ul_label_image'], $data['carton_label_image'], $data['product_image'], $data['core_image']);
             if (array_key_exists('user_id', $data) && $data['user_id'] === null && $request->user()) {
                 $data['user_id'] = $request->user()->id;
             }
@@ -98,7 +100,9 @@ class PackingChecklistController extends Controller
                 (int) $id,
                 $data,
                 $request->file('ul_label_image'),
-                $request->file('carton_label_image')
+                $request->file('carton_label_image'),
+                $request->file('product_image'),
+                $request->file('core_image')
             );
 
             return !empty($updated)
