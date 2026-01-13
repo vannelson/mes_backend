@@ -26,7 +26,7 @@ class PackingService implements PackingServiceInterface
 
     public function detail(int $id): array
     {
-        return (new PackingResource($this->packingRepository->findById($id)))->response()->getData(true);
+        return (new PackingResource($this->packingRepository->findById($id)->load('customer')))->response()->getData(true);
     }
 
     public function create(array $data, ?UploadedFile $image = null, ?UploadedFile $design = null): array

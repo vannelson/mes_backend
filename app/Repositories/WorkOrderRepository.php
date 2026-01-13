@@ -48,6 +48,10 @@ class WorkOrderRepository extends BaseRepository implements WorkOrderRepositoryI
             $query->where('customer_name', 'LIKE', "%{$customerName}%");
         }
 
+        if ($customerPartNumber = Arr::get($filters, 'customer_part_number')) {
+            $query->where('customer_part_number', 'LIKE', "%{$customerPartNumber}%");
+        }
+
         if ($salesPersonCode = Arr::get($filters, 'sales_person_code')) {
             $query->where('sales_person_code', 'LIKE', "%{$salesPersonCode}%");
         }

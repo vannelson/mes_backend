@@ -6,6 +6,7 @@ use App\Http\Controllers\BomController;
 use App\Http\Controllers\CustomerController;
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\MachineController;
+use App\Http\Controllers\PackingChecklistController;
 use App\Http\Controllers\PackingController;
 use App\Http\Controllers\PlaylistItemController;
 use App\Http\Controllers\PublicMediaController;
@@ -80,12 +81,19 @@ Route::prefix('v1')->group(function () {
         Route::delete('machines/{id}', [MachineController::class, 'destroy']);
 
         Route::get('packings', [PackingController::class, 'index']);
+        Route::get('packings/by-part-no', [PackingController::class, 'listByPartNo']);
         Route::get('packings/by-batch', [PackingController::class, 'listByBatch']);
         Route::post('packings', [PackingController::class, 'store']);
         Route::post('packings/batch', [PackingController::class, 'batchStore']);
         Route::get('packings/{id}', [PackingController::class, 'show']);
         Route::put('packings/{id}', [PackingController::class, 'update']);
         Route::delete('packings/{id}', [PackingController::class, 'destroy']);
+
+        Route::get('packing-checklists', [PackingChecklistController::class, 'index']);
+        Route::post('packing-checklists', [PackingChecklistController::class, 'store']);
+        Route::get('packing-checklists/{id}', [PackingChecklistController::class, 'show']);
+        Route::put('packing-checklists/{id}', [PackingChecklistController::class, 'update']);
+        Route::delete('packing-checklists/{id}', [PackingChecklistController::class, 'destroy']);
 
         Route::get('dashboard/overview', [DashboardController::class, 'overview']);
 

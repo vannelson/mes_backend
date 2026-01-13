@@ -4,6 +4,7 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class Packing extends Model
 {
@@ -45,4 +46,9 @@ class Packing extends Model
     protected $casts = [
         'date_of_revised' => 'date',
     ];
+
+    public function customer(): BelongsTo
+    {
+        return $this->belongsTo(Customer::class, 'customer_code', 'customer_code');
+    }
 }

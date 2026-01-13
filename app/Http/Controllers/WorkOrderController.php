@@ -29,6 +29,10 @@ class WorkOrderController extends Controller
     public function index(Request $request): JsonResponse
     {
         $filters = Arr::get($request->all(), 'filters', []);
+        $customerPartNumber = $request->get('customer_part_number');
+        if ($customerPartNumber !== null && $customerPartNumber !== '') {
+            $filters['customer_part_number'] = $customerPartNumber;
+        }
         $order = Arr::get($request->all(), 'order', ['id', 'desc']);
         $limit = (int) Arr::get($request->all(), 'limit', 10);
         $page = (int) Arr::get($request->all(), 'page', 1);

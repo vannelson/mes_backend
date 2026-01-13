@@ -22,6 +22,7 @@ class PackingResource extends JsonResource
             'design_url' => $this->design ? Storage::disk('public')->url($this->design) : null,
             'shipping_location' => $this->shipping_location,
             'customer_code' => $this->customer_code,
+            'customer_name' => $this->customer?->customer_name,
             'box_size' => $this->box_size,
             'qty_per_box' => $this->qty_per_box,
             'rolls_per_box' => $this->rolls_per_box,

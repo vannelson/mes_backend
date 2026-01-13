@@ -106,6 +106,30 @@ class PackingController extends Controller
         }
     }
 
+    public function listByPartNo(Request $request): JsonResponse
+    {
+        $partNo = (string) $request->get('wd_part_no', '');
+        if ($partNo === '') {
+            return $this->error('wd_part_no is required.', 422);
+        }
+
+        $filters = Arr::get($request->all(), 'filters', []);
+        $filters['wd_part_no'] = $partNo;
+
+        try {
+            $data = $this->packingService->getList($filters, ['id', 'desc'], 1, 1);
+            $item = $data['data'][0] ?? null;
+
+            if (!$item) {
+                return $this->success('Packing retrieved successfully!', null);
+            }
+
+            return $this->success('Packing retrieved successfully!', $item);
+        } catch (Throwable $e) {
+            return $this->error('Failed to load packings.', 500);
+        }
+    }
+
     public function store(PackingStoreRequest $request): JsonResponse
     {
         try {
