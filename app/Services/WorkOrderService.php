@@ -170,11 +170,11 @@ class WorkOrderService implements WorkOrderServiceInterface
 
         $filtered = $orders->filter(function (WorkOrder $order): bool {
             $template = $order->templateRoute;
-            if (! $template) {
+            if (!$template) {
                 return false;
             }
 
-            if (! $this->metadataPresent($order->metadata)) {
+            if (!$this->metadataPresent($order->metadata)) {
                 return false;
             }
 
@@ -203,41 +203,61 @@ class WorkOrderService implements WorkOrderServiceInterface
 
         $hasTemplatePartNumberRef = Schema::hasColumn('template_routes', 'customer_part_number_ref');
         $hasTemplateWorkOrderRef = Schema::hasColumn('template_routes', 'wod_ref');
+        $hasTemplateBatchNumber = Schema::hasColumn('template_routes', 'batch_number');
         $hasWorkOrderPartNumber = Schema::hasColumn('work_orders', 'customer_part_number');
         $hasWorkOrderBatchNumber = Schema::hasColumn('work_orders', 'batch_number');
 
-        if ($referenceMode === 'customer_part_number' && (! $hasTemplatePartNumberRef || ! $hasWorkOrderPartNumber)) {
+        if ($referenceMode === 'customer_part_number' && (!$hasTemplatePartNumberRef || !$hasWorkOrderPartNumber)) {
             $result = [
                 'linked' => 0,
                 'skipped' => 0,
                 'eligible' => 0,
                 'template_routes' => 0,
                 'reference' => $referenceMode,
-                'warning' => 'Customer part number reference is unavailable. Run the migration to add customer_part_number_ref.',
+                'warning' => 'Customer part number reference is unavailable. Add template_routes.customer_part_number_ref and work_orders.customer_part_number.',
             ];
-            if ($batchNumber !== null) {
+            if ($batchNumber !== null)
                 $result['batch_number'] = $batchNumber;
-            }
-
             return $result;
         }
 
         $useCustomerPartNumber = $referenceMode !== 'work_order_no'
             && $hasTemplatePartNumberRef
             && $hasWorkOrderPartNumber;
-        $allowWorkOrderFallback = $referenceMode !== 'customer_part_number' && $hasTemplateWorkOrderRef;
 
-        $templateSelect = ['id', 'metadata'];
-        if ($hasTemplatePartNumberRef) {
+        $allowWorkOrderFallback = $referenceMode !== 'customer_part_number'
+            && $hasTemplateWorkOrderRef;
+
+        $normalizeRefs = function ($value): array {
+            $raw = trim((string) $value);
+            if ($raw === '')
+                return [];
+
+            // split on commas, whitespace, semicolons, pipes, newlines
+            $parts = preg_split('/[\s,;|]+/', $raw) ?: [];
+            $parts = array_map(static fn($x) => strtoupper(trim((string) $x)), $parts);
+            $parts = array_values(array_filter($parts, static fn($x) => $x !== ''));
+            return array_values(array_unique($parts));
+        };
+
+        // --------- Load templates (prefer latest) ----------
+        $templateSelect = ['id', 'metadata', 'created_at'];
+        if ($hasTemplatePartNumberRef)
             $templateSelect[] = 'customer_part_number_ref';
-        }
-        if ($hasTemplateWorkOrderRef) {
+        if ($hasTemplateWorkOrderRef)
             $templateSelect[] = 'wod_ref';
+        if ($hasTemplateBatchNumber)
+            $templateSelect[] = 'batch_number';
+
+        $templatesQuery = TemplateRoute::query()->select($templateSelect);
+
+        // IMPORTANT: if batchNumber provided AND template_routes has batch_number, only consider that batch
+        if ($batchNumber !== null && $hasTemplateBatchNumber) {
+            $templatesQuery->where('batch_number', $batchNumber);
         }
 
-        $templates = TemplateRoute::query()
-            ->select($templateSelect)
-            ->get();
+        // newest first (so first match wins)
+        $templates = $templatesQuery->orderByDesc('created_at')->get();
 
         if ($templates->isEmpty()) {
             $result = [
@@ -247,13 +267,12 @@ class WorkOrderService implements WorkOrderServiceInterface
                 'template_routes' => 0,
                 'reference' => $referenceMode,
             ];
-            if ($batchNumber !== null) {
+            if ($batchNumber !== null)
                 $result['batch_number'] = $batchNumber;
-            }
-
             return $result;
         }
 
+        // Normalize template metadata once
         $templatesById = $templates->mapWithKeys(function (TemplateRoute $template): array {
             return [
                 $template->id => [
@@ -263,68 +282,51 @@ class WorkOrderService implements WorkOrderServiceInterface
             ];
         });
 
-        $templatesWithPartNumberRefs = $useCustomerPartNumber
-            ? $templates->filter(
-                fn (TemplateRoute $template) => trim((string) $template->customer_part_number_ref) !== ''
-            )
-            : collect();
+        // Build indexes:
+        // - partNumber => templateId (FIRST wins due to created_at desc)
+        // - workOrderNo => templateId (fallback)
+        $partNumberIndex = [];
+        $workOrderIndex = [];
 
-        $templatesWithWorkOrderRefs = $allowWorkOrderFallback
-            ? $templates->filter(
-                function (TemplateRoute $template) use ($useCustomerPartNumber): bool {
-                    $hasWorkOrderRef = trim((string) $template->wod_ref) !== '';
-                    if (! $hasWorkOrderRef) {
-                        return false;
+        if ($useCustomerPartNumber) {
+            foreach ($templates as $tpl) {
+                $refString = trim((string) $tpl->customer_part_number_ref);
+                if ($refString === '')
+                    continue;
+
+                foreach ($normalizeRefs($refString) as $ref) {
+                    if (!isset($partNumberIndex[$ref])) {
+                        $partNumberIndex[$ref] = $tpl->id;
                     }
-
-                    if (! $useCustomerPartNumber) {
-                        return true;
-                    }
-
-                    return trim((string) $template->customer_part_number_ref) === '';
                 }
-            )
-            : collect();
-
-        $partNumberReferenceMap = $useCustomerPartNumber
-            ? $templatesWithPartNumberRefs->flatMap(
-                function (TemplateRoute $template): array {
-                    $refs = collect(preg_split('/[\s,]+/', (string) $template->customer_part_number_ref))
-                        ->filter()
-                        ->map(fn (string $ref) => strtoupper(trim($ref)))
-                        ->filter();
-
-                    return $refs->mapWithKeys(fn (string $ref) => [
-                        $ref => $template->id,
-                    ])->all();
-                }
-            )
-            : collect();
-
-        $workOrderReferenceMap = $allowWorkOrderFallback
-            ? $templatesWithWorkOrderRefs->flatMap(
-                function (TemplateRoute $template): array {
-                    $refs = collect(preg_split('/[\s,]+/', (string) $template->wod_ref))
-                        ->filter()
-                        ->map(fn (string $ref) => strtoupper(trim($ref)))
-                        ->filter();
-
-                    return $refs->mapWithKeys(fn (string $ref) => [
-                        $ref => $template->id,
-                    ])->all();
-                }
-            )
-            : collect();
-
-        $orderSelect = [
-            'id',
-            'work_order_no',
-            'metadata',
-            'template_route_id',
-        ];
-        if ($hasWorkOrderPartNumber) {
-            $orderSelect[] = 'customer_part_number';
+            }
         }
+
+        if ($allowWorkOrderFallback) {
+            foreach ($templates as $tpl) {
+                $refString = trim((string) $tpl->wod_ref);
+                if ($refString === '')
+                    continue;
+
+                // only use wod_ref when customer_part_number_ref is empty (optional behavior)
+                if ($useCustomerPartNumber && trim((string) $tpl->customer_part_number_ref) !== '') {
+                    continue;
+                }
+
+                foreach ($normalizeRefs($refString) as $ref) {
+                    if (!isset($workOrderIndex[$ref])) {
+                        $workOrderIndex[$ref] = $tpl->id;
+                    }
+                }
+            }
+        }
+
+        // --------- Eligible work orders ----------
+        $orderSelect = ['id', 'work_order_no', 'metadata', 'template_route_id'];
+        if ($hasWorkOrderPartNumber)
+            $orderSelect[] = 'customer_part_number';
+        if ($hasWorkOrderBatchNumber)
+            $orderSelect[] = 'batch_number';
 
         $eligibleOrdersQuery = WorkOrder::query()
             ->select($orderSelect)
@@ -337,6 +339,7 @@ class WorkOrderService implements WorkOrderServiceInterface
                     ->orWhereNull('template_route_id');
             });
 
+        // If batchNumber provided and work_orders has batch_number, filter work orders too
         if ($batchNumber !== null && $hasWorkOrderBatchNumber) {
             $eligibleOrdersQuery->where('batch_number', $batchNumber);
         }
@@ -348,61 +351,55 @@ class WorkOrderService implements WorkOrderServiceInterface
                 'linked' => 0,
                 'skipped' => 0,
                 'eligible' => 0,
-                'template_routes' => $templatesWithPartNumberRefs->count()
-                    + $templatesWithWorkOrderRefs->count(),
+                'template_routes' => $templates->count(),
                 'reference' => $referenceMode,
             ];
-            if ($batchNumber !== null) {
+            if ($batchNumber !== null)
                 $result['batch_number'] = $batchNumber;
-            }
-
             return $result;
         }
 
         $linked = 0;
         $skipped = 0;
 
-        DB::transaction(function () use (
-            $eligibleOrders,
-            $partNumberReferenceMap,
-            $workOrderReferenceMap,
-            $templatesById,
-            $useCustomerPartNumber,
-            $allowWorkOrderFallback,
-            &$linked,
-            &$skipped
-        ) {
+        DB::transaction(function () use ($eligibleOrders, $templatesById, $useCustomerPartNumber, $allowWorkOrderFallback, $normalizeRefs, $partNumberIndex, $workOrderIndex, &$linked, &$skipped) {
             foreach ($eligibleOrders as $order) {
                 $templateId = $order->template_route_id;
 
+                // 1) Match by customer_part_number (supports multiple in one field)
                 if (empty($templateId) && $useCustomerPartNumber) {
-                    $reference = strtoupper(trim((string) $order->customer_part_number));
-                    $templateId = $reference !== '' ? $partNumberReferenceMap->get($reference) : null;
+                    $refs = $normalizeRefs($order->customer_part_number ?? '');
+                    foreach ($refs as $ref) {
+                        if (isset($partNumberIndex[$ref])) {
+                            $templateId = $partNumberIndex[$ref];
+                            break;
+                        }
+                    }
                 }
 
-                if (! $templateId && $allowWorkOrderFallback) {
-                    $legacyReference = strtoupper(trim((string) $order->work_order_no));
-                    $templateId = $legacyReference !== ''
-                        ? $workOrderReferenceMap->get($legacyReference)
-                        : null;
+                // 2) Fallback match by work_order_no via template.wod_ref
+                if (!$templateId && $allowWorkOrderFallback) {
+                    $wo = strtoupper(trim((string) $order->work_order_no));
+                    if ($wo !== '' && isset($workOrderIndex[$wo])) {
+                        $templateId = $workOrderIndex[$wo];
+                    }
                 }
 
-                if (! $templateId) {
+                if (!$templateId) {
                     $skipped++;
-
                     continue;
                 }
 
                 $templateData = $templatesById->get($templateId);
-                if (! $templateData) {
+                if (!$templateData) {
                     $skipped++;
-
                     continue;
                 }
 
                 $order->template_route_id = $templateData['id'];
                 $order->metadata = $templateData['metadata'];
                 $order->save();
+
                 $linked++;
             }
         });
@@ -411,16 +408,15 @@ class WorkOrderService implements WorkOrderServiceInterface
             'linked' => $linked,
             'skipped' => $skipped,
             'eligible' => $eligibleOrders->count(),
-            'template_routes' => $templatesWithPartNumberRefs->count()
-                + $templatesWithWorkOrderRefs->count(),
+            'template_routes' => $templates->count(),
             'reference' => $referenceMode,
         ];
-        if ($batchNumber !== null) {
+        if ($batchNumber !== null)
             $result['batch_number'] = $batchNumber;
-        }
 
         return $result;
     }
+
 
     public function listByBatch(string $batchNumber, int $limit = 10, int $page = 1): array
     {
@@ -565,14 +561,14 @@ class WorkOrderService implements WorkOrderServiceInterface
                 $totals['released_orders']++;
             }
 
-            if (! $isCompleted && $status !== 'Draft') {
+            if (!$isCompleted && $status !== 'Draft') {
                 $totals['wip_orders']++;
             }
 
             $statusCounts[$status] = ($statusCounts[$status] ?? 0) + 1;
 
             $dueDate = $this->resolveDueDate($order);
-            if (! $isCompleted && $dueDate) {
+            if (!$isCompleted && $dueDate) {
                 if ($dueDate->lt($asOf)) {
                     $totals['overdue_orders']++;
                 } elseif ($dueDate->lte($dueSoonEnd)) {
@@ -580,7 +576,7 @@ class WorkOrderService implements WorkOrderServiceInterface
                 }
             }
 
-            if (! $isCompleted) {
+            if (!$isCompleted) {
                 $activeRoute = $this->resolveActiveRoute($routes, $currentStep);
                 $centerLabel = $this->resolveWorkCenter($activeRoute);
                 if ($centerLabel === '') {
@@ -741,7 +737,7 @@ class WorkOrderService implements WorkOrderServiceInterface
             ->selectRaw("{$expression} AS composite_key")
             ->whereIn(DB::raw($expression), array_values(array_unique($compositeKeys)))
             ->pluck('composite_key')
-            ->mapWithKeys(fn ($key) => [$key => true])
+            ->mapWithKeys(fn($key) => [$key => true])
             ->all();
     }
 
@@ -800,7 +796,7 @@ class WorkOrderService implements WorkOrderServiceInterface
     protected function metadataPresent(mixed $metadata): bool
     {
         if (is_array($metadata)) {
-            return ! empty($metadata);
+            return !empty($metadata);
         }
 
         if (is_string($metadata)) {
@@ -817,7 +813,7 @@ class WorkOrderService implements WorkOrderServiceInterface
             return true;
         }
 
-        return ! is_null($metadata);
+        return !is_null($metadata);
     }
 
     protected function normalizeMetadata(mixed $metadata): array
@@ -839,13 +835,13 @@ class WorkOrderService implements WorkOrderServiceInterface
     protected function extractRoutes(array $metadata): array
     {
         $routes = $metadata['routes'] ?? $metadata['data'] ?? $metadata['steps'] ?? [];
-        if (! is_array($routes)) {
+        if (!is_array($routes)) {
             return [];
         }
 
         $flattened = [];
         foreach ($routes as $entry) {
-            if (! is_array($entry)) {
+            if (!is_array($entry)) {
                 continue;
             }
 
@@ -875,7 +871,7 @@ class WorkOrderService implements WorkOrderServiceInterface
             if ($status === '') {
                 return false;
             }
-            if (! in_array($status, ['completed', 'complete', 'done'], true)) {
+            if (!in_array($status, ['completed', 'complete', 'done'], true)) {
                 return false;
             }
         }
@@ -893,7 +889,7 @@ class WorkOrderService implements WorkOrderServiceInterface
         $latest = null;
         foreach ($routes as $route) {
             $raw = $route['completed_at'] ?? $route['completedAt'] ?? null;
-            if (! $raw) {
+            if (!$raw) {
                 continue;
             }
 
@@ -914,7 +910,7 @@ class WorkOrderService implements WorkOrderServiceInterface
     protected function resolveDueDate(WorkOrder $order): ?\Illuminate\Support\Carbon
     {
         $date = $order->production_due_date ?? $order->requested_delivery_date ?? null;
-        if (! $date) {
+        if (!$date) {
             return null;
         }
 
@@ -924,7 +920,7 @@ class WorkOrderService implements WorkOrderServiceInterface
     protected function resolveOrderDate(WorkOrder $order): ?\Illuminate\Support\Carbon
     {
         $date = $order->order_date ?? $order->created_at ?? null;
-        if (! $date) {
+        if (!$date) {
             return null;
         }
 
@@ -1024,7 +1020,7 @@ class WorkOrderService implements WorkOrderServiceInterface
 
         foreach ($routes as $route) {
             $status = strtolower(trim((string) ($route['status'] ?? '')));
-            if (! in_array($status, ['completed', 'complete', 'done'], true)) {
+            if (!in_array($status, ['completed', 'complete', 'done'], true)) {
                 return $route;
             }
         }
@@ -1092,7 +1088,7 @@ class WorkOrderService implements WorkOrderServiceInterface
         $series = [];
 
         foreach ($order as $label) {
-            if (! isset($statusCounts[$label])) {
+            if (!isset($statusCounts[$label])) {
                 continue;
             }
             $series[] = [
