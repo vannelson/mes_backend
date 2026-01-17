@@ -24,7 +24,6 @@ use Illuminate\Support\Facades\Route;
 
 Route::prefix('v1')->group(function () {
     Route::post('auth/login', [AuthController::class, 'login']);
-    Route::post('transcripts/upload', [TranscriptController::class, 'upload']);
     Route::post('transcripts', [TranscriptController::class, 'store']);
 
     Route::middleware('auth:sanctum')->group(function () {

@@ -42,7 +42,6 @@ use App\Services\Contracts\PackingChecklistServiceInterface;
 use App\Services\Contracts\PlaylistItemServiceInterface;
 use App\Services\Contracts\ScreenMediaServiceInterface;
 use App\Services\Contracts\TemplateRouteServiceInterface;
-use App\Services\Contracts\TranscriptServiceInterface;
 use App\Services\Contracts\UserServiceInterface;
 use App\Services\Contracts\VirtualScreenServiceInterface;
 use App\Services\Contracts\WorkOrderServiceInterface;
@@ -57,7 +56,6 @@ use App\Services\PackingChecklistService;
 use App\Services\PlaylistItemService;
 use App\Services\ScreenMediaService;
 use App\Services\TemplateRouteService;
-use App\Services\TranscriptService;
 use App\Services\UserService;
 use App\Services\VirtualScreenService;
 use App\Services\WorkOrderService;
@@ -104,7 +102,6 @@ class AppServiceProvider extends ServiceProvider
         $this->app->bind(ScreenMediaServiceInterface::class, ScreenMediaService::class);
         $this->app->bind(ScreenMediaRepositoryInterface::class, ScreenMediaRepository::class);
 
-        $this->app->bind(TranscriptServiceInterface::class, TranscriptService::class);
     }
 
     /**
