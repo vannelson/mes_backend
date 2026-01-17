@@ -112,10 +112,10 @@ class WorkOrderController extends Controller
     public function batchStore(WorkOrderBatchStoreRequest $request): JsonResponse
     {
         // try {
-            $payload = $request->validated();
-            $result = $this->workOrderService->createBatch($payload['work_orders']);
+        $payload = $request->validated();
+        $result = $this->workOrderService->createBatch($payload['work_orders']);
 
-            return $this->success('Work orders created successfully!', $result);
+        return $this->success('Work orders created successfully!', $result);
         // } catch (ValidationException $e) {
         //     return $this->validationError($e);
         // } catch (Throwable $e) {
@@ -152,12 +152,12 @@ class WorkOrderController extends Controller
         $validated = $request->validated();
 
         // try {
-            $result = $this->workOrderService->importFromSpreadsheet(
-                $request->file('file'),
-                $validated['sheet']
-            );
+        $result = $this->workOrderService->importFromSpreadsheet(
+            $request->file('file'),
+            $validated['sheet']
+        );
 
-            return $this->success('Work order data extracted successfully!', $result);
+        return $this->success('Work order data extracted successfully!', $result);
         // } catch (ValidationException $e) {
         //     return $this->validationError($e);
         // } catch (RuntimeException $e) {
@@ -173,6 +173,14 @@ class WorkOrderController extends Controller
             $reference = $request->get('reference')
                 ?? $request->get('reference_column')
                 ?? null;
+
+            if (is_string($reference)) {
+                $reference = trim($reference);
+                if ($reference === '') {
+                    $reference = null;
+                }
+            }
+
             $batchNumber = $request->get('batch_number');
             if (is_string($batchNumber)) {
                 $batchNumber = trim($batchNumber);
@@ -180,6 +188,7 @@ class WorkOrderController extends Controller
                     $batchNumber = null;
                 }
             }
+
             $result = $this->workOrderService->linkTemplateRoutesByReference($reference, $batchNumber);
 
             return $this->success('Template routes linked to work orders.', $result);
@@ -187,6 +196,7 @@ class WorkOrderController extends Controller
             return $this->error('Failed to link template routes.', 500);
         }
     }
+
 
     public function update(WorkOrderUpdateRequest $request, int $id): JsonResponse
     {
