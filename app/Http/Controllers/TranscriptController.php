@@ -19,12 +19,26 @@ class TranscriptController extends Controller
             return $this->error('JSON body is required.', 422);
         }
 
-        $payload = $request->json()->all();
+        $payload = $request->input('payload');
 
-        if (empty($payload)) {
-            return $this->error('Transcript payload is required.', 422);
+        if (is_null($payload)) {
+            return $this->error('Payload is required.', 422);
         }
 
-        return $this->success('Transcript received successfully.', $payload, 201);
+        if (is_string($payload)) {
+            $decoded = json_decode($payload, true);
+            if (json_last_error() !== JSON_ERROR_NONE) {
+                return $this->error('Payload must be valid JSON.', 422);
+            }
+            $payload = $decoded;
+        }
+
+        if (empty($payload)) {
+            return $this->error('Payload must not be empty.', 422);
+        }
+
+        return $this->success('Transcript received successfully.', [
+            'payload' => $payload,
+        ], 201);
     }
 }
