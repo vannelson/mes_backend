@@ -1,0 +1,287 @@
+[
+  {
+    "machine_code": "LM03",
+    "machine_name": null,
+    "image_file": "organized_images/LM03.jpg"
+  },
+  {
+    "machine_code": "Luster A",
+    "machine_name": null,
+    "image_file": "organized_images/Luster A.jpg"
+  },
+  {
+    "machine_code": "Luster B",
+    "machine_name": null,
+    "image_file": "organized_images/Luster B.jpg"
+  },
+  {
+    "machine_code": "M100",
+    "machine_name": "VD3350 DIGITAL LABEL DIE CUTTER",
+    "image_file": "organized_images/M100-VD3350 DIGITAL LABEL DIE CUTTER.png"
+  },
+  {
+    "machine_code": "M101",
+    "machine_name": null,
+    "image_file": "organized_images/M101.jpg"
+  },
+  {
+    "machine_code": "M102",
+    "machine_name": null,
+    "image_file": "organized_images/M102.jpg"
+  },
+  {
+    "machine_code": "M103",
+    "machine_name": "HDS 12 STATION",
+    "image_file": "organized_images/M103-HDS 12 STATION.jpeg"
+  },
+  {
+    "machine_code": "M105",
+    "machine_name": "GOLDEN LASER LC350",
+    "image_file": "organized_images/M105-GOLDEN LASER LC350.jpg"
+  },
+  {
+    "machine_code": "M107",
+    "machine_name": null,
+    "image_file": "organized_images/M107.jpg"
+  },
+  {
+    "machine_code": "M108",
+    "machine_name": null,
+    "image_file": "organized_images/M108.jpg"
+  },
+  {
+    "machine_code": "M109",
+    "machine_name": null,
+    "image_file": "organized_images/M109.jpg"
+  },
+  {
+    "machine_code": "M110",
+    "machine_name": null,
+    "image_file": "organized_images/M110.jpg"
+  },
+  {
+    "machine_code": "M111",
+    "machine_name": null,
+    "image_file": "organized_images/M111.jpg"
+  },
+  {
+    "machine_code": "M112",
+    "machine_name": null,
+    "image_file": "organized_images/M112.jpg"
+  },
+  {
+    "machine_code": "M113",
+    "machine_name": "LANG FANG NT - 16 STATION",
+    "image_file": "organized_images/M113-LANG FANG NT - 16 STATION.jpeg"
+  },
+  {
+    "machine_code": "M114",
+    "machine_name": null,
+    "image_file": "organized_images/M114.jpg"
+  },
+  {
+    "machine_code": "M115",
+    "machine_name": null,
+    "image_file": "organized_images/M115.jpg"
+  },
+  {
+    "machine_code": "M116",
+    "machine_name": null,
+    "image_file": "organized_images/M116.jpg"
+  },
+  {
+    "machine_code": "M117",
+    "machine_name": "HDS 12 STATION",
+    "image_file": "organized_images/M117-HDS 12 STATION.jpeg"
+  },
+  {
+    "machine_code": "M118",
+    "machine_name": null,
+    "image_file": "organized_images/M118.jpg"
+  },
+  {
+    "machine_code": "M26",
+    "machine_name": null,
+    "image_file": "organized_images/M26.jpg"
+  },
+  {
+    "machine_code": "M29",
+    "machine_name": null,
+    "image_file": "organized_images/M29.jpg"
+  },
+  {
+    "machine_code": "M31",
+    "machine_name": null,
+    "image_file": "organized_images/M31.jpg"
+  },
+  {
+    "machine_code": "M32",
+    "machine_name": null,
+    "image_file": "organized_images/M32.jpg"
+  },
+  {
+    "machine_code": "M46",
+    "machine_name": null,
+    "image_file": "organized_images/M46.jpg"
+  },
+  {
+    "machine_code": "M59",
+    "machine_name": null,
+    "image_file": "organized_images/M59.jpg"
+  },
+  {
+    "machine_code": "M60",
+    "machine_name": null,
+    "image_file": "organized_images/M60.jpg"
+  },
+  {
+    "machine_code": "M62",
+    "machine_name": "FUJISHOKO",
+    "image_file": "organized_images/M62-FUJISHOKO.jpeg"
+  },
+  {
+    "machine_code": "M63",
+    "machine_name": "SRD",
+    "image_file": "organized_images/M63-SRD.jpeg"
+  },
+  {
+    "machine_code": "M65",
+    "machine_name": null,
+    "image_file": "organized_images/M65.jpg"
+  },
+  {
+    "machine_code": "M66",
+    "machine_name": "FUJISHOKO",
+    "image_file": "organized_images/M66-FUJISHOKO.jpeg"
+  },
+  {
+    "machine_code": "M67",
+    "machine_name": "FUJISHOKO",
+    "image_file": "organized_images/M67-FUJISHOKO.jpeg"
+  },
+  {
+    "machine_code": "M68",
+    "machine_name": "SRD",
+    "image_file": "organized_images/M68-SRD.jpeg"
+  },
+  {
+    "machine_code": "M70",
+    "machine_name": "SANKI ROTARY",
+    "image_file": "organized_images/M70-SANKI ROTARY.jpeg"
+  },
+  {
+    "machine_code": "M71",
+    "machine_name": null,
+    "image_file": "organized_images/M71.jpg"
+  },
+  {
+    "machine_code": "M72",
+    "machine_name": "Xeikon 3500",
+    "image_file": "organized_images/M72-Xeikon 3500.jpg"
+  },
+  {
+    "machine_code": "M73",
+    "machine_name": null,
+    "image_file": "organized_images/M73.jpg"
+  },
+  {
+    "machine_code": "M75",
+    "machine_name": "HDS 3 STATION",
+    "image_file": "organized_images/M75-HDS 3 STATION.jpeg"
+  },
+  {
+    "machine_code": "M76",
+    "machine_name": "HDS 3 STATION",
+    "image_file": "organized_images/M76-HDS 3 STATION.jpeg"
+  },
+  {
+    "machine_code": "M77",
+    "machine_name": null,
+    "image_file": "organized_images/M77.jpg"
+  },
+  {
+    "machine_code": "M78",
+    "machine_name": null,
+    "image_file": "organized_images/M78.jpg"
+  },
+  {
+    "machine_code": "M79",
+    "machine_name": "HP INDIGO WS6800 DIGITAL PRESS",
+    "image_file": "organized_images/M79-HP INDIGO WS6800 DIGITAL PRESS.png"
+  },
+  {
+    "machine_code": "M80",
+    "machine_name": null,
+    "image_file": "organized_images/M80.jpg"
+  },
+  {
+    "machine_code": "M82",
+    "machine_name": null,
+    "image_file": "organized_images/M82.jpg"
+  },
+  {
+    "machine_code": "M85",
+    "machine_name": null,
+    "image_file": "organized_images/M85.jpg"
+  },
+  {
+    "machine_code": "M86",
+    "machine_name": null,
+    "image_file": "organized_images/M86.jpg"
+  },
+  {
+    "machine_code": "M87",
+    "machine_name": "SYSCO MACHINE 10 STATION",
+    "image_file": "organized_images/M87-SYSCO MACHINE 10 STATION.jpeg"
+  },
+  {
+    "machine_code": "M88 & M89",
+    "machine_name": "OKI 1050 PRO",
+    "image_file": "organized_images/M88 & M89-OKI 1050 PRO.png"
+  },
+  {
+    "machine_code": "M91",
+    "machine_name": null,
+    "image_file": "organized_images/M91.jpg"
+  },
+  {
+    "machine_code": "M92",
+    "machine_name": "POLLY DGi-330 DIGITAL DIE CUTTING SYSTEM",
+    "image_file": "organized_images/M92-POLLY DGi-330 DIGITAL DIE CUTTING SYSTEM.png"
+  },
+  {
+    "machine_code": "M93",
+    "machine_name": "HP INDIGO 6900 DIGITAL PRESS",
+    "image_file": "organized_images/M93-HP INDIGO 6900 DIGITAL PRESS.png"
+  },
+  {
+    "machine_code": "M94",
+    "machine_name": null,
+    "image_file": "organized_images/M94.jpg"
+  },
+  {
+    "machine_code": "M95",
+    "machine_name": null,
+    "image_file": "organized_images/M95.jpg"
+  },
+  {
+    "machine_code": "M96",
+    "machine_name": null,
+    "image_file": "organized_images/M96.jpg"
+  },
+  {
+    "machine_code": "N1",
+    "machine_name": null,
+    "image_file": "organized_images/N1.jpg"
+  },
+  {
+    "machine_code": "N2",
+    "machine_name": null,
+    "image_file": "organized_images/N2.jpg"
+  },
+  {
+    "machine_code": "N3",
+    "machine_name": null,
+    "image_file": "organized_images/N3.jpg"
+  }
+]

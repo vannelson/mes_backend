@@ -5,6 +5,7 @@ namespace App\Services;
 use App\Http\Resources\BatchLog\BatchLogResource;
 use App\Repositories\Contracts\BatchLogRepositoryInterface;
 use App\Repositories\Contracts\BomRepositoryInterface;
+use App\Repositories\Contracts\DiecutRepositoryInterface;
 use App\Repositories\Contracts\WorkOrderRepositoryInterface;
 use App\Services\Contracts\BatchLogServiceInterface;
 
@@ -13,7 +14,8 @@ class BatchLogService implements BatchLogServiceInterface
     public function __construct(
         protected BatchLogRepositoryInterface $batchLogRepository,
         protected WorkOrderRepositoryInterface $workOrderRepository,
-        protected BomRepositoryInterface $bomRepository
+        protected BomRepositoryInterface $bomRepository,
+        protected DiecutRepositoryInterface $diecutRepository
     ) {
     }
 
@@ -77,6 +79,33 @@ class BatchLogService implements BatchLogServiceInterface
                 'blocked' => false,
                 'bom_count' => $bomCount,
                 'deleted_boms' => $deletedBoms,
+            ];
+        }
+
+        if ($type === 'diecut') {
+            $diecutCount = $this->diecutRepository->countByBatch($batchNo);
+
+            if ($diecutCount > 0 && ! $deleteRelated) {
+                return [
+                    'deleted' => false,
+                    'blocked' => true,
+                    'diecut_count' => $diecutCount,
+                    'message' => 'Diecut rows are still linked to this batch. Set delete_related=1 to remove them along with the batch log.',
+                ];
+            }
+
+            $deletedDiecuts = 0;
+            if ($diecutCount > 0 && $deleteRelated) {
+                $deletedDiecuts = $this->diecutRepository->deleteByBatch($batchNo);
+            }
+
+            $this->batchLogRepository->delete($id);
+
+            return [
+                'deleted' => true,
+                'blocked' => false,
+                'diecut_count' => $diecutCount,
+                'deleted_diecuts' => $deletedDiecuts,
             ];
         }
 

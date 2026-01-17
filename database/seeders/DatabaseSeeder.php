@@ -18,6 +18,8 @@ class DatabaseSeeder extends Seeder
             TemplateRouteSeeder::class,
             WorkOrderSeeder::class,
             MachineSeeder::class,
+            MachineImageSeeder::class,
+            DiecutTypeSeeder::class,
         ]);
     }
 }

@@ -5,6 +5,8 @@ use App\Http\Controllers\BatchLogController;
 use App\Http\Controllers\BomController;
 use App\Http\Controllers\CustomerController;
 use App\Http\Controllers\DashboardController;
+use App\Http\Controllers\DiecutController;
+use App\Http\Controllers\DiecutTypeController;
 use App\Http\Controllers\MachineController;
 use App\Http\Controllers\PackingChecklistController;
 use App\Http\Controllers\PackingController;
@@ -70,6 +72,12 @@ Route::prefix('v1')->group(function () {
         Route::get('boms/by-customer-part', [BomController::class, 'listByCustomerPart']);
         Route::post('boms/batch', [BomController::class, 'batchStore']);
         Route::post('boms/batch/replace', [BomController::class, 'replaceBatch']);
+
+        Route::get('diecuts', [DiecutController::class, 'index']);
+        Route::get('diecuts/by-batch', [DiecutController::class, 'listByBatch']);
+        Route::post('diecuts/batch', [DiecutController::class, 'batchStore']);
+        Route::post('diecuts/batch/replace', [DiecutController::class, 'replaceBatch']);
+        Route::get('diecut-types', [DiecutTypeController::class, 'index']);
 
         Route::get('template-routes', [TemplateRouteController::class, 'index']);
         Route::get('template-routes/ordered-by-work-orders', [TemplateRouteController::class, 'orderedByWorkOrders']);
