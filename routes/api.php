@@ -15,6 +15,7 @@ use App\Http\Controllers\PublicMediaController;
 use App\Http\Controllers\PublicScreenController;
 use App\Http\Controllers\ScreenMediaController;
 use App\Http\Controllers\TemplateRouteController;
+use App\Http\Controllers\TranscriptController;
 use App\Http\Controllers\UserController;
 use App\Http\Controllers\VirtualScreenController;
 use App\Http\Controllers\WorkOrderController;
@@ -23,6 +24,7 @@ use Illuminate\Support\Facades\Route;
 
 Route::prefix('v1')->group(function () {
     Route::post('auth/login', [AuthController::class, 'login']);
+    Route::post('transcripts/upload', [TranscriptController::class, 'upload']);
 
     Route::middleware('auth:sanctum')->group(function () {
         Route::get('users', [UserController::class, 'index']);
