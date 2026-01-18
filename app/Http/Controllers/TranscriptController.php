@@ -46,11 +46,15 @@ class TranscriptController extends Controller
                 'dialogue_count' => is_array($dialogue) ? count($dialogue) : 0,
             ]);
 
-            $todos = $this->transcriptService->extractTodos($payload);
-
-            return $this->success('Transcript processed successfully.', [
-                'to_do_items' => $todos,
+            // $todos = $this->transcriptService->extractTodos($payload);
+            return response()->json([
+                'ghl_message' => 'Transcript processed successfully.',
+                'ghl_data' => 'Grab Me!'
             ], 200);
+            
+            // return $this->success('Transcript processed successfully.', [
+            //     'to_do_items' => $todos,
+            // ], 200);
         } catch (RuntimeException $e) {
             $errorId = (string) Str::uuid();
             Log::error('Transcript processing runtime error.', [
