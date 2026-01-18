@@ -30,8 +30,8 @@ class TranscriptService implements TranscriptServiceInterface
             $prompt = $this->buildPayloadPrompt($payload);
         }
 
-        // TODO: Re-enable AI call after production rollout is stable.
-        $todos = $this->getStaticTodos();
+        $response = $this->callGroq($prompt);
+        $todos = $this->decodeTodoResponse($response);
 
         Log::info('Transcript todo extraction complete.', [
             'call_id' => $callId,
@@ -310,8 +310,6 @@ PROMPT;
 
     private function getStaticTodos(): array
     {
-        return [
-           'ghl_data' => "Grab Me!"
-        ];
+        return [];
     }
 }
