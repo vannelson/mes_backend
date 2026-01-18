@@ -96,29 +96,72 @@ class TranscriptService implements TranscriptServiceInterface
     private function buildPrompt(string $dialogueText): string
     {
         return <<<PROMPT
-You are an AI assistant that extracts actionable to-do items from a rental business phone call transcript.
+            You are an AI assistant that analyzes a rental business phone call transcript
+            and extracts structured, actionable information for internal operations.
 
-Rules:
-- Return ONLY valid JSON.
-- Do not include any explanation or markdown.
-- Output schema:
-{
-  "to_do_items": [
-    {
-      "task": string,
-      "priority": "low" | "medium" | "high",
-      "due_date": string | null,
-      "assigned_to": string
-    }
-  ]
-}
-- If no tasks are present, return {"to_do_items": []}.
-- Use ISO 8601 date if a specific date is mentioned, otherwise null.
-- Use "sales" as the default assigned_to when not specified.
+            STRICT RULES:
+            - Return ONLY valid JSON.
+            - Do NOT include explanations, comments, or markdown.
+            - Do NOT invent information that is not clearly stated or implied.
+            - If a section has no data, return an empty array [].
+            - All outputs MUST follow the schema exactly.
 
-Transcript:
-{$dialogueText}
-PROMPT;
+            OUTPUT SCHEMA:
+            {
+            "task_list": [
+                {
+                "task": string,
+                "priority": "low" | "medium" | "high",
+                "due_date": string | null,
+                "assigned_to": string
+                }
+            ],
+            "schedules": [
+                {
+                "event_type": string,
+                "event_date": string | null,
+                "event_time": string | null,
+                "location": string | null
+                }
+            ],
+            "items": [
+                {
+                "item_name": string,
+                "item_type": string | null,
+                "quantity": number | null,
+                "notes": string | null
+                }
+            ],
+            "concerns": [
+                {
+                "type": "payment" | "availability" | "logistics" | "item_issue" | "other",
+                "description": string,
+                "sentiment": "positive" | "negative" | "neutral"
+                }
+            ],
+            "feedback": [
+                {
+                "speaker": "customer" | "agent",
+                "message": string,
+                "sentiment": "positive" | "negative" | "neutral"
+                }
+            ]
+            }
+
+            LOGIC GUIDELINES:
+            - task_list: Include ONLY actions the agent or business must perform (e.g., send quote, check availability, follow up).
+            - schedules: Extract event-related dates, times, and locations mentioned in the call.
+            - items: Extract rental items discussed or requested by the customer.
+            - concerns: Capture payment terms, deposits, availability issues, comparisons, or risks—even if implied.
+            - feedback: Capture explicit or implicit positive/negative feedback from either party.
+            - Use ISO 8601 date format (YYYY-MM-DD) when a specific date is mentioned; otherwise null.
+            - Default assigned_to = "sales" if not specified.
+
+            TRANSCRIPT INPUT:
+            {$dialogueText}
+
+            END OF PROMPT
+            PROMPT;
     }
 
     private function buildPayloadPrompt(array $payload): string
@@ -126,28 +169,71 @@ PROMPT;
         $json = json_encode($payload);
 
         return <<<PROMPT
-You are an AI assistant that extracts actionable to-do items from a rental business phone call transcript payload.
+You are an AI assistant that analyzes a rental business phone call transcript
+and extracts structured, actionable information for internal operations.
 
-Rules:
+STRICT RULES:
 - Return ONLY valid JSON.
-- Do not include any explanation or markdown.
-- Output schema:
+- Do NOT include explanations, comments, or markdown.
+- Do NOT invent information that is not clearly stated or implied.
+- If a section has no data, return an empty array [].
+- All outputs MUST follow the schema exactly.
+
+OUTPUT SCHEMA:
 {
-  "to_do_items": [
+  "task_list": [
     {
       "task": string,
       "priority": "low" | "medium" | "high",
       "due_date": string | null,
       "assigned_to": string
     }
+  ],
+  "schedules": [
+    {
+      "event_type": string,
+      "event_date": string | null,
+      "event_time": string | null,
+      "location": string | null
+    }
+  ],
+  "items": [
+    {
+      "item_name": string,
+      "item_type": string | null,
+      "quantity": number | null,
+      "notes": string | null
+    }
+  ],
+  "concerns": [
+    {
+      "type": "payment" | "availability" | "logistics" | "item_issue" | "other",
+      "description": string,
+      "sentiment": "positive" | "negative" | "neutral"
+    }
+  ],
+  "feedback": [
+    {
+      "speaker": "customer" | "agent",
+      "message": string,
+      "sentiment": "positive" | "negative" | "neutral"
+    }
   ]
 }
-- If no tasks are present, return {"to_do_items": []}.
-- Use ISO 8601 date if a specific date is mentioned, otherwise null.
-- Use "sales" as the default assigned_to when not specified.
+
+LOGIC GUIDELINES:
+- task_list: Include ONLY actions the agent or business must perform (e.g., send quote, check availability, follow up).
+- schedules: Extract event-related dates, times, and locations mentioned in the call.
+- items: Extract rental items discussed or requested by the customer.
+- concerns: Capture payment terms, deposits, availability issues, comparisons, or risks—even if implied.
+- feedback: Capture explicit or implicit positive/negative feedback from either party.
+- Use ISO 8601 date format (YYYY-MM-DD) when a specific date is mentioned; otherwise null.
+- Default assigned_to = "sales" if not specified.
 
 Payload (JSON):
 {$json}
+
+END OF PROMPT
 PROMPT;
     }
 
@@ -207,10 +293,18 @@ PROMPT;
             throw new RuntimeException('Unable to parse AI response.');
         }
 
-        if (!is_array($decoded) || !isset($decoded['to_do_items']) || !is_array($decoded['to_do_items'])) {
+        $requiredKeys = ['task_list', 'schedules', 'items', 'concerns', 'feedback'];
+
+        if (!is_array($decoded)) {
             throw new RuntimeException('AI response does not match expected schema.');
         }
 
-        return $decoded['to_do_items'];
+        foreach ($requiredKeys as $key) {
+            if (!array_key_exists($key, $decoded) || !is_array($decoded[$key])) {
+                throw new RuntimeException('AI response does not match expected schema.');
+            }
+        }
+
+        return $decoded;
     }
 }
