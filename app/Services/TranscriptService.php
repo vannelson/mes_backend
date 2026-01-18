@@ -30,8 +30,8 @@ class TranscriptService implements TranscriptServiceInterface
             $prompt = $this->buildPayloadPrompt($payload);
         }
 
-        $response = $this->callGroq($prompt);
-        $todos = $this->decodeTodoResponse($response);
+        // TODO: Re-enable AI call after production rollout is stable.
+        $todos = $this->getStaticTodos();
 
         Log::info('Transcript todo extraction complete.', [
             'call_id' => $callId,
@@ -306,5 +306,65 @@ PROMPT;
         }
 
         return $decoded;
+    }
+
+    private function getStaticTodos(): array
+    {
+        return [
+            'task_list' => [
+                [
+                    'task' => 'Email detailed quote and payment link to customer',
+                    'priority' => 'high',
+                    'due_date' => null,
+                    'assigned_to' => 'sales',
+                ],
+            ],
+            'schedules' => [
+                [
+                    'event_type' => 'wedding',
+                    'event_date' => null,
+                    'event_time' => null,
+                    'location' => 'San Diego',
+                ],
+            ],
+            'items' => [
+                [
+                    'item_name' => 'dance floor',
+                    'item_type' => 'dance floor',
+                    'quantity' => 1,
+                    'notes' => 'white vinyl',
+                ],
+                [
+                    'item_name' => 'DJ stage',
+                    'item_type' => 'DJ stage',
+                    'quantity' => 1,
+                    'notes' => 'medium size',
+                ],
+            ],
+            'concerns' => [
+                [
+                    'type' => 'payment',
+                    'description' => '30% deposit required to secure availability, balance due three days before the event',
+                    'sentiment' => 'neutral',
+                ],
+            ],
+            'feedback' => [
+                [
+                    'speaker' => 'customer',
+                    'message' => 'Great. How do we reserve them?',
+                    'sentiment' => 'positive',
+                ],
+                [
+                    'speaker' => 'customer',
+                    'message' => 'That sounds good.',
+                    'sentiment' => 'positive',
+                ],
+                [
+                    'speaker' => 'agent',
+                    'message' => 'I’d be happy to help.',
+                    'sentiment' => 'neutral',
+                ],
+            ],
+        ];
     }
 }
