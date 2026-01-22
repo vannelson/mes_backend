@@ -9,7 +9,10 @@ use App\Models\WorkOrder;
 use App\Repositories\Contracts\WorkOrderRepositoryInterface;
 use App\Services\Contracts\WorkOrderServiceInterface;
 use App\Services\WorkOrderImportService;
+use Illuminate\Http\File;
 use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Str;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
@@ -65,12 +68,23 @@ class WorkOrderService implements WorkOrderServiceInterface
         return (new WorkOrderResource($workOrder))->response()->getData(true);
     }
 
-    public function create(array $data): array
+    public function create(array $data, array $evidenceImages = []): array
     {
         $this->syncCustomerSnapshot($data);
         $this->syncTemplateMetadata($data);
         $this->ensureBatchNumber($data);
-        $workOrder = $this->workOrderRepository->create($data)->load(['customer', 'templateRoute']);
+
+        $storedImages = $this->storeEvidenceImages($evidenceImages);
+        if (!empty($storedImages)) {
+            $data['evidence_images'] = $storedImages;
+        }
+
+        try {
+            $workOrder = $this->workOrderRepository->create($data)->load(['customer', 'templateRoute']);
+        } catch (Throwable $e) {
+            $this->deleteEvidenceImages($storedImages);
+            throw $e;
+        }
 
         return (new WorkOrderResource($workOrder))->response()->getData(true);
     }
@@ -146,14 +160,90 @@ class WorkOrderService implements WorkOrderServiceInterface
         ];
     }
 
-    public function update(int $id, array $data): bool
+    public function update(int $id, array $data, array $evidenceImages = []): bool
     {
         $this->syncCustomerSnapshot($data);
         $this->syncTemplateMetadata($data);
 
-        return (bool) $this->workOrderRepository->update($id, $data);
+        $storedImages = [];
+        if (!empty($evidenceImages)) {
+            $workOrder = $this->workOrderRepository->findById($id);
+            $existingImages = is_array($workOrder->evidence_images) ? $workOrder->evidence_images : [];
+            $storedImages = $this->storeEvidenceImages($evidenceImages);
+            $data['evidence_images'] = array_values(array_merge($existingImages, $storedImages));
+        }
+
+        $updated = (bool) $this->workOrderRepository->update($id, $data);
+
+        if (! $updated && !empty($storedImages)) {
+            $this->deleteEvidenceImages($storedImages);
+        }
+
+        return $updated;
     }
 
+    protected function storeEvidenceImages(array $evidenceImages): array
+    {
+        $files = [];
+        foreach ($evidenceImages as $file) {
+            if ($file instanceof UploadedFile) {
+                $files[] = $file;
+            }
+        }
+
+        $stored = [];
+        foreach ($files as $file) {
+            $stored[] = $this->storeEvidenceImage($file);
+        }
+
+        return $stored;
+    }
+
+    protected function deleteEvidenceImages(array $paths): void
+    {
+        if (empty($paths)) {
+            return;
+        }
+
+        Storage::disk('public')->delete($paths);
+    }
+
+    protected function storeEvidenceImage(UploadedFile $image): string
+    {
+        $filename = Str::uuid()->toString() . '.png';
+        $tempPath = tempnam(sys_get_temp_dir(), 'work_order_');
+        if ($tempPath === false) {
+            throw new \RuntimeException('Failed to create temp file for image conversion.');
+        }
+
+        $mimeType = $image->getMimeType();
+        $resource = match ($mimeType) {
+            'image/jpeg', 'image/jpg' => imagecreatefromjpeg($image->getRealPath()),
+            'image/png' => imagecreatefrompng($image->getRealPath()),
+            'image/webp' => imagecreatefromwebp($image->getRealPath()),
+            default => false,
+        };
+
+        if (! $resource) {
+            @unlink($tempPath);
+            throw new \RuntimeException('Unsupported image type for PNG conversion.');
+        }
+
+        imagealphablending($resource, true);
+        imagesavealpha($resource, true);
+        $saved = imagepng($resource, $tempPath, 6);
+        imagedestroy($resource);
+
+        if (! $saved) {
+            @unlink($tempPath);
+            throw new \RuntimeException('Failed to convert image to PNG.');
+        }
+
+        $storedPath = Storage::disk('public')->putFileAs('work_orders/evidence', new File($tempPath), $filename);
+        @unlink($tempPath);
+
+        return $storedPath;
+    }
     public function delete(int $id): bool
     {
         return $this->workOrderRepository->delete($id);
@@ -1129,3 +1219,10 @@ class WorkOrderService implements WorkOrderServiceInterface
         return $series;
     }
 }
+
+
+
+
+
+
+

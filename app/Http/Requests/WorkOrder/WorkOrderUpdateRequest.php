@@ -41,7 +41,10 @@ class WorkOrderUpdateRequest extends FormRequest
             'production_date_completed' => ['nullable', 'date'],
             'production_qty_completed' => ['nullable', 'string', 'max:100'],
             'qr_code' => 'nullable|string|max:255',
-            'metadata' => 'nullable|array',
+            'metadata' => ['nullable', 'array'],
+            'evidence_images' => ['nullable', 'array'],
+            'evidence_images.*' => ['nullable', 'image', 'mimes:jpg,jpeg,png,webp', 'max:1048576'],
         ];
     }
 }
+

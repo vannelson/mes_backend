@@ -29,7 +29,7 @@ interface WorkOrderServiceInterface
     /**
      * Create Work Order
      */
-    public function create(array $data): array;
+    public function create(array $data, array $evidenceImages = []): array;
 
     /**
      * Create many work orders in a single request.
@@ -39,7 +39,7 @@ interface WorkOrderServiceInterface
     /**
      * Update Work Order
      */
-    public function update(int $id, array $data): bool;
+    public function update(int $id, array $data, array $evidenceImages = []): bool;
 
     /**
      * Delete Work Order
@@ -89,3 +89,5 @@ interface WorkOrderServiceInterface
      */
     public function summary(array $options = []): array;
 }
+
+

@@ -6,6 +6,7 @@ use App\Http\Resources\Customer\CustomerResource;
 use App\Http\Resources\TemplateRoute\TemplateRouteResource;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
+use Illuminate\Support\Facades\Storage;
 
 class WorkOrderResource extends JsonResource
 {
@@ -43,6 +44,11 @@ class WorkOrderResource extends JsonResource
             'production_qty_completed' => $this->production_qty_completed,
             'qr_code' => $this->qr_code,
             'sheet' => $this->sheet,
+            'evidence_images' => $this->evidence_images ?? [],
+            'evidence_image_urls' => array_map(
+                static fn ($path) => Storage::disk('public')->url($path),
+                $this->evidence_images ?? []
+            ),
             'metadata' => $this->metadata,
             'customer' => CustomerResource::make($this->whenLoaded('customer')),
             'template_route' => TemplateRouteResource::make($this->whenLoaded('templateRoute')),
@@ -51,3 +57,7 @@ class WorkOrderResource extends JsonResource
         ];
     }
 }
+
+
+
+

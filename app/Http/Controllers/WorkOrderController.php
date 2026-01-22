@@ -12,6 +12,7 @@ use App\Services\Contracts\WorkOrderServiceInterface;
 use App\Traits\ResponseTrait;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Arr;
 use Illuminate\Validation\ValidationException;
 use RuntimeException;
@@ -98,8 +99,13 @@ class WorkOrderController extends Controller
 
     public function store(WorkOrderStoreRequest $request): JsonResponse
     {
+        $evidenceImages = $request->file('evidence_images', []);
+        if ($evidenceImages instanceof UploadedFile) {
+            $evidenceImages = [$evidenceImages];
+        }
+
         try {
-            $workOrder = $this->workOrderService->create($request->validated());
+            $workOrder = $this->workOrderService->create($request->validated(), $evidenceImages);
 
             return $this->success('Work order created successfully!', $workOrder);
         } catch (ValidationException $e) {
@@ -200,8 +206,13 @@ class WorkOrderController extends Controller
 
     public function update(WorkOrderUpdateRequest $request, int $id): JsonResponse
     {
+        $evidenceImages = $request->file('evidence_images', []);
+        if ($evidenceImages instanceof UploadedFile) {
+            $evidenceImages = [$evidenceImages];
+        }
+
         try {
-            $updated = $this->workOrderService->update($id, $request->validated());
+            $updated = $this->workOrderService->update($id, $request->validated(), $evidenceImages);
 
             return $updated
                 ? $this->success('Work order updated successfully!')
@@ -295,3 +306,7 @@ class WorkOrderController extends Controller
         }
     }
 }
+
+
+
+

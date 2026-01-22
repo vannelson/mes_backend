@@ -47,7 +47,11 @@ class WorkOrderStoreRequest extends FormRequest
 
     public function rules(): array
     {
-        return self::baseRules();
+        return array_merge(self::baseRules(), [
+            'evidence_images' => ['nullable', 'array'],
+            'evidence_images.*' => ['nullable', 'image', 'mimes:jpg,jpeg,png,webp', 'max:1048576'],
+        ]);
     }
 }
+
 

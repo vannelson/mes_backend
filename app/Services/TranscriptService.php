@@ -308,8 +308,4 @@ PROMPT;
         return $decoded;
     }
 
-    private function getStaticTodos(): array
-    {
-        return [];
-    }
 }
