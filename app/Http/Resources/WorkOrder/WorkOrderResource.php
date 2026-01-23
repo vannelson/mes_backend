@@ -44,6 +44,7 @@ class WorkOrderResource extends JsonResource
             'production_qty_completed' => $this->production_qty_completed,
             'qr_code' => $this->qr_code,
             'sheet' => $this->sheet,
+            'is_released' => $this->is_released,
             'evidence_images' => $this->evidence_images ?? [],
             'evidence_image_urls' => array_map(
                 static fn ($path) => Storage::disk('public')->url($path),

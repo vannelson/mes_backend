@@ -38,6 +38,7 @@ class WorkOrder extends Model
         'production_qty_completed',
         'qr_code',
         'sheet',
+        'is_released',
         'evidence_images',
         'metadata',
     ];
@@ -53,6 +54,7 @@ class WorkOrder extends Model
         'forecast_quantity' => 'string',
         'no_of_colours' => 'string',
         'production_qty_completed' => 'string',
+        'is_released' => 'boolean',
         'evidence_images' => 'array',
         'metadata' => 'array',
     ];

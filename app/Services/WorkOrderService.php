@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Http\Resources\WorkOrder\WorkOrderResource;
 use App\Models\Customer;
+use App\Models\PackingChecklist;
 use App\Models\TemplateRoute;
 use App\Models\WorkOrder;
 use App\Repositories\Contracts\WorkOrderRepositoryInterface;
@@ -54,6 +55,123 @@ class WorkOrderService implements WorkOrderServiceInterface
         ];
     }
 
+    public function listWip(
+        array $filters = [],
+        int $limit = 10,
+        int $page = 1,
+        ?string $sortBy = null,
+        ?string $sortDir = null
+    ): array
+    {
+        $limit = max(1, $limit);
+        $page = max(1, $page);
+
+        $select = [
+            'id',
+            'work_order_no',
+            'customer_part_number',
+            'customer_code',
+            'customer_name',
+            'metadata',
+            'updated_at',
+        ];
+        if (Schema::hasColumn('work_orders', 'is_released')) {
+            $select[] = 'is_released';
+        }
+        if (Schema::hasColumn('work_orders', 'template_route_id')) {
+            $select[] = 'template_route_id';
+        }
+
+        $query = WorkOrder::query()->select($select);
+
+        if ($workOrderNo = Arr::get($filters, 'work_order_no')) {
+            $query->where('work_order_no', 'LIKE', "%{$workOrderNo}%");
+        }
+
+        if ($partNumber = Arr::get($filters, 'customer_part_number')) {
+            $query->where('customer_part_number', 'LIKE', "%{$partNumber}%");
+        }
+
+        if ($customerName = Arr::get($filters, 'customer_name')) {
+            $query->where('customer_name', 'LIKE', "%{$customerName}%");
+        }
+
+        if ($customerCode = Arr::get($filters, 'customer_code')) {
+            $query->where('customer_code', 'LIKE', "%{$customerCode}%");
+        }
+
+        $orders = $query->orderByDesc('updated_at')->get();
+
+        $workOrderNos = $orders->pluck('work_order_no')->filter()->values();
+        $packingSet = $workOrderNos->isEmpty()
+            ? collect()
+            : PackingChecklist::query()
+                ->whereIn('work_order_no', $workOrderNos)
+                ->pluck('work_order_no')
+                ->flip();
+
+        $items = $orders->map(function (WorkOrder $order) use ($packingSet): array {
+            $metadata = $this->normalizeMetadata($order->metadata);
+            $routes = $this->extractRoutes($metadata);
+            $routeStats = $this->resolveRouteStats($metadata, $routes);
+            $statusRaw = strtolower(trim((string) Arr::get($metadata, 'state.status', '')));
+            $explicitCompleted = in_array($statusRaw, ['completed', 'complete', 'done'], true);
+            $isReleased = $this->resolveIsReleased($order, $statusRaw);
+            $hasPacking = $order->work_order_no
+                ? $packingSet->has($order->work_order_no)
+                : false;
+            $statusKey = $this->resolveWipStatusKey(
+                $isReleased,
+                $explicitCompleted,
+                $routeStats['completed'],
+                $routeStats['total'],
+                $hasPacking
+            );
+
+            return [
+                'id' => $order->id,
+                'work_order_no' => $order->work_order_no,
+                'customer_part_number' => $order->customer_part_number,
+                'customer_code' => $order->customer_code,
+                'customer_name' => $order->customer_name,
+                'is_released' => $isReleased,
+                'has_route_link' => !empty($order->template_route_id),
+                'routes_completed' => $routeStats['completed'],
+                'routes_total' => $routeStats['total'],
+                'has_packing' => $hasPacking,
+                'wip_status' => $statusKey,
+                'wip_status_label' => $this->wipStatusLabel($statusKey),
+                'updated_at' => $order->updated_at?->toIso8601String(),
+            ];
+        })->values();
+
+        $statusFilter = $this->normalizeWipStatusKey(Arr::get($filters, 'wip_status'));
+        if ($statusFilter) {
+            $items = $items->filter(
+                static fn (array $row): bool => ($row['wip_status'] ?? '') === $statusFilter
+            )->values();
+        }
+
+        $sortBy = $this->normalizeWipSortBy($sortBy);
+        $sortDir = $this->normalizeSortDirection($sortDir);
+        $items = $this->sortWipItems($items, $sortBy, $sortDir);
+
+        $total = $items->count();
+        $offset = ($page - 1) * $limit;
+        $paged = $items->slice($offset, $limit)->values()->all();
+        $lastPage = (int) max(1, (int) ceil($total / $limit));
+
+        return [
+            'data' => $paged,
+            'meta' => [
+                'current_page' => $page,
+                'last_page' => $lastPage,
+                'per_page' => $limit,
+                'total' => $total,
+            ],
+        ];
+    }
+
     public function detail(int $id): array
     {
         $workOrder = $this->workOrderRepository->findById($id)->load(['customer', 'templateRoute']);
@@ -72,6 +190,7 @@ class WorkOrderService implements WorkOrderServiceInterface
     {
         $this->syncCustomerSnapshot($data);
         $this->syncTemplateMetadata($data);
+        $this->syncReleaseFlag($data);
         $this->ensureBatchNumber($data);
 
         $storedImages = $this->storeEvidenceImages($evidenceImages);
@@ -164,6 +283,7 @@ class WorkOrderService implements WorkOrderServiceInterface
     {
         $this->syncCustomerSnapshot($data);
         $this->syncTemplateMetadata($data);
+        $this->syncReleaseFlag($data);
 
         $storedImages = [];
         if (!empty($evidenceImages)) {
@@ -786,6 +906,32 @@ class WorkOrderService implements WorkOrderServiceInterface
         }
     }
 
+    protected function syncReleaseFlag(array &$data): void
+    {
+        if (array_key_exists('is_released', $data)) {
+            $data['is_released'] = (bool) $data['is_released'];
+            return;
+        }
+
+        $metadata = $this->normalizeMetadata($data['metadata'] ?? null);
+        $statusRaw = strtolower(trim((string) Arr::get($metadata, 'state.status', '')));
+        if ($statusRaw === '') {
+            return;
+        }
+
+        $normalized = str_replace(['-', '_'], ' ', $statusRaw);
+        $normalized = preg_replace('/\s+/', ' ', $normalized) ?? $normalized;
+
+        if (in_array($normalized, ['draft', 'backlog', 'new', 'planned'], true)) {
+            $data['is_released'] = false;
+            return;
+        }
+
+        if (in_array($normalized, ['released', 'in progress', 'active', 'completed', 'complete', 'done'], true)) {
+            $data['is_released'] = true;
+        }
+    }
+
     protected function syncCustomerSnapshot(array &$data): void
     {
         if (!empty($data['customer_id']) && (empty($data['customer_code']) || empty($data['customer_name']))) {
@@ -948,6 +1094,196 @@ class WorkOrderService implements WorkOrderServiceInterface
         }
 
         return $flattened;
+    }
+
+    protected function resolveRouteStats(array $metadata, array $routes): array
+    {
+        $total = count($routes);
+        $completed = 0;
+
+        foreach ($routes as $route) {
+            if (!is_array($route)) {
+                continue;
+            }
+
+            $status = strtolower(trim((string) ($route['status'] ?? '')));
+            if ($status === '') {
+                $completedAt = $route['completed_at'] ?? $route['completedAt'] ?? null;
+                if ($completedAt) {
+                    $status = 'completed';
+                }
+            }
+
+            if (in_array($status, ['completed', 'complete', 'done'], true)) {
+                $completed++;
+            }
+        }
+
+        if ($total === 0) {
+            $steps = $metadata['steps'] ?? [];
+            if (is_array($steps)) {
+                $total = count($steps);
+            }
+        }
+
+        return [
+            'total' => $total,
+            'completed' => $completed,
+        ];
+    }
+
+    protected function normalizeWipStatusKey(?string $value): ?string
+    {
+        $raw = strtolower(trim((string) $value));
+        if ($raw === '') {
+            return null;
+        }
+
+        $raw = str_replace(['-', '_'], ' ', $raw);
+        $raw = preg_replace('/\s+/', ' ', $raw) ?? $raw;
+
+        $map = [
+            'backlog' => 'backlog',
+            'released' => 'progress',
+            'process' => 'progress',
+            'progress' => 'progress',
+            'in progress' => 'progress',
+            'inprogress' => 'progress',
+            'completed' => 'completed',
+            'complete' => 'completed',
+            'packing' => 'packing',
+        ];
+
+        return $map[$raw] ?? null;
+    }
+
+    protected function resolveIsReleased(WorkOrder $order, string $statusRaw): bool
+    {
+        if ($statusRaw !== '') {
+            $normalized = str_replace(['-', '_'], ' ', $statusRaw);
+            $normalized = preg_replace('/\s+/', ' ', $normalized) ?? $normalized;
+
+            if (in_array($normalized, ['draft', 'backlog', 'new', 'planned'], true)) {
+                return false;
+            }
+
+            if (in_array($normalized, ['released', 'in progress', 'active', 'completed', 'complete', 'done'], true)) {
+                return true;
+            }
+        }
+
+        return (bool) $order->is_released;
+    }
+
+    protected function resolveWipStatusKey(
+        bool $isReleased,
+        bool $explicitCompleted,
+        int $completedRoutes,
+        int $totalRoutes,
+        bool $hasPacking
+    ): string
+    {
+        if (!$isReleased) {
+            return 'backlog';
+        }
+
+        $isCompleted = $explicitCompleted || ($totalRoutes > 0 && $completedRoutes >= $totalRoutes);
+        if ($isCompleted && $hasPacking) {
+            return 'packing';
+        }
+
+        if ($isCompleted) {
+            return 'completed';
+        }
+
+        return 'progress';
+    }
+
+    protected function wipStatusLabel(string $statusKey): string
+    {
+        return match ($statusKey) {
+            'backlog' => 'Backlog',
+            'progress' => 'Progress',
+            'completed' => 'Complete',
+            'packing' => 'Packing',
+            default => ucwords(str_replace('_', ' ', $statusKey)),
+        };
+    }
+
+    protected function normalizeWipSortBy(?string $value): string
+    {
+        $raw = strtolower(trim((string) $value));
+
+        return match ($raw) {
+            'work_order_no' => 'work_order_no',
+            'customer_part_number' => 'customer_part_number',
+            'customer_name' => 'customer_name',
+            'routes_total' => 'routes_total',
+            'routes' => 'routes_total',
+            'route_link' => 'route_link',
+            'progress' => 'progress',
+            default => 'updated_at',
+        };
+    }
+
+    protected function normalizeSortDirection(?string $value): string
+    {
+        $raw = strtolower(trim((string) $value));
+
+        return $raw === 'asc' ? 'asc' : 'desc';
+    }
+
+    protected function sortWipItems($items, string $sortBy, string $sortDir)
+    {
+        $rows = $items->values()->all();
+        $desc = $sortDir === 'desc';
+
+        usort($rows, function (array $a, array $b) use ($sortBy, $desc): int {
+            $aVal = $this->resolveWipSortValue($a, $sortBy);
+            $bVal = $this->resolveWipSortValue($b, $sortBy);
+
+            if (is_string($aVal) || is_string($bVal)) {
+                $cmp = strnatcasecmp((string) $aVal, (string) $bVal);
+            } else {
+                $cmp = $aVal <=> $bVal;
+            }
+
+            if ($cmp === 0) {
+                $cmp = strnatcasecmp(
+                    (string) ($a['work_order_no'] ?? ''),
+                    (string) ($b['work_order_no'] ?? '')
+                );
+            }
+
+            return $desc ? -$cmp : $cmp;
+        });
+
+        return collect($rows)->values();
+    }
+
+    protected function resolveWipSortValue(array $row, string $sortBy): mixed
+    {
+        return match ($sortBy) {
+            'work_order_no' => $row['work_order_no'] ?? '',
+            'customer_part_number' => $row['customer_part_number'] ?? '',
+            'customer_name' => $row['customer_name'] ?? '',
+            'routes_total' => (int) ($row['routes_total'] ?? 0),
+            'route_link' => !empty($row['has_route_link']) ? 1 : 0,
+            'progress' => $this->resolveWipProgressValue($row),
+            default => strtotime((string) ($row['updated_at'] ?? '')) ?: 0,
+        };
+    }
+
+    protected function resolveWipProgressValue(array $row): float
+    {
+        $total = (int) ($row['routes_total'] ?? 0);
+        if ($total <= 0) {
+            return 0.0;
+        }
+
+        $completed = (int) ($row['routes_completed'] ?? 0);
+
+        return $completed / $total;
     }
 
     protected function routesCompleted(array $routes): bool
@@ -1219,10 +1555,4 @@ class WorkOrderService implements WorkOrderServiceInterface
         return $series;
     }
 }
-
-
-
-
-
-
 

@@ -41,6 +41,7 @@ class WorkOrderStoreRequest extends FormRequest
             'production_qty_completed' => ['nullable', 'string', 'max:100'],
             'qr_code' => ['nullable', 'string', 'max:255'],
             'sheet' => ['nullable', 'string', 'max:255'],
+            'is_released' => ['nullable', 'boolean'],
             'metadata' => ['nullable', 'array'],
         ];
     }

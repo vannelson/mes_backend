@@ -88,6 +88,17 @@ interface WorkOrderServiceInterface
      * Provide aggregated work order summary metrics for dashboards.
      */
     public function summary(array $options = []): array;
+
+    /**
+     * List work orders with WIP status, filters, and pagination.
+     */
+    public function listWip(
+        array $filters = [],
+        int $limit = 10,
+        int $page = 1,
+        ?string $sortBy = null,
+        ?string $sortDir = null
+    ): array;
 }
 
 
