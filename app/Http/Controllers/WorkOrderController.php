@@ -47,6 +47,29 @@ class WorkOrderController extends Controller
         }
     }
 
+    public function wip(Request $request): JsonResponse
+    {
+        $filters = $request->only([
+            'work_order_no',
+            'customer_part_number',
+            'customer_name',
+            'customer_code',
+            'wip_status',
+        ]);
+        $limit = (int) $request->get('limit', 20);
+        $page = (int) $request->get('page', 1);
+        $sortBy = $request->get('sort_by');
+        $sortDir = $request->get('sort_dir');
+
+        // try {
+            $data = $this->workOrderService->listWip($filters, $limit, $page, $sortBy, $sortDir);
+
+            return $this->successPagination('WIP list retrieved successfully!', $data);
+        // } catch (Throwable $e) {
+        //     return $this->error('Failed to load WIP list.', 500);
+        // }
+    }
+
     public function options(Request $request): JsonResponse
     {
         $filters = Arr::get($request->all(), 'filters', []);
@@ -211,17 +234,17 @@ class WorkOrderController extends Controller
             $evidenceImages = [$evidenceImages];
         }
 
-        try {
+        // try {
             $updated = $this->workOrderService->update($id, $request->validated(), $evidenceImages);
 
             return $updated
                 ? $this->success('Work order updated successfully!')
                 : $this->error('Nothing to update.', 422);
-        } catch (ValidationException $e) {
-            return $this->validationError($e);
-        } catch (Throwable $e) {
-            return $this->error('Failed to update work order.', 500);
-        }
+        // } catch (ValidationException $e) {
+            // return $this->validationError($e);
+        // } catch (Throwable $e) {
+        //     return $this->error('Failed to update work order.', 500);
+        // }
     }
 
     public function destroy(int $id): JsonResponse
@@ -306,7 +329,5 @@ class WorkOrderController extends Controller
         }
     }
 }
-
-
 
 
