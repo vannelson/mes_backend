@@ -38,4 +38,13 @@ interface WorkOrderRepositoryInterface extends RepositoryInterface
      * Count work orders whose template routes belong to a batch.
      */
     public function countByTemplateRouteBatch(string $batchNumber): int;
+
+    /**
+     * Update work orders matching customer code and part number.
+     */
+    public function updateByCustomerCodeAndPartNumber(
+        string $customerCode,
+        string $customerPartNumber,
+        array $data
+    ): int;
 }

@@ -302,6 +302,28 @@ class WorkOrderService implements WorkOrderServiceInterface
         return $updated;
     }
 
+    public function bulkUpdateByCustomer(
+        string $customerCode,
+        string $customerPartNumber,
+        array $data
+    ): array {
+        $this->syncCustomerSnapshot($data);
+        $this->syncTemplateMetadata($data);
+        $this->syncReleaseFlag($data);
+
+        $updated = $this->workOrderRepository->updateByCustomerCodeAndPartNumber(
+            $customerCode,
+            $customerPartNumber,
+            $data
+        );
+
+        return [
+            'customer_code' => $customerCode,
+            'customer_part_number' => $customerPartNumber,
+            'updated' => $updated,
+        ];
+    }
+
     protected function storeEvidenceImages(array $evidenceImages): array
     {
         $files = [];
@@ -1555,4 +1577,3 @@ class WorkOrderService implements WorkOrderServiceInterface
         return $series;
     }
 }
-

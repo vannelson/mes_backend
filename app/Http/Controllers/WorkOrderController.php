@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Http\Requests\WorkOrder\WorkOrderBatchReplaceRequest;
 use App\Http\Requests\WorkOrder\WorkOrderBatchStoreRequest;
+use App\Http\Requests\WorkOrder\WorkOrderBulkUpdateRequest;
 use App\Http\Requests\WorkOrder\WorkOrderDetailRequest;
 use App\Http\Requests\WorkOrder\WorkOrderImportRequest;
 use App\Http\Requests\WorkOrder\WorkOrderStoreRequest;
@@ -247,6 +248,25 @@ class WorkOrderController extends Controller
         // }
     }
 
+    public function bulkUpdateByCustomer(WorkOrderBulkUpdateRequest $request): JsonResponse
+    {
+        $validated = $request->validated();
+        $customerCode = trim((string) $validated['customer_code']);
+        $customerPartNumber = trim((string) $validated['customer_part_number']);
+
+        try {
+            $result = $this->workOrderService->bulkUpdateByCustomer(
+                $customerCode,
+                $customerPartNumber,
+                $validated['changes']
+            );
+
+            return $this->success('Work orders updated successfully!', $result);
+        } catch (Throwable $e) {
+            return $this->error('Failed to update work orders.', 500);
+        }
+    }
+
     public function destroy(int $id): JsonResponse
     {
         try {
@@ -329,5 +349,3 @@ class WorkOrderController extends Controller
         }
     }
 }
-
-

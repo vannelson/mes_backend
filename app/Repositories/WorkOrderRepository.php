@@ -192,6 +192,17 @@ class WorkOrderRepository extends BaseRepository implements WorkOrderRepositoryI
             ->count();
     }
 
+    public function updateByCustomerCodeAndPartNumber(
+        string $customerCode,
+        string $customerPartNumber,
+        array $data
+    ): int {
+        return $this->model->newQuery()
+            ->where('customer_code', $customerCode)
+            ->where('customer_part_number', $customerPartNumber)
+            ->update($data);
+    }
+
     protected function applyDayOfWeekFilter($query, string $column, mixed $days): void
     {
         $tokens = $this->normalizeDayTokens($days);

@@ -42,6 +42,15 @@ interface WorkOrderServiceInterface
     public function update(int $id, array $data, array $evidenceImages = []): bool;
 
     /**
+     * Update work orders matching customer code and part number.
+     */
+    public function bulkUpdateByCustomer(
+        string $customerCode,
+        string $customerPartNumber,
+        array $data
+    ): array;
+
+    /**
      * Delete Work Order
      */
     public function delete(int $id): bool;
@@ -100,5 +109,4 @@ interface WorkOrderServiceInterface
         ?string $sortDir = null
     ): array;
 }
-
 
