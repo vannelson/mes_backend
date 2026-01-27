@@ -6,6 +6,8 @@ use App\Http\Resources\WorkOrder\WorkOrderResource;
 use App\Models\Customer;
 use App\Models\PackingChecklist;
 use App\Models\TemplateRoute;
+use App\Models\User;
+use App\Models\UserWorkOrder;
 use App\Models\WorkOrder;
 use App\Repositories\Contracts\WorkOrderRepositoryInterface;
 use App\Services\Contracts\WorkOrderServiceInterface;
@@ -205,6 +207,10 @@ class WorkOrderService implements WorkOrderServiceInterface
             throw $e;
         }
 
+        if (array_key_exists('metadata', $data)) {
+            $this->syncAssignmentsFromMetadata($workOrder->id, $data['metadata']);
+        }
+
         return (new WorkOrderResource($workOrder))->response()->getData(true);
     }
 
@@ -299,7 +305,30 @@ class WorkOrderService implements WorkOrderServiceInterface
             $this->deleteEvidenceImages($storedImages);
         }
 
+        if ($updated && array_key_exists('metadata', $data)) {
+            $this->syncAssignmentsFromMetadata($id, $data['metadata']);
+        }
+
         return $updated;
+    }
+
+    public function syncAssignments(int $id, array $routes): array
+    {
+        $this->workOrderRepository->findById($id);
+
+        $rows = $this->buildAssignmentRows($id, $routes);
+        $rows = $this->filterValidAssignmentRows($rows);
+
+        DB::transaction(function () use ($id, $rows): void {
+            UserWorkOrder::query()->where('work_order_id', $id)->delete();
+            if (!empty($rows)) {
+                UserWorkOrder::query()->insert($rows);
+            }
+        });
+
+        return [
+            'count' => count($rows),
+        ];
     }
 
     protected function storeEvidenceImages(array $evidenceImages): array
@@ -1066,6 +1095,133 @@ class WorkOrderService implements WorkOrderServiceInterface
         }
 
         return [];
+    }
+
+    protected function syncAssignmentsFromMetadata(int $workOrderId, mixed $metadata): void
+    {
+        $normalized = $this->normalizeMetadata($metadata);
+        $routes = Arr::get($normalized, 'assignments.routes')
+            ?? Arr::get($normalized, 'route_assignments')
+            ?? Arr::get($normalized, 'routeAssignments');
+
+        if (is_null($routes)) {
+            return;
+        }
+
+        $routes = is_array($routes) ? $routes : [];
+        $this->syncAssignments($workOrderId, $routes);
+    }
+
+    protected function buildAssignmentRows(int $workOrderId, array $routes): array
+    {
+        if (empty($routes)) {
+            return [];
+        }
+
+        $rows = [];
+        $seen = [];
+        $now = now();
+
+        foreach ($routes as $idx => $route) {
+            if (!is_array($route)) {
+                continue;
+            }
+
+            $orderSeq = Arr::get($route, 'order_seq')
+                ?? Arr::get($route, 'orderSeq')
+                ?? ($idx + 1);
+            $routeCode = Arr::get($route, 'route') ?? Arr::get($route, 'key');
+            $routeName = Arr::get($route, 'name');
+            $routeKey = $this->buildAssignmentRouteKey($routeCode, $orderSeq, $idx);
+            $operators = Arr::get($route, 'operators', []);
+
+            if (!is_array($operators)) {
+                continue;
+            }
+
+            foreach ($operators as $operator) {
+                if (!is_array($operator)) {
+                    continue;
+                }
+
+                $userId = Arr::get($operator, 'id')
+                    ?? Arr::get($operator, 'user_id')
+                    ?? Arr::get($operator, 'userId');
+                if (!$userId) {
+                    continue;
+                }
+
+                $unique = "{$workOrderId}|{$userId}|{$routeKey}";
+                if (isset($seen[$unique])) {
+                    continue;
+                }
+                $seen[$unique] = true;
+
+                $qty = Arr::get($operator, 'qty');
+                $rows[] = [
+                    'work_order_id' => $workOrderId,
+                    'user_id' => (int) $userId,
+                    'route_key' => $routeKey,
+                    'route_code' => $routeCode ? (string) $routeCode : null,
+                    'route_name' => $routeName ? (string) $routeName : null,
+                    'order_seq' => $orderSeq !== null ? (int) $orderSeq : null,
+                    'assigned_qty' => ($qty === '' || $qty === null) ? null : (string) $qty,
+                    'created_at' => $now,
+                    'updated_at' => $now,
+                ];
+            }
+        }
+
+        return $rows;
+    }
+
+    protected function buildAssignmentRouteKey(?string $routeCode, mixed $orderSeq, int $idx): string
+    {
+        $cleanCode = $routeCode !== null ? trim((string) $routeCode) : '';
+        $seq = $orderSeq !== null && $orderSeq !== '' ? trim((string) $orderSeq) : '';
+
+        if ($cleanCode !== '' && $seq !== '') {
+            return "{$cleanCode}-{$seq}";
+        }
+
+        if ($cleanCode !== '') {
+            return $cleanCode;
+        }
+
+        return "route-" . ($idx + 1);
+    }
+
+    protected function filterValidAssignmentRows(array $rows): array
+    {
+        if (empty($rows)) {
+            return [];
+        }
+
+        $userIds = array_values(array_unique(array_map(
+            static fn (array $row): int => (int) ($row['user_id'] ?? 0),
+            $rows
+        )));
+
+        if (empty($userIds)) {
+            return [];
+        }
+
+        $validIds = User::query()
+            ->whereIn('id', $userIds)
+            ->pluck('id')
+            ->map(static fn ($id) => (int) $id)
+            ->all();
+
+        if (empty($validIds)) {
+            return [];
+        }
+
+        $validMap = array_flip($validIds);
+
+        return array_values(array_filter(
+            $rows,
+            static fn (array $row): bool => isset($validMap[(int) ($row['user_id'] ?? 0)])
+        ));
     }
 
     protected function extractRoutes(array $metadata): array

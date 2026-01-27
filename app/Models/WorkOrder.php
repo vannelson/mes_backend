@@ -5,6 +5,7 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class WorkOrder extends Model
 {
@@ -67,6 +68,11 @@ class WorkOrder extends Model
     public function templateRoute(): BelongsTo
     {
         return $this->belongsTo(TemplateRoute::class);
+    }
+
+    public function userAssignments(): HasMany
+    {
+        return $this->hasMany(UserWorkOrder::class);
     }
 }
 

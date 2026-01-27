@@ -96,6 +96,12 @@ class WorkOrderRepository extends BaseRepository implements WorkOrderRepositoryI
             $query->where('template_route_id', $templateRouteId);
         }
 
+        if ($operatorId = Arr::get($filters, 'operator_id')) {
+            $query->whereHas('userAssignments', function ($q) use ($operatorId) {
+                $q->where('user_id', $operatorId);
+            });
+        }
+
         if ($templateRouteBatch = Arr::get($filters, 'template_route_batch_number')) {
             $query->whereHas('templateRoute', function ($q) use ($templateRouteBatch) {
                 $q->where('batch_number', $templateRouteBatch);

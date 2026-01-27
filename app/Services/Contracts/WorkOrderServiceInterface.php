@@ -42,6 +42,11 @@ interface WorkOrderServiceInterface
     public function update(int $id, array $data, array $evidenceImages = []): bool;
 
     /**
+     * Sync work order operator assignments per route.
+     */
+    public function syncAssignments(int $id, array $routes): array;
+
+    /**
      * Delete Work Order
      */
     public function delete(int $id): bool;
