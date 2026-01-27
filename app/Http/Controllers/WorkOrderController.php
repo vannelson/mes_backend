@@ -6,6 +6,7 @@ use App\Http\Requests\WorkOrder\WorkOrderBatchReplaceRequest;
 use App\Http\Requests\WorkOrder\WorkOrderBatchStoreRequest;
 use App\Http\Requests\WorkOrder\WorkOrderDetailRequest;
 use App\Http\Requests\WorkOrder\WorkOrderImportRequest;
+use App\Http\Requests\WorkOrder\WorkOrderAssignmentsRequest;
 use App\Http\Requests\WorkOrder\WorkOrderStoreRequest;
 use App\Http\Requests\WorkOrder\WorkOrderUpdateRequest;
 use App\Services\Contracts\WorkOrderServiceInterface;
@@ -33,6 +34,10 @@ class WorkOrderController extends Controller
         $customerPartNumber = $request->get('customer_part_number');
         if ($customerPartNumber !== null && $customerPartNumber !== '') {
             $filters['customer_part_number'] = $customerPartNumber;
+        }
+        $operatorId = $request->get('operator_id');
+        if ($operatorId !== null && $operatorId !== '') {
+            $filters['operator_id'] = $operatorId;
         }
         $order = Arr::get($request->all(), 'order', ['id', 'desc']);
         $limit = (int) Arr::get($request->all(), 'limit', 10);
@@ -247,6 +252,19 @@ class WorkOrderController extends Controller
         // }
     }
 
+    public function syncAssignments(WorkOrderAssignmentsRequest $request, int $id): JsonResponse
+    {
+        try {
+            $payload = $request->validated();
+            $routes = $payload['routes'] ?? [];
+            $result = $this->workOrderService->syncAssignments($id, $routes);
+
+            return $this->success('Work order assignments updated successfully!', $result);
+        } catch (Throwable $e) {
+            return $this->error('Failed to update work order assignments.', 500);
+        }
+    }
+
     public function destroy(int $id): JsonResponse
     {
         try {
@@ -329,5 +347,3 @@ class WorkOrderController extends Controller
         }
     }
 }
-
-
