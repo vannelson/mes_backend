@@ -5,10 +5,24 @@ namespace App\Http\Resources\Packing;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 use App\Http\Resources\PackingChecklist\PackingChecklistResource;
-use Illuminate\Support\Facades\Storage;
 
 class PackingResource extends JsonResource
 {
+    protected function resolvePackingAsset(?string $value): ?string
+    {
+        if (! $value) {
+            return null;
+        }
+        $path = ltrim($value, '/');
+        if (str_starts_with($path, 'images/packing/')) {
+            return url("/{$path}");
+        }
+        if (str_starts_with($path, 'packing/')) {
+            return url("/images/{$path}");
+        }
+        return url("/images/packing/{$path}");
+    }
+
     public function toArray(Request $request): array
     {
         return [
@@ -18,9 +32,9 @@ class PackingResource extends JsonResource
             'description' => $this->description,
             'batch_number' => $this->batch_number,
             'image' => $this->image ? basename($this->image) : null,
-            'image_url' => $this->image ? Storage::disk('public')->url($this->image) : null,
+            'image_url' => $this->resolvePackingAsset($this->image),
             'design' => $this->design ? basename($this->design) : null,
-            'design_url' => $this->design ? Storage::disk('public')->url($this->design) : null,
+            'design_url' => $this->resolvePackingAsset($this->design),
             'shipping_location' => $this->shipping_location,
             'customer_code' => $this->customer_code,
             'customer_name' => $this->customer?->customer_name,
