@@ -6,6 +6,8 @@ use App\Http\Resources\WorkOrder\WorkOrderResource;
 use App\Models\Customer;
 use App\Models\PackingChecklist;
 use App\Models\TemplateRoute;
+use App\Models\User;
+use App\Models\UserWorkOrder;
 use App\Models\WorkOrder;
 use App\Repositories\Contracts\WorkOrderRepositoryInterface;
 use App\Services\Contracts\WorkOrderServiceInterface;
@@ -61,8 +63,7 @@ class WorkOrderService implements WorkOrderServiceInterface
         int $page = 1,
         ?string $sortBy = null,
         ?string $sortDir = null
-    ): array
-    {
+    ): array {
         $limit = max(1, $limit);
         $page = max(1, $page);
 
@@ -148,7 +149,7 @@ class WorkOrderService implements WorkOrderServiceInterface
         $statusFilter = $this->normalizeWipStatusKey(Arr::get($filters, 'wip_status'));
         if ($statusFilter) {
             $items = $items->filter(
-                static fn (array $row): bool => ($row['wip_status'] ?? '') === $statusFilter
+                static fn(array $row): bool => ($row['wip_status'] ?? '') === $statusFilter
             )->values();
         }
 
@@ -203,6 +204,10 @@ class WorkOrderService implements WorkOrderServiceInterface
         } catch (Throwable $e) {
             $this->deleteEvidenceImages($storedImages);
             throw $e;
+        }
+
+        if (array_key_exists('metadata', $data)) {
+            $this->syncAssignmentsFromMetadata($workOrder->id, $data['metadata']);
         }
 
         return (new WorkOrderResource($workOrder))->response()->getData(true);
@@ -295,32 +300,33 @@ class WorkOrderService implements WorkOrderServiceInterface
 
         $updated = (bool) $this->workOrderRepository->update($id, $data);
 
-        if (! $updated && !empty($storedImages)) {
+        if (!$updated && !empty($storedImages)) {
             $this->deleteEvidenceImages($storedImages);
+        }
+
+        if ($updated && array_key_exists('metadata', $data)) {
+            $this->syncAssignmentsFromMetadata($id, $data['metadata']);
         }
 
         return $updated;
     }
 
-    public function bulkUpdateByCustomer(
-        string $customerCode,
-        string $customerPartNumber,
-        array $data
-    ): array {
-        $this->syncCustomerSnapshot($data);
-        $this->syncTemplateMetadata($data);
-        $this->syncReleaseFlag($data);
+    public function syncAssignments(int $id, array $routes): array
+    {
+        $this->workOrderRepository->findById($id);
 
-        $updated = $this->workOrderRepository->updateByCustomerCodeAndPartNumber(
-            $customerCode,
-            $customerPartNumber,
-            $data
-        );
+        $rows = $this->buildAssignmentRows($id, $routes);
+        $rows = $this->filterValidAssignmentRows($rows);
+
+        DB::transaction(function () use ($id, $rows): void {
+            UserWorkOrder::query()->where('work_order_id', $id)->delete();
+            if (!empty($rows)) {
+                UserWorkOrder::query()->insert($rows);
+            }
+        });
 
         return [
-            'customer_code' => $customerCode,
-            'customer_part_number' => $customerPartNumber,
-            'updated' => $updated,
+            'count' => count($rows),
         ];
     }
 
@@ -366,7 +372,7 @@ class WorkOrderService implements WorkOrderServiceInterface
             default => false,
         };
 
-        if (! $resource) {
+        if (!$resource) {
             @unlink($tempPath);
             throw new \RuntimeException('Unsupported image type for PNG conversion.');
         }
@@ -376,7 +382,7 @@ class WorkOrderService implements WorkOrderServiceInterface
         $saved = imagepng($resource, $tempPath, 6);
         imagedestroy($resource);
 
-        if (! $saved) {
+        if (!$saved) {
             @unlink($tempPath);
             throw new \RuntimeException('Failed to convert image to PNG.');
         }
@@ -1090,6 +1096,133 @@ class WorkOrderService implements WorkOrderServiceInterface
         return [];
     }
 
+    protected function syncAssignmentsFromMetadata(int $workOrderId, mixed $metadata): void
+    {
+        $normalized = $this->normalizeMetadata($metadata);
+        $routes = Arr::get($normalized, 'assignments.routes')
+            ?? Arr::get($normalized, 'route_assignments')
+            ?? Arr::get($normalized, 'routeAssignments');
+
+        if (is_null($routes)) {
+            return;
+        }
+
+        $routes = is_array($routes) ? $routes : [];
+        $this->syncAssignments($workOrderId, $routes);
+    }
+
+    protected function buildAssignmentRows(int $workOrderId, array $routes): array
+    {
+        if (empty($routes)) {
+            return [];
+        }
+
+        $rows = [];
+        $seen = [];
+        $now = now();
+
+        foreach ($routes as $idx => $route) {
+            if (!is_array($route)) {
+                continue;
+            }
+
+            $orderSeq = Arr::get($route, 'order_seq')
+                ?? Arr::get($route, 'orderSeq')
+                ?? ($idx + 1);
+            $routeCode = Arr::get($route, 'route') ?? Arr::get($route, 'key');
+            $routeName = Arr::get($route, 'name');
+            $routeKey = $this->buildAssignmentRouteKey($routeCode, $orderSeq, $idx);
+            $operators = Arr::get($route, 'operators', []);
+
+            if (!is_array($operators)) {
+                continue;
+            }
+
+            foreach ($operators as $operator) {
+                if (!is_array($operator)) {
+                    continue;
+                }
+
+                $userId = Arr::get($operator, 'id')
+                    ?? Arr::get($operator, 'user_id')
+                    ?? Arr::get($operator, 'userId');
+                if (!$userId) {
+                    continue;
+                }
+
+                $unique = "{$workOrderId}|{$userId}|{$routeKey}";
+                if (isset($seen[$unique])) {
+                    continue;
+                }
+                $seen[$unique] = true;
+
+                $qty = Arr::get($operator, 'qty');
+                $rows[] = [
+                    'work_order_id' => $workOrderId,
+                    'user_id' => (int) $userId,
+                    'route_key' => $routeKey,
+                    'route_code' => $routeCode ? (string) $routeCode : null,
+                    'route_name' => $routeName ? (string) $routeName : null,
+                    'order_seq' => $orderSeq !== null ? (int) $orderSeq : null,
+                    'assigned_qty' => ($qty === '' || $qty === null) ? null : (string) $qty,
+                    'created_at' => $now,
+                    'updated_at' => $now,
+                ];
+            }
+        }
+
+        return $rows;
+    }
+
+    protected function buildAssignmentRouteKey(?string $routeCode, mixed $orderSeq, int $idx): string
+    {
+        $cleanCode = $routeCode !== null ? trim((string) $routeCode) : '';
+        $seq = $orderSeq !== null && $orderSeq !== '' ? trim((string) $orderSeq) : '';
+
+        if ($cleanCode !== '' && $seq !== '') {
+            return "{$cleanCode}-{$seq}";
+        }
+
+        if ($cleanCode !== '') {
+            return $cleanCode;
+        }
+
+        return "route-" . ($idx + 1);
+    }
+
+    protected function filterValidAssignmentRows(array $rows): array
+    {
+        if (empty($rows)) {
+            return [];
+        }
+
+        $userIds = array_values(array_unique(array_map(
+            static fn(array $row): int => (int) ($row['user_id'] ?? 0),
+            $rows
+        )));
+
+        if (empty($userIds)) {
+            return [];
+        }
+
+        $validIds = User::query()
+            ->whereIn('id', $userIds)
+            ->pluck('id')
+            ->map(static fn($id) => (int) $id)
+            ->all();
+
+        if (empty($validIds)) {
+            return [];
+        }
+
+        $validMap = array_flip($validIds);
+
+        return array_values(array_filter(
+            $rows,
+            static fn(array $row): bool => isset($validMap[(int) ($row['user_id'] ?? 0)])
+        ));
+    }
+
     protected function extractRoutes(array $metadata): array
     {
         $routes = $metadata['routes'] ?? $metadata['data'] ?? $metadata['steps'] ?? [];
@@ -1203,8 +1336,7 @@ class WorkOrderService implements WorkOrderServiceInterface
         int $completedRoutes,
         int $totalRoutes,
         bool $hasPacking
-    ): string
-    {
+    ): string {
         if (!$isReleased) {
             return 'backlog';
         }

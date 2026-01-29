@@ -14,6 +14,7 @@ class MachineUpdateRequest extends FormRequest
     public function rules(): array
     {
         return [
+            'image' => ['sometimes', 'nullable', 'image', 'mimes:jpg,jpeg,png,webp', 'max:5120'],
             'production_area' => ['sometimes', 'nullable', 'string', 'max:120'],
             'machine_type' => ['sometimes', 'required', 'string', 'max:120'],
             'printing_type' => ['sometimes', 'nullable', 'string', 'max:120'],

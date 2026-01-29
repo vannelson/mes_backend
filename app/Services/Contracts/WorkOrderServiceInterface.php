@@ -42,13 +42,9 @@ interface WorkOrderServiceInterface
     public function update(int $id, array $data, array $evidenceImages = []): bool;
 
     /**
-     * Update work orders matching customer code and part number.
+     * Sync work order operator assignments per route.
      */
-    public function bulkUpdateByCustomer(
-        string $customerCode,
-        string $customerPartNumber,
-        array $data
-    ): array;
+    public function syncAssignments(int $id, array $routes): array;
 
     /**
      * Delete Work Order

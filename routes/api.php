@@ -69,6 +69,7 @@ Route::prefix('v1')->group(function () {
         Route::put('work-orders/bulk-update', [WorkOrderController::class, 'bulkUpdateByCustomer']);
         Route::get('work-orders/{id}', [WorkOrderController::class, 'show']);
         Route::put('work-orders/{id}', [WorkOrderController::class, 'update']);
+        Route::post('work-orders/{id}/assignments', [WorkOrderController::class, 'syncAssignments']);
         Route::delete('work-orders/{id}', [WorkOrderController::class, 'destroy']);
 
         Route::get('work-order-evidences', [WorkOrderEvidenceController::class, 'index']);
