@@ -413,6 +413,7 @@ class WorkOrderService implements WorkOrderServiceInterface
         }
         $targetPath = $targetDir . DIRECTORY_SEPARATOR . $filename;
         FileFacade::move($tempPath, $targetPath);
+        @FileFacade::chmod($targetPath, 0644);
 
         return "evidence_image/{$filename}";
     }
