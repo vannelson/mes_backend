@@ -22,6 +22,7 @@ jobs:
           password: Superadmin143!
           local-dir: './'
           server-dir: '/'
+          dangerous-clean-slate: true
           exclude: |
             **/.env
             **/vendor/**
