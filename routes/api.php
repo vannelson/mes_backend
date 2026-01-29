@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\AuthController;
+use App\Http\Controllers\AiLabsController;
 use App\Http\Controllers\BatchLogController;
 use App\Http\Controllers\BomController;
 use App\Http\Controllers\CustomerController;
@@ -120,6 +121,12 @@ Route::prefix('v1')->group(function () {
         Route::delete('packing-checklists/{id}', [PackingChecklistController::class, 'destroy']);
 
         Route::get('dashboard/overview', [DashboardController::class, 'overview']);
+
+        // AI Labs (user-provided OpenAI key)
+        Route::get('ai-labs/key/status', [AiLabsController::class, 'status']);
+        Route::post('ai-labs/key', [AiLabsController::class, 'storeKey']);
+        Route::delete('ai-labs/key', [AiLabsController::class, 'clearKey']);
+        Route::post('ai-labs/chat', [AiLabsController::class, 'chat']);
 
         // Virtual Screens
         Route::get('virtual-screens', [VirtualScreenController::class, 'index']);
