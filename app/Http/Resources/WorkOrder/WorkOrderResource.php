@@ -10,6 +10,21 @@ use Illuminate\Support\Facades\Storage;
 
 class WorkOrderResource extends JsonResource
 {
+    protected function resolveEvidenceUrl(?string $path): ?string
+    {
+        if (! $path) {
+            return null;
+        }
+        $clean = ltrim($path, '/');
+        if (str_starts_with($clean, 'images/evidence_image/')) {
+            return url("/{$clean}");
+        }
+        if (str_starts_with($clean, 'evidence_image/')) {
+            return url("/images/{$clean}");
+        }
+        return Storage::disk('public')->url($path);
+    }
+
     /**
      * Transform the resource into an array.
      */
@@ -47,7 +62,7 @@ class WorkOrderResource extends JsonResource
             'is_released' => $this->is_released,
             'evidence_images' => $this->evidence_images ?? [],
             'evidence_image_urls' => array_map(
-                static fn ($path) => Storage::disk('public')->url($path),
+                fn ($path) => $this->resolveEvidenceUrl($path),
                 $this->evidence_images ?? []
             ),
             'metadata' => $this->metadata,
@@ -58,7 +73,5 @@ class WorkOrderResource extends JsonResource
         ];
     }
 }
-
-
 
 

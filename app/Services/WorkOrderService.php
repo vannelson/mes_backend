@@ -14,6 +14,7 @@ use App\Services\Contracts\WorkOrderServiceInterface;
 use App\Services\WorkOrderImportService;
 use Illuminate\Http\File;
 use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\File as FileFacade;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Illuminate\Support\Arr;
@@ -353,7 +354,26 @@ class WorkOrderService implements WorkOrderServiceInterface
             return;
         }
 
-        Storage::disk('public')->delete($paths);
+        foreach ($paths as $path) {
+            if (!is_string($path) || $path === '') {
+                continue;
+            }
+            $clean = ltrim($path, '/');
+            if (str_starts_with($clean, 'evidence_image/')) {
+                $filePath = public_path('images/' . $clean);
+                if (FileFacade::exists($filePath)) {
+                    FileFacade::delete($filePath);
+                    continue;
+                }
+            } elseif (str_starts_with($clean, 'images/evidence_image/')) {
+                $filePath = public_path($clean);
+                if (FileFacade::exists($filePath)) {
+                    FileFacade::delete($filePath);
+                    continue;
+                }
+            }
+            Storage::disk('public')->delete($path);
+        }
     }
 
     protected function storeEvidenceImage(UploadedFile $image): string
@@ -387,10 +407,14 @@ class WorkOrderService implements WorkOrderServiceInterface
             throw new \RuntimeException('Failed to convert image to PNG.');
         }
 
-        $storedPath = Storage::disk('public')->putFileAs('work_orders/evidence', new File($tempPath), $filename);
-        @unlink($tempPath);
+        $targetDir = public_path('images/evidence_image');
+        if (!FileFacade::isDirectory($targetDir)) {
+            FileFacade::makeDirectory($targetDir, 0755, true);
+        }
+        $targetPath = $targetDir . DIRECTORY_SEPARATOR . $filename;
+        FileFacade::move($tempPath, $targetPath);
 
-        return $storedPath;
+        return "evidence_image/{$filename}";
     }
     public function delete(int $id): bool
     {

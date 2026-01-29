@@ -14,13 +14,24 @@ class WorkOrderEvidenceResource extends JsonResource
     public function toArray(Request $request): array
     {
         $path = $this->image_path;
+        $url = null;
+        if ($path) {
+            $clean = ltrim($path, '/');
+            if (str_starts_with($clean, 'images/evidence_image/')) {
+                $url = url("/{$clean}");
+            } elseif (str_starts_with($clean, 'evidence_image/')) {
+                $url = url("/images/{$clean}");
+            } else {
+                $url = Storage::disk('public')->url($path);
+            }
+        }
 
         return [
             'id' => $this->id,
             'work_order_no' => $this->work_order_no,
             'route_name' => $this->route_name,
             'image_path' => $path,
-            'image_url' => $path ? Storage::disk('public')->url($path) : null,
+            'image_url' => $url,
             'original_name' => $this->original_name,
             'created_at' => $this->created_at,
             'updated_at' => $this->updated_at,

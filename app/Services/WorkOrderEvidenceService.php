@@ -7,6 +7,7 @@ use App\Repositories\Contracts\WorkOrderEvidenceRepositoryInterface;
 use App\Services\Contracts\WorkOrderEvidenceServiceInterface;
 use Illuminate\Http\File;
 use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\File as FileFacade;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 
@@ -68,7 +69,24 @@ class WorkOrderEvidenceService implements WorkOrderEvidenceServiceInterface
 
         $deleted = $this->workOrderEvidenceRepository->delete($id);
         if ($deleted && $path) {
-            Storage::disk('public')->delete($path);
+            $clean = ltrim($path, '/');
+            if (str_starts_with($clean, 'evidence_image/')) {
+                $filePath = public_path('images/' . $clean);
+                if (FileFacade::exists($filePath)) {
+                    FileFacade::delete($filePath);
+                } else {
+                    Storage::disk('public')->delete($path);
+                }
+            } elseif (str_starts_with($clean, 'images/evidence_image/')) {
+                $filePath = public_path($clean);
+                if (FileFacade::exists($filePath)) {
+                    FileFacade::delete($filePath);
+                } else {
+                    Storage::disk('public')->delete($path);
+                }
+            } else {
+                Storage::disk('public')->delete($path);
+            }
         }
 
         return $deleted;
@@ -105,13 +123,13 @@ class WorkOrderEvidenceService implements WorkOrderEvidenceServiceInterface
             throw new \RuntimeException('Failed to convert image to PNG.');
         }
 
-        $storedPath = Storage::disk('public')->putFileAs(
-            'evidence_image',
-            new File($tempPath),
-            $filename
-        );
-        @unlink($tempPath);
+        $targetDir = public_path('images/evidence_image');
+        if (!FileFacade::isDirectory($targetDir)) {
+            FileFacade::makeDirectory($targetDir, 0755, true);
+        }
+        $targetPath = $targetDir . DIRECTORY_SEPARATOR . $filename;
+        FileFacade::move($tempPath, $targetPath);
 
-        return $storedPath;
+        return "evidence_image/{$filename}";
     }
 }
