@@ -9,6 +9,7 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Arr;
+use Illuminate\Support\Facades\File;
 use Illuminate\Validation\ValidationException;
 use Throwable;
 
@@ -87,5 +88,47 @@ class WorkOrderEvidenceController extends Controller
         } catch (Throwable $e) {
             return $this->error('Failed to delete work order evidence.', 500);
         }
+    }
+
+    public function proxyImage(Request $request)
+    {
+        $path = (string) $request->query('path', '');
+        if ($path === '') {
+            abort(404);
+        }
+
+        $clean = urldecode($path);
+        if (str_starts_with($clean, 'http://') || str_starts_with($clean, 'https://')) {
+            $parsed = parse_url($clean);
+            if (!empty($parsed['path'])) {
+                $clean = $parsed['path'];
+            }
+        }
+
+        $clean = str_replace('\\', '/', $clean);
+        $clean = ltrim($clean, '/');
+        if ($clean === '' || str_contains($clean, '..')) {
+            abort(403);
+        }
+
+        $candidates = [];
+        if (str_starts_with($clean, 'images/evidence_image/')) {
+            $candidates[] = public_path($clean);
+        } elseif (str_starts_with($clean, 'evidence_image/')) {
+            $candidates[] = public_path('images/' . $clean);
+        } elseif (str_starts_with($clean, 'storage/evidence_image/')) {
+            $candidates[] = public_path($clean);
+        } else {
+            abort(404);
+        }
+
+        foreach ($candidates as $candidate) {
+            if (File::exists($candidate)) {
+                $mime = File::mimeType($candidate) ?: 'application/octet-stream';
+                return response()->file($candidate, ['Content-Type' => $mime]);
+            }
+        }
+
+        abort(404);
     }
 }

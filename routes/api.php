@@ -76,6 +76,7 @@ Route::prefix('v1')->group(function () {
         Route::get('work-order-evidences', [WorkOrderEvidenceController::class, 'index']);
         Route::post('work-order-evidences', [WorkOrderEvidenceController::class, 'store']);
         Route::delete('work-order-evidences/{id}', [WorkOrderEvidenceController::class, 'destroy']);
+        Route::get('evidence-image', [WorkOrderEvidenceController::class, 'proxyImage']);
 
         Route::get('boms', [BomController::class, 'index']);
         Route::get('boms/stats', [BomController::class, 'stats']);
