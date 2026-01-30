@@ -96,7 +96,7 @@ class MachineController extends Controller
                     $existing = Machine::find($id);
                     $metadata = is_array($existing?->metadata) ? $existing->metadata : [];
                 }
-                $publicPath = "/images/machines/{$filename}";
+                $publicPath = "/api/v1/images/machines/{$filename}";
                 $metadata['image_filename'] = $filename;
                 $metadata['image_url'] = $publicPath;
                 $metadata['urlpath'] = $publicPath;

@@ -6,7 +6,6 @@ use App\Http\Resources\Customer\CustomerResource;
 use App\Http\Resources\TemplateRoute\TemplateRouteResource;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
-use Illuminate\Support\Facades\Storage;
 
 class WorkOrderResource extends JsonResource
 {
@@ -16,13 +15,10 @@ class WorkOrderResource extends JsonResource
             return null;
         }
         $clean = ltrim($path, '/');
-        if (str_starts_with($clean, 'images/evidence_image/')) {
-            return url("/{$clean}");
+        if (str_starts_with($clean, 'images/')) {
+            $clean = substr($clean, strlen('images/'));
         }
-        if (str_starts_with($clean, 'evidence_image/')) {
-            return url("/images/{$clean}");
-        }
-        return Storage::disk('public')->url($path);
+        return url("/api/v1/images/{$clean}");
     }
 
     /**
@@ -73,5 +69,3 @@ class WorkOrderResource extends JsonResource
         ];
     }
 }
-
-

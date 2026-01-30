@@ -9,6 +9,7 @@ use App\Http\Requests\WorkOrder\WorkOrderDetailRequest;
 use App\Http\Requests\WorkOrder\WorkOrderImportRequest;
 use App\Http\Requests\WorkOrder\WorkOrderAssignmentsRequest;
 use App\Http\Requests\WorkOrder\WorkOrderStoreRequest;
+use App\Http\Requests\WorkOrder\WorkOrderTimeTrackerRequest;
 use App\Http\Requests\WorkOrder\WorkOrderUpdateRequest;
 use App\Services\Contracts\WorkOrderServiceInterface;
 use App\Traits\ResponseTrait;
@@ -282,6 +283,21 @@ class WorkOrderController extends Controller
             return $this->success('Work order assignments updated successfully!', $result);
         } catch (Throwable $e) {
             return $this->error('Failed to update work order assignments.', 500);
+        }
+    }
+
+    public function recordTimeTracker(WorkOrderTimeTrackerRequest $request, int $id): JsonResponse
+    {
+        try {
+            $payload = $request->validated();
+            $actor = $request->user();
+            $result = $this->workOrderService->recordTimeTracker($id, $payload, $actor);
+
+            return $this->success('Time tracker updated successfully!', $result);
+        } catch (ValidationException $e) {
+            return $this->validationError($e);
+        } catch (Throwable $e) {
+            return $this->error('Failed to update time tracker.', 500);
         }
     }
 

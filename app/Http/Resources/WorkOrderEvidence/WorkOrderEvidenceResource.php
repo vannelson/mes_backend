@@ -4,27 +4,28 @@ namespace App\Http\Resources\WorkOrderEvidence;
 
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
-use Illuminate\Support\Facades\Storage;
 
 class WorkOrderEvidenceResource extends JsonResource
 {
+    protected function resolveImageUrl(?string $path): ?string
+    {
+        if (! $path) {
+            return null;
+        }
+        $clean = ltrim($path, '/');
+        if (str_starts_with($clean, 'images/')) {
+            $clean = substr($clean, strlen('images/'));
+        }
+        return url("/api/v1/images/{$clean}");
+    }
+
     /**
      * Transform the resource into an array.
      */
     public function toArray(Request $request): array
     {
         $path = $this->image_path;
-        $url = null;
-        if ($path) {
-            $clean = ltrim($path, '/');
-            if (str_starts_with($clean, 'images/evidence_image/')) {
-                $url = url("/{$clean}");
-            } elseif (str_starts_with($clean, 'evidence_image/')) {
-                $url = url("/images/{$clean}");
-            } else {
-                $url = Storage::disk('public')->url($path);
-            }
-        }
+        $url = $this->resolveImageUrl($path);
 
         return [
             'id' => $this->id,

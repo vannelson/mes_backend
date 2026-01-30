@@ -14,13 +14,10 @@ class PackingResource extends JsonResource
             return null;
         }
         $path = ltrim($value, '/');
-        if (str_starts_with($path, 'images/packing/')) {
-            return url("/{$path}");
+        if (str_starts_with($path, 'images/')) {
+            $path = substr($path, strlen('images/'));
         }
-        if (str_starts_with($path, 'packing/')) {
-            return url("/images/{$path}");
-        }
-        return url("/images/packing/{$path}");
+        return url("/api/v1/images/{$path}");
     }
 
     public function toArray(Request $request): array

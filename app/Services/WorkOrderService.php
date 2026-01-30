@@ -16,10 +16,11 @@ use Illuminate\Http\File;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\File as FileFacade;
 use Illuminate\Support\Facades\Storage;
-use Illuminate\Support\Str;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
+use Illuminate\Support\Str;
+use Illuminate\Validation\ValidationException;
 use Throwable;
 
 class WorkOrderService implements WorkOrderServiceInterface
@@ -353,6 +354,118 @@ class WorkOrderService implements WorkOrderServiceInterface
         ];
     }
 
+    public function recordTimeTracker(int $id, array $payload, User $actor): array
+    {
+        $workOrder = $this->workOrderRepository->findById($id);
+        $metadata = $this->normalizeMetadata($workOrder->metadata);
+        $routesKey = $this->resolveRoutesKey($metadata);
+
+        if (!isset($metadata[$routesKey]) || !is_array($metadata[$routesKey])) {
+            $metadata[$routesKey] = [];
+        }
+
+        $routes = &$metadata[$routesKey];
+        $location = $this->locateRouteEntry($routes, $payload);
+
+        if (!$location) {
+            throw ValidationException::withMessages([
+                'route_key' => 'Route not found for time tracking.',
+            ]);
+        }
+
+        if ($location['nested']) {
+            $route = &$routes[$location['line_index']]['routes'][$location['route_index']];
+        } else {
+            $route = &$routes[$location['line_index']];
+        }
+
+        if (!is_array($route)) {
+            throw ValidationException::withMessages([
+                'route_key' => 'Route metadata is invalid.',
+            ]);
+        }
+
+        $operatorId = (int) ($payload['operator_id'] ?? $actor->id);
+        $this->assertTimeTrackerPermission($actor, $operatorId);
+
+        $action = strtolower(trim((string) $payload['action']));
+        $routeMetadata = is_array($route['metadata'] ?? null) ? $route['metadata'] : [];
+        $timeTracker = is_array($routeMetadata['timeTracker'] ?? null) ? $routeMetadata['timeTracker'] : [];
+        $entries = is_array($timeTracker['entries'] ?? null) ? $timeTracker['entries'] : [];
+
+        $lastAction = $this->lastTimeTrackerAction($entries, $operatorId);
+        $role = strtolower((string) ($actor->user_type ?? ''));
+        $privileged = in_array($role, ['supervisor', 'admin'], true);
+        if ($action === 'start' && $lastAction === 'stop' && !$privileged) {
+            throw ValidationException::withMessages([
+                'action' => 'Timer was stopped and requires supervisor restart.',
+            ]);
+        }
+        $this->assertTimeTrackerAction($action, $lastAction);
+
+        $printedQty = isset($payload['printed_qty']) ? $this->numericValue($payload['printed_qty']) : null;
+        $operatorProgressPct = isset($payload['operator_progress_pct'])
+            ? $this->numericValue($payload['operator_progress_pct'])
+            : null;
+        $routeProgressPct = isset($payload['route_progress_pct'])
+            ? $this->numericValue($payload['route_progress_pct'])
+            : null;
+        $totalPrintedQty = isset($payload['total_printed_qty'])
+            ? $this->numericValue($payload['total_printed_qty'])
+            : null;
+        $targetPrintedQty = isset($payload['target_printed_qty'])
+            ? $this->numericValue($payload['target_printed_qty'])
+            : null;
+
+        $lastPrinted = $this->lastTimeTrackerPrintedQty($entries, $operatorId);
+        if ($printedQty !== null && $lastPrinted !== null) {
+            if (!$privileged && $printedQty < $lastPrinted) {
+                throw ValidationException::withMessages([
+                    'printed_qty' => 'Printed quantity must be greater than or equal to the previous entry.',
+                ]);
+            }
+        }
+
+        $timestamp = now()->toIso8601String();
+        $entry = [
+            'id' => (string) Str::uuid(),
+            'action' => $action,
+            'at' => $timestamp,
+            'source' => $payload['source'] ?? 'manual',
+            'operator_id' => $operatorId,
+            'operator_name' => $this->resolveOperatorName($operatorId),
+            'printed_qty' => $printedQty,
+            'operator_progress_pct' => $operatorProgressPct,
+            'route_progress_pct' => $routeProgressPct,
+            'total_printed_qty' => $totalPrintedQty,
+            'target_printed_qty' => $targetPrintedQty,
+            'recorded_by' => [
+                'id' => $actor->id,
+                'name' => $this->resolveActorName($actor),
+                'role' => $actor->user_type,
+            ],
+            'override' => $actor->id !== $operatorId,
+        ];
+
+        $entries[] = $entry;
+        $timeTracker['entries'] = $entries;
+        $timeTracker['updated_at'] = $timestamp;
+        $routeMetadata['timeTracker'] = $timeTracker;
+        $route['metadata'] = $routeMetadata;
+
+        $this->workOrderRepository->update($id, ['metadata' => $metadata]);
+
+        return [
+            'entry' => $entry,
+            'time_tracker' => $timeTracker,
+            'route' => [
+                'route' => $route['route'] ?? $route['key'] ?? null,
+                'name' => $route['name'] ?? null,
+                'order_seq' => $route['order_seq'] ?? $route['orderSeq'] ?? null,
+            ],
+        ];
+    }
+
     protected function storeEvidenceImages(array $evidenceImages): array
     {
         $files = [];
@@ -368,6 +481,200 @@ class WorkOrderService implements WorkOrderServiceInterface
         }
 
         return $stored;
+    }
+
+    protected function resolveRoutesKey(array $metadata): string
+    {
+        if (array_key_exists('routes', $metadata)) {
+            return 'routes';
+        }
+        if (array_key_exists('data', $metadata)) {
+            return 'data';
+        }
+        if (array_key_exists('steps', $metadata)) {
+            return 'steps';
+        }
+        return 'routes';
+    }
+
+    protected function locateRouteEntry(array $routes, array $payload): ?array
+    {
+        $routeKey = $this->normalizeRouteToken($payload['route_key'] ?? null);
+        $orderSeq = $payload['order_seq'] ?? null;
+        $targetIndex = isset($payload['route_index']) ? (int) $payload['route_index'] : null;
+        $flatIndex = 0;
+
+        foreach ($routes as $lineIndex => $entry) {
+            if (!is_array($entry)) {
+                continue;
+            }
+
+            if (array_key_exists('routes', $entry) && is_array($entry['routes'])) {
+                foreach ($entry['routes'] as $routeIndex => $route) {
+                    if (!is_array($route)) {
+                        $flatIndex++;
+                        continue;
+                    }
+
+                    if ($this->routeMatchesPayload($route, $routeKey, $orderSeq, $targetIndex, $flatIndex)) {
+                        return [
+                            'line_index' => $lineIndex,
+                            'route_index' => $routeIndex,
+                            'nested' => true,
+                        ];
+                    }
+                    $flatIndex++;
+                }
+                continue;
+            }
+
+            if ($this->routeMatchesPayload($entry, $routeKey, $orderSeq, $targetIndex, $flatIndex)) {
+                return [
+                    'line_index' => $lineIndex,
+                    'route_index' => null,
+                    'nested' => false,
+                ];
+            }
+            $flatIndex++;
+        }
+
+        return null;
+    }
+
+    protected function routeMatchesPayload(
+        array $route,
+        ?string $routeKey,
+        mixed $orderSeq,
+        ?int $targetIndex,
+        int $flatIndex
+    ): bool {
+        if ($targetIndex !== null && $flatIndex === $targetIndex) {
+            return true;
+        }
+
+        if ($orderSeq !== null && $orderSeq !== '') {
+            $routeOrder = $route['order_seq'] ?? $route['orderSeq'] ?? null;
+            if ($routeOrder !== null && (string) $routeOrder === (string) $orderSeq) {
+                return true;
+            }
+        }
+
+        if ($routeKey) {
+            $candidates = [
+                $route['route'] ?? null,
+                $route['key'] ?? null,
+                $route['name'] ?? null,
+            ];
+            foreach ($candidates as $candidate) {
+                if ($this->normalizeRouteToken($candidate) === $routeKey) {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    protected function normalizeRouteToken(mixed $value): ?string
+    {
+        if ($value === null) {
+            return null;
+        }
+        $raw = strtolower(trim((string) $value));
+        if ($raw === '') {
+            return null;
+        }
+        $raw = preg_replace('/\s+/', ' ', $raw) ?? $raw;
+        return $raw;
+    }
+
+    protected function assertTimeTrackerPermission(User $actor, int $operatorId): void
+    {
+        $role = strtolower((string) ($actor->user_type ?? ''));
+        $privileged = in_array($role, ['supervisor', 'admin'], true);
+
+        if (!$privileged && $actor->id !== $operatorId) {
+            throw ValidationException::withMessages([
+                'operator_id' => 'Operators can only track their own progress.',
+            ]);
+        }
+    }
+
+    protected function lastTimeTrackerAction(array $entries, int $operatorId): ?string
+    {
+        $last = null;
+        foreach ($entries as $entry) {
+            if (!is_array($entry)) {
+                continue;
+            }
+            $entryOperator = $entry['operator_id'] ?? $entry['operatorId'] ?? $entry['operator'] ?? null;
+            if ((string) $entryOperator !== (string) $operatorId) {
+                continue;
+            }
+            $last = strtolower((string) ($entry['action'] ?? ''));
+        }
+
+        return $last ?: null;
+    }
+
+    protected function lastTimeTrackerPrintedQty(array $entries, int $operatorId): ?float
+    {
+        $last = null;
+        foreach ($entries as $entry) {
+            if (!is_array($entry)) {
+                continue;
+            }
+            $entryOperator = $entry['operator_id'] ?? $entry['operatorId'] ?? $entry['operator'] ?? null;
+            if ((string) $entryOperator !== (string) $operatorId) {
+                continue;
+            }
+            if (array_key_exists('printed_qty', $entry) && $entry['printed_qty'] !== null) {
+                $last = $this->numericValue($entry['printed_qty']);
+            }
+        }
+
+        return $last;
+    }
+
+    protected function assertTimeTrackerAction(string $action, ?string $lastAction): void
+    {
+        $action = strtolower(trim($action));
+        $lastAction = strtolower(trim((string) $lastAction));
+
+        if ($action === 'start' && $lastAction === 'start') {
+            throw ValidationException::withMessages([
+                'action' => 'Timer is already running.',
+            ]);
+        }
+        if ($action === 'pause' && $lastAction !== 'start') {
+            throw ValidationException::withMessages([
+                'action' => 'Timer must be running before pausing.',
+            ]);
+        }
+        if ($action === 'stop' && !in_array($lastAction, ['start', 'pause'], true)) {
+            throw ValidationException::withMessages([
+                'action' => 'Timer must be started before stopping.',
+            ]);
+        }
+    }
+
+    protected function resolveOperatorName(int $operatorId): ?string
+    {
+        if (!$operatorId) {
+            return null;
+        }
+        $user = User::query()->select(['id', 'firstname', 'lastname', 'middlename', 'email'])->find($operatorId);
+        if (!$user) {
+            return null;
+        }
+        $name = trim(sprintf('%s %s %s', $user->firstname, $user->middlename, $user->lastname));
+        return $name !== '' ? $name : $user->email;
+    }
+
+    protected function resolveActorName(User $actor): string
+    {
+        $name = trim(sprintf('%s %s %s', $actor->firstname, $actor->middlename, $actor->lastname));
+        return $name !== '' ? $name : ($actor->email ?? 'User');
     }
 
     protected function deleteEvidenceImages(array $paths): void

@@ -109,4 +109,9 @@ interface WorkOrderServiceInterface
         ?string $sortBy = null,
         ?string $sortDir = null
     ): array;
+
+    /**
+     * Append an immutable time tracker entry to a route.
+     */
+    public function recordTimeTracker(int $id, array $payload, \App\Models\User $actor): array;
 }

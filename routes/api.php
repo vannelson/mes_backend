@@ -9,6 +9,7 @@ use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\DiecutController;
 use App\Http\Controllers\DiecutTypeController;
 use App\Http\Controllers\MachineController;
+use App\Http\Controllers\ImageController;
 use App\Http\Controllers\PackingChecklistController;
 use App\Http\Controllers\PackingController;
 use App\Http\Controllers\PlaylistItemController;
@@ -27,6 +28,7 @@ use Illuminate\Support\Facades\Route;
 Route::prefix('v1')->group(function () {
     Route::post('auth/login', [AuthController::class, 'login']);
     Route::post('transcripts', [TranscriptController::class, 'store']);
+    Route::get('images/{path}', [ImageController::class, 'show'])->where('path', '.*');
 
     Route::middleware('auth:sanctum')->group(function () {
         Route::get('users', [UserController::class, 'index']);
@@ -71,6 +73,7 @@ Route::prefix('v1')->group(function () {
         Route::get('work-orders/{id}', [WorkOrderController::class, 'show']);
         Route::put('work-orders/{id}', [WorkOrderController::class, 'update']);
         Route::post('work-orders/{id}/assignments', [WorkOrderController::class, 'syncAssignments']);
+        Route::post('work-orders/{id}/time-tracker', [WorkOrderController::class, 'recordTimeTracker']);
         Route::delete('work-orders/{id}', [WorkOrderController::class, 'destroy']);
 
         Route::get('work-order-evidences', [WorkOrderEvidenceController::class, 'index']);
