@@ -90,6 +90,11 @@ interface WorkOrderServiceInterface
     public function countByTemplateRouteBatch(string $batchNumber): int;
 
     /**
+     * Update work orders matching customer code and part number.
+     */
+    public function bulkUpdateByCustomer(string $customerCode, string $customerPartNumber, array $changes): array;
+
+    /**
      * Provide aggregated work order summary metrics for dashboards.
      */
     public function summary(array $options = []): array;
@@ -105,4 +110,3 @@ interface WorkOrderServiceInterface
         ?string $sortDir = null
     ): array;
 }
-

@@ -312,6 +312,28 @@ class WorkOrderService implements WorkOrderServiceInterface
         return $updated;
     }
 
+    public function bulkUpdateByCustomer(string $customerCode, string $customerPartNumber, array $changes): array
+    {
+        if (empty($changes)) {
+            return [
+                'updated' => 0,
+            ];
+        }
+
+        $this->syncTemplateMetadata($changes);
+        $this->syncReleaseFlag($changes);
+
+        $updated = $this->workOrderRepository->updateByCustomerCodeAndPartNumber(
+            $customerCode,
+            $customerPartNumber,
+            $changes
+        );
+
+        return [
+            'updated' => $updated,
+        ];
+    }
+
     public function syncAssignments(int $id, array $routes): array
     {
         $this->workOrderRepository->findById($id);
