@@ -6,6 +6,7 @@ use App\Http\Resources\TemplateRoute\TemplateRouteResource;
 use App\Repositories\Contracts\TemplateRouteRepositoryInterface;
 use App\Services\Contracts\TemplateRouteServiceInterface;
 use Illuminate\Support\Arr;
+use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Str;
 
 class TemplateRouteService implements TemplateRouteServiceInterface
@@ -17,6 +18,28 @@ class TemplateRouteService implements TemplateRouteServiceInterface
 
     public function getList(array $filters = [], array $order = [], int $limit = 10, int $page = 1): array
     {
+        $uniqueSequenceOnly = (bool) Arr::get($filters, 'unique_route_sequence', false);
+        if ($uniqueSequenceOnly) {
+            unset($filters['unique_route_sequence']);
+            $allTemplates = $this->templateRouteRepository->listAll($filters, $order);
+            $unique = $this->dedupeByRouteNameSequence($allTemplates);
+
+            $total = count($unique);
+            $page = max(1, $page);
+            $limit = max(1, $limit);
+            $offset = ($page - 1) * $limit;
+            $paged = array_slice($unique, $offset, $limit);
+            $paginator = new LengthAwarePaginator(
+                $paged,
+                $total,
+                $limit,
+                $page,
+                ['path' => LengthAwarePaginator::resolveCurrentPath()]
+            );
+
+            return TemplateRouteResource::collection($paginator)->response()->getData(true);
+        }
+
         return TemplateRouteResource::collection(
             $this->templateRouteRepository->listing($filters, $order, $limit, $page)
         )->response()->getData(true);
@@ -211,6 +234,24 @@ class TemplateRouteService implements TemplateRouteServiceInterface
         }
 
         return $map;
+    }
+
+    protected function dedupeByRouteNameSequence($templates): array
+    {
+        $unique = [];
+        $seen = [];
+
+        foreach ($templates as $template) {
+            $sequenceKey = (string) ($template->route_name_sequence_key ?? '');
+            $uniqueKey = $sequenceKey !== '' ? $sequenceKey : "id:{$template->id}";
+            if (isset($seen[$uniqueKey])) {
+                continue;
+            }
+            $seen[$uniqueKey] = true;
+            $unique[] = $template;
+        }
+
+        return $unique;
     }
 
     protected function buildSequenceKey(array $metadata): string

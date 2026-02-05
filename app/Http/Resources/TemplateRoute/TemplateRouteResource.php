@@ -20,6 +20,7 @@ class TemplateRouteResource extends JsonResource
             'sheet' => $this->sheet,
             'user_id' => $this->user_id,
             'metadata' => $this->metadata,
+            'route_name_sequence_key' => $this->route_name_sequence_key,
             'manager' => $this->whenLoaded('manager'),
             'work_orders_count' => $this->when(isset($this->work_orders_count), (int) $this->work_orders_count),
             'work_orders' => WorkOrderSummaryResource::collection($this->whenLoaded('workOrders')),

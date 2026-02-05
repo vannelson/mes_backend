@@ -33,6 +33,13 @@ class TemplateRouteController extends Controller
         if ($request->filled('batch_number')) {
             $filters['batch_number'] = $request->get('batch_number');
         }
+        if ($request->has('unique_route_sequence')) {
+            $filters['unique_route_sequence'] = filter_var(
+                $request->get('unique_route_sequence'),
+                FILTER_VALIDATE_BOOLEAN,
+                FILTER_NULL_ON_FAILURE
+            ) ?? false;
+        }
 
         try {
             $data = $this->templateRouteService->getList($filters, $order, $limit, $page);

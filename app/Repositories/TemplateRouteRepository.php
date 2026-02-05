@@ -6,6 +6,7 @@ use App\Models\TemplateRoute;
 use App\Repositories\Contracts\TemplateRouteRepositoryInterface;
 use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Arr;
+use Illuminate\Support\Collection;
 
 class TemplateRouteRepository extends BaseRepository implements TemplateRouteRepositoryInterface
 {
@@ -16,28 +17,16 @@ class TemplateRouteRepository extends BaseRepository implements TemplateRouteRep
 
     public function listing(array $filters = [], array $order = [], int $limit = 10, int $page = 1): LengthAwarePaginator
     {
-        $query = $this->model->newQuery()->with('manager');
-
-        if ($batchNumber = Arr::get($filters, 'batch_number')) {
-            $query->where('batch_number', $batchNumber);
-        }
-
-        if ($template = Arr::get($filters, 'template')) {
-            $query->where('template', 'LIKE', "%{$template}%");
-        }
-
-        if ($userId = Arr::get($filters, 'user_id')) {
-            $query->where('user_id', $userId);
-        }
-
-        if ($uuid = Arr::get($filters, 'uuid')) {
-            $query->where('uuid', $uuid);
-        }
-
-        [$orderBy, $direction] = !empty($order) ? $order : ['id', 'desc'];
-        $query->orderBy($orderBy, $direction);
+        $query = $this->applyFilters($filters, $order);
 
         return $query->paginate($limit, ['*'], 'page', $page);
+    }
+
+    public function listAll(array $filters = [], array $order = []): Collection
+    {
+        $query = $this->applyFilters($filters, $order);
+
+        return $query->get();
     }
 
     public function findByTemplate(string $template): ?TemplateRoute
@@ -74,5 +63,31 @@ class TemplateRouteRepository extends BaseRepository implements TemplateRouteRep
         return $this->model->newQuery()
             ->where('batch_number', $batchNumber)
             ->delete();
+    }
+
+    protected function applyFilters(array $filters = [], array $order = [])
+    {
+        $query = $this->model->newQuery()->with('manager');
+
+        if ($batchNumber = Arr::get($filters, 'batch_number')) {
+            $query->where('batch_number', $batchNumber);
+        }
+
+        if ($template = Arr::get($filters, 'template')) {
+            $query->where('template', 'LIKE', "%{$template}%");
+        }
+
+        if ($userId = Arr::get($filters, 'user_id')) {
+            $query->where('user_id', $userId);
+        }
+
+        if ($uuid = Arr::get($filters, 'uuid')) {
+            $query->where('uuid', $uuid);
+        }
+
+        [$orderBy, $direction] = !empty($order) ? $order : ['id', 'desc'];
+        $query->orderBy($orderBy, $direction);
+
+        return $query;
     }
 }
