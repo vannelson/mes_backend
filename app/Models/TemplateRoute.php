@@ -28,23 +28,37 @@ class TemplateRoute extends Model
 
     public function getRouteNameSequenceKeyAttribute(): string
     {
-        $routes = $this->flattenRoutes($this->metadata);
+        $metadata = $this->metadata;
+        if (is_array($metadata) && isset($metadata['sequence']) && is_string($metadata['sequence'])) {
+            $sequence = trim($metadata['sequence']);
+            if ($sequence !== '') {
+                return $sequence;
+            }
+        }
+
+        $routes = $this->flattenRoutes($metadata);
         if (empty($routes)) {
             return '';
         }
 
         $parts = [];
+        $seen = [];
         foreach ($routes as $route) {
             if (!is_array($route)) {
                 continue;
             }
             $label = $this->normalizeRouteLabel($route);
             if ($label !== '') {
+                $key = strtoupper($label);
+                if (isset($seen[$key])) {
+                    continue;
+                }
+                $seen[$key] = true;
                 $parts[] = $label;
             }
         }
 
-        return implode('-', $parts);
+        return implode('->', $parts);
     }
 
     public function setMetadataAttribute($value): void
@@ -54,12 +68,82 @@ class TemplateRoute extends Model
             : $value;
     }
 
+    public function getRouteSequenceWithMachinesAttribute(): string
+    {
+        $metadata = $this->metadata;
+        if (is_string($metadata)) {
+            $decoded = json_decode($metadata, true);
+            $metadata = is_array($decoded) ? $decoded : [];
+        }
+
+        $lines = [];
+        if (is_array($metadata) && array_key_exists('routes', $metadata) && is_array($metadata['routes'])) {
+            $lines = $metadata['routes'];
+        } elseif (is_array($metadata)) {
+            $lines = $metadata;
+        }
+
+        $stepTypes = [];
+        $machineCounts = [];
+
+        foreach ($lines as $line) {
+            if (!is_array($line)) {
+                continue;
+            }
+
+            $routes = [];
+            if (array_key_exists('routes', $line) && is_array($line['routes'])) {
+                $routes = $line['routes'];
+            } else {
+                $routes = [$line];
+            }
+
+            if (!empty($routes) && is_array($routes[0]) && isset($routes[0]['order_seq'])) {
+                usort($routes, static function ($a, $b) {
+                    return ((int) ($a['order_seq'] ?? 0)) <=> ((int) ($b['order_seq'] ?? 0));
+                });
+            }
+
+            $stepIndex = 0;
+            foreach ($routes as $route) {
+                if (!is_array($route)) {
+                    $stepIndex++;
+                    continue;
+                }
+                $type = $this->normalizeRouteLabel($route);
+                if ($type === '') {
+                    $stepIndex++;
+                    continue;
+                }
+                $stepTypes[$stepIndex] = $stepTypes[$stepIndex] ?? $type;
+                $machineName = $this->resolveMachineName($route);
+                if ($machineName !== '') {
+                    $machineCounts[$stepIndex] = $machineCounts[$stepIndex] ?? [];
+                    $machineCounts[$stepIndex][$machineName] = ($machineCounts[$stepIndex][$machineName] ?? 0) + 1;
+                }
+                $stepIndex++;
+            }
+        }
+
+        if (empty($stepTypes)) {
+            return '';
+        }
+
+        $parts = [];
+        foreach ($stepTypes as $index => $type) {
+            $machine = $this->pickCanonicalMachine($machineCounts[$index] ?? []);
+            $parts[] = $machine !== '' ? "{$type}[{$machine}]" : $type;
+        }
+
+        return implode('->', $parts);
+    }
+
     protected function normalizeRouteLabel(array $route): string
     {
         $label = $route['name'] ?? $route['route'] ?? $route['key'] ?? $route['step'] ?? '';
         $canonical = $this->canonicalizeRouteLabel((string) $label);
         if ($canonical !== '') {
-            return $this->normalizeRouteToken($canonical);
+            return $canonical;
         }
 
         $fallback = strtoupper(preg_replace('/[^A-Z0-9]+/i', ' ', (string) $label));
@@ -73,9 +157,9 @@ class TemplateRoute extends Model
             $tokens,
             static fn ($token) => !preg_match('/[0-9]/', (string) $token)
         ));
-        $candidate = !empty($filtered) ? implode('-', $filtered) : str_replace(' ', '-', $fallback);
+        $candidate = !empty($filtered) ? implode(' ', $filtered) : $fallback;
 
-        return trim($candidate, '-');
+        return trim($candidate);
     }
 
     protected function canonicalizeRouteLabel(string $value): string
@@ -163,6 +247,53 @@ class TemplateRoute extends Model
         }
 
         return $routes;
+    }
+
+    protected function resolveMachineName(array $route): string
+    {
+        $machine = $route['machine'] ?? $route['metadata']['machine'] ?? null;
+        if (is_array($machine)) {
+            $name = trim((string) ($machine['name'] ?? ''));
+            if ($name !== '') {
+                return $name;
+            }
+            $label = trim((string) ($machine['label'] ?? ''));
+            if ($label !== '') {
+                return $label;
+            }
+            $code = trim((string) ($machine['code'] ?? ''));
+            if ($code !== '') {
+                return $code;
+            }
+        }
+
+        $name = trim((string) ($route['machine_name'] ?? $route['metadata']['machine_name'] ?? ''));
+        if ($name !== '') {
+            return $name;
+        }
+
+        return '';
+    }
+
+    protected function pickCanonicalMachine(array $counts): string
+    {
+        if (empty($counts)) {
+            return '';
+        }
+
+        $max = max($counts);
+        $candidates = array_keys(array_filter(
+            $counts,
+            static fn ($count) => $count === $max
+        ));
+
+        if (empty($candidates)) {
+            return '';
+        }
+
+        sort($candidates, SORT_STRING);
+
+        return $candidates[0];
     }
 
     public function manager(): BelongsTo

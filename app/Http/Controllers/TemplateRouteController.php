@@ -3,9 +3,11 @@
 namespace App\Http\Controllers;
 
 use App\Http\Requests\TemplateRoute\TemplateRouteBatchReplaceRequest;
+use App\Http\Requests\TemplateRoute\TemplateRouteFileImportRequest;
 use App\Http\Requests\TemplateRoute\TemplateRouteStoreRequest;
 use App\Http\Requests\TemplateRoute\TemplateRouteImportRequest;
 use App\Http\Requests\TemplateRoute\TemplateRouteUpdateRequest;
+use App\Services\TemplateRouteImportService;
 use App\Services\Contracts\TemplateRouteServiceInterface;
 use App\Traits\ResponseTrait;
 use Illuminate\Http\JsonResponse;
@@ -19,7 +21,8 @@ class TemplateRouteController extends Controller
     use ResponseTrait;
 
     public function __construct(
-        protected TemplateRouteServiceInterface $templateRouteService
+        protected TemplateRouteServiceInterface $templateRouteService,
+        protected TemplateRouteImportService $templateRouteImportService
     ) {
     }
 
@@ -67,6 +70,54 @@ class TemplateRouteController extends Controller
                 'trace' => $e->getTraceAsString(),
             ]);
             return $this->error('Failed to import template routes.', 500);
+        }
+    }
+
+    public function preview(TemplateRouteFileImportRequest $request): JsonResponse
+    {
+        try {
+            $payload = $request->validated();
+
+            $result = $this->templateRouteImportService->import(
+                $payload['file'],
+                $payload['sheet'] ?? null,
+                (int) $payload['user_id'],
+                true,
+                $payload['batch_number'] ?? null
+            );
+
+            return $this->success('Template routes preview generated successfully!', $result);
+        } catch (ValidationException $e) {
+            return $this->validationError($e);
+        } catch (Throwable $e) {
+            \Log::error('Template route preview failed', [
+                'message' => $e->getMessage(),
+            ]);
+            return $this->error('Failed to preview template routes.', 500);
+        }
+    }
+
+    public function replace(TemplateRouteFileImportRequest $request): JsonResponse
+    {
+        try {
+            $payload = $request->validated();
+
+            $result = $this->templateRouteImportService->import(
+                $payload['file'],
+                $payload['sheet'] ?? null,
+                (int) $payload['user_id'],
+                false,
+                $payload['batch_number'] ?? null
+            );
+
+            return $this->success('Template routes replaced successfully!', $result);
+        } catch (ValidationException $e) {
+            return $this->validationError($e);
+        } catch (Throwable $e) {
+            \Log::error('Template route replace failed', [
+                'message' => $e->getMessage(),
+            ]);
+            return $this->error('Failed to replace template routes.', 500);
         }
     }
 

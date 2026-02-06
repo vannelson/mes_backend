@@ -163,3 +163,8 @@ Route::prefix('v1')->group(function () {
         Route::get('public/screens/{shareToken}/media/{mediaId}', [PublicMediaController::class, 'show']);
     });
 });
+
+Route::prefix('admin')->middleware('auth:sanctum')->group(function () {
+    Route::post('template-routes/preview', [TemplateRouteController::class, 'preview']);
+    Route::post('template-routes/replace', [TemplateRouteController::class, 'replace']);
+});
