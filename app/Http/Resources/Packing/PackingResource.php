@@ -40,6 +40,7 @@ class PackingResource extends JsonResource
                 : false,
             'box_size' => $this->box_size,
             'qty_per_box' => $this->qty_per_box,
+            'qty_per_roll' => $this->qty_per_roll,
             'rolls_per_box' => $this->rolls_per_box,
             'core_label_left' => $this->core_label_left,
             'core_label_right' => $this->core_label_right,

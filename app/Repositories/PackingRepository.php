@@ -54,6 +54,11 @@ class PackingRepository extends BaseRepository implements PackingRepositoryInter
             $query->where('qty_per_box', 'LIKE', '%' . $qty . '%');
         }
 
+        $qtyPerRoll = Arr::get($filters, 'qty_per_roll');
+        if ($qtyPerRoll !== null && $qtyPerRoll !== '') {
+            $query->where('qty_per_roll', 'LIKE', '%' . $qtyPerRoll . '%');
+        }
+
         $rolls = Arr::get($filters, 'rolls_per_box');
         if ($rolls !== null && $rolls !== '') {
             $query->where('rolls_per_box', 'LIKE', '%' . $rolls . '%');
@@ -73,6 +78,7 @@ class PackingRepository extends BaseRepository implements PackingRepositoryInter
 
         $sortable = array_merge(['id', 'created_at', 'updated_at'], $stringFilters, [
             'qty_per_box',
+            'qty_per_roll',
             'rolls_per_box',
             'important',
             'date_of_revised',

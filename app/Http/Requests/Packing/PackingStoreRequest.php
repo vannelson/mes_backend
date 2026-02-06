@@ -23,6 +23,7 @@ class PackingStoreRequest extends FormRequest
             'customer_code' => ['nullable', 'string', 'max:255'],
             'box_size' => ['nullable', 'string', 'max:255'],
             'qty_per_box' => ['nullable', 'string', 'max:255'],
+            'qty_per_roll' => ['nullable', 'string', 'max:255'],
             'rolls_per_box' => ['nullable', 'string', 'max:255'],
             'core_label_left' => ['nullable', 'string', 'max:255'],
             'core_label_right' => ['nullable', 'string', 'max:255'],

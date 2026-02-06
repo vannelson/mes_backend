@@ -39,6 +39,7 @@ class PackingController extends Controller
             'customer_code',
             'box_size',
             'qty_per_box',
+            'qty_per_roll',
             'rolls_per_box',
             'core_label_left',
             'core_label_right',
