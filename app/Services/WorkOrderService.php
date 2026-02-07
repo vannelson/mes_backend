@@ -464,6 +464,9 @@ class WorkOrderService implements WorkOrderServiceInterface
         $targetPrintedQty = isset($payload['target_printed_qty'])
             ? $this->numericValue($payload['target_printed_qty'])
             : null;
+        $pauseReason = $payload['pause_reason'] ?? $payload['pauseReason'] ?? null;
+        $pauseReasonKey = $payload['pause_reason_key'] ?? $payload['pauseReasonKey'] ?? null;
+        $pauseNote = $payload['pause_note'] ?? $payload['pauseNote'] ?? null;
 
         $lastPrinted = $this->lastTimeTrackerPrintedQty($entries, $operatorId);
         if ($printedQty !== null && $lastPrinted !== null) {
@@ -494,6 +497,15 @@ class WorkOrderService implements WorkOrderServiceInterface
             ],
             'override' => $actor->id !== $operatorId,
         ];
+        if (is_string($pauseReason) && trim($pauseReason) !== '') {
+            $entry['pause_reason'] = trim($pauseReason);
+        }
+        if (is_string($pauseReasonKey) && trim($pauseReasonKey) !== '') {
+            $entry['pause_reason_key'] = trim($pauseReasonKey);
+        }
+        if (is_string($pauseNote) && trim($pauseNote) !== '') {
+            $entry['pause_note'] = trim($pauseNote);
+        }
 
         $entries[] = $entry;
         $timeTracker['entries'] = $entries;

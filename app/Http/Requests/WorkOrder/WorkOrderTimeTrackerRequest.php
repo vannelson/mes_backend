@@ -26,6 +26,9 @@ class WorkOrderTimeTrackerRequest extends FormRequest
             'route_progress_pct' => ['nullable', 'numeric', 'min:0', 'max:100'],
             'total_printed_qty' => ['nullable', 'numeric', 'min:0'],
             'target_printed_qty' => ['nullable', 'numeric', 'min:0'],
+            'pause_reason' => ['required_if:action,pause', 'string', 'max:120'],
+            'pause_reason_key' => ['nullable', 'string', 'max:60'],
+            'pause_note' => ['nullable', 'string', 'max:255'],
         ];
     }
 }
