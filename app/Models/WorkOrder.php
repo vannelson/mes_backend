@@ -37,6 +37,8 @@ class WorkOrder extends Model
         'order_date',
         'production_date_completed',
         'production_qty_completed',
+        'status',
+        'completed_at',
         'qr_code',
         'sheet',
         'is_released',
@@ -55,6 +57,7 @@ class WorkOrder extends Model
         'forecast_quantity' => 'string',
         'no_of_colours' => 'string',
         'production_qty_completed' => 'string',
+        'completed_at' => 'datetime',
         'is_released' => 'boolean',
         'evidence_images' => 'array',
         'metadata' => 'array',
@@ -75,4 +78,3 @@ class WorkOrder extends Model
         return $this->hasMany(UserWorkOrder::class);
     }
 }
-

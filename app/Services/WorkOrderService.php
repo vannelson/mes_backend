@@ -1354,6 +1354,12 @@ class WorkOrderService implements WorkOrderServiceInterface
     {
         if ($this->shouldReleaseByCompletion($data)) {
             $data['is_released'] = true;
+            if (Schema::hasColumn('work_orders', 'completed_at')) {
+                $data['completed_at'] = $data['production_date_completed'] ?? null;
+            }
+            if (Schema::hasColumn('work_orders', 'status')) {
+                $data['status'] = 'completed';
+            }
             return;
         }
 
