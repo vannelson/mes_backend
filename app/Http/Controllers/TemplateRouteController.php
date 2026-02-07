@@ -76,6 +76,7 @@ class TemplateRouteController extends Controller
     public function preview(TemplateRouteFileImportRequest $request): JsonResponse
     {
         try {
+            set_time_limit(120);
             $payload = $request->validated();
 
             $result = $this->templateRouteImportService->import(
@@ -100,6 +101,7 @@ class TemplateRouteController extends Controller
     public function replace(TemplateRouteFileImportRequest $request): JsonResponse
     {
         try {
+            set_time_limit(120);
             $payload = $request->validated();
 
             $result = $this->templateRouteImportService->import(

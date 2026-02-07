@@ -147,6 +147,7 @@ class WorkOrderController extends Controller
 
     public function batchStore(WorkOrderBatchStoreRequest $request): JsonResponse
     {
+        set_time_limit(120);
         // try {
         $payload = $request->validated();
         $result = $this->workOrderService->createBatch($payload['work_orders']);
@@ -387,6 +388,7 @@ class WorkOrderController extends Controller
         $payload = $request->validated();
 
         try {
+            set_time_limit(120);
             $result = $this->workOrderService->replaceBatch($payload['batch_number'], $payload['work_orders']);
 
             return $this->success('Batch work orders replaced successfully!', $result);

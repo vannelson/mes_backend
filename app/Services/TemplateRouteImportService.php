@@ -33,10 +33,6 @@ class TemplateRouteImportService
             'part number',
             'part no.',
             'part no',
-            'item code',
-            'item no.',
-            'item no',
-            'item',
         ],
         'work_order_line_no' => [
             'work order line no.',
@@ -106,8 +102,18 @@ class TemplateRouteImportService
         'wo_journal_line_no',
     ];
 
+    private array $fallbackHeaderKeys = [
+        'customer_part_number' => [
+            'item code',
+            'item no.',
+            'item no',
+            'item',
+        ],
+    ];
+
     public function import(UploadedFile $file, ?string $sheetIdentifier, int $userId, bool $dryRun, ?string $batchNumber = null): array
     {
+        $this->extendExecutionLimits();
         $spreadsheet = $this->loadSpreadsheet($file);
         $worksheet = $this->resolveWorksheet($spreadsheet, $sheetIdentifier);
         $header = $this->detectHeader($worksheet);
@@ -730,7 +736,7 @@ class TemplateRouteImportService
             return 'INSPECTION';
         }
 
-        return null;
+        return $normalized;
     }
 
     private function pickCanonicalMachine(array $counts): string
@@ -782,6 +788,7 @@ class TemplateRouteImportService
     private function buildColumnMapFromWorksheetRow(Worksheet $worksheet, int $rowNumber): array
     {
         $map = [];
+        $mapPriority = [];
         $row = $worksheet->getRowIterator($rowNumber, $rowNumber)->current();
         if (!$row) {
             return $map;
@@ -796,9 +803,6 @@ class TemplateRouteImportService
                 continue;
             }
             foreach ($this->headerKeys as $key => $options) {
-                if (isset($map[$key])) {
-                    continue;
-                }
                 foreach ($options as $option) {
                     $normalizedOption = $this->normalizeHeader($option);
                     if ($normalizedOption === '') {
@@ -807,13 +811,37 @@ class TemplateRouteImportService
                     if ($normalized === $normalizedOption
                         || str_contains($normalized, $normalizedOption)
                         || str_contains($normalizedOption, $normalized)) {
-                        $map[$key] = $column;
+                        $isFallback = $this->isFallbackHeaderOption($key, $normalizedOption);
+                        $priority = $isFallback ? 0 : 1;
+                        if (!isset($map[$key]) || ($mapPriority[$key] ?? -1) < $priority) {
+                            $map[$key] = $column;
+                            $mapPriority[$key] = $priority;
+                        }
                         break;
                     }
                 }
             }
         }
         return $map;
+    }
+
+    private function isFallbackHeaderOption(string $key, string $normalizedOption): bool
+    {
+        $fallbacks = $this->fallbackHeaderKeys[$key] ?? [];
+        foreach ($fallbacks as $fallback) {
+            if ($normalizedOption === $this->normalizeHeader($fallback)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private function extendExecutionLimits(): void
+    {
+        if (function_exists('set_time_limit')) {
+            @set_time_limit(300);
+        }
+        @ini_set('max_execution_time', '300');
     }
 
     private function mapWorksheetRowToPayload(Worksheet $worksheet, int $rowNumber, array $columnMap): array
