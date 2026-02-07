@@ -28,6 +28,16 @@ class WorkOrderRepository extends BaseRepository implements WorkOrderRepositoryI
             $query->where('batch_number', 'LIKE', "%{$batchNumber}%");
         }
 
+        if ($sheet = Arr::get($filters, 'sheet')) {
+            $normalized = strtolower(trim((string) $sheet));
+            if ($normalized !== '') {
+                $query->whereRaw(
+                    "LOWER(TRIM(COALESCE(sheet, ''))) = ?",
+                    [$normalized]
+                );
+            }
+        }
+
         if ($customerId = Arr::get($filters, 'customer_id')) {
             $query->where('customer_id', $customerId);
         }

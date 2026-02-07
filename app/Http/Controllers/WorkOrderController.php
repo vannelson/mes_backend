@@ -225,7 +225,19 @@ class WorkOrderController extends Controller
                 }
             }
 
-            $result = $this->workOrderService->linkTemplateRoutesByReference($reference, $batchNumber);
+            $templateBatchNumber = $request->get('template_batch_number');
+            if (is_string($templateBatchNumber)) {
+                $templateBatchNumber = trim($templateBatchNumber);
+                if ($templateBatchNumber === '') {
+                    $templateBatchNumber = null;
+                }
+            }
+
+            $result = $this->workOrderService->linkTemplateRoutesByReference(
+                $reference,
+                $batchNumber,
+                $templateBatchNumber
+            );
 
             return $this->success('Template routes linked to work orders.', $result);
         } catch (Throwable $e) {

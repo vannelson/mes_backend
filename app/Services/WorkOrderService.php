@@ -219,6 +219,7 @@ class WorkOrderService implements WorkOrderServiceInterface
     {
         $created = [];
         $failed = [];
+        $updated = 0;
         $compositeKeys = [];
 
         foreach ($workOrders as $workOrder) {
@@ -229,7 +230,6 @@ class WorkOrderService implements WorkOrderServiceInterface
         }
 
         $existingKeyMap = $this->loadExistingCompositeKeys($compositeKeys);
-        $seenInPayload = [];
 
         foreach ($workOrders as $workOrder) {
             $compositeKey = $this->buildCompositeKey($workOrder);
@@ -243,33 +243,80 @@ class WorkOrderService implements WorkOrderServiceInterface
                 continue;
             }
 
-            if (isset($seenInPayload[$compositeKey])) {
-                $failed[] = [
-                    'work_order_no' => $workOrder['work_order_no'] ?? null,
-                    'message' => 'Duplicate in request skipped (Work Order No. + Customer Code + Customer Part No.).',
-                ];
-
-                continue;
-            }
-
-            if (isset($existingKeyMap[$compositeKey])) {
-                $failed[] = [
-                    'work_order_no' => $workOrder['work_order_no'] ?? null,
-                    'message' => 'Duplicate of an existing work order skipped (Work Order No. + Customer Code + Customer Part No.).',
-                ];
-
-                continue;
-            }
-
             try {
                 $this->syncCustomerSnapshot($workOrder);
                 $this->syncTemplateMetadata($workOrder);
+                $this->syncReleaseFlag($workOrder);
+
+                $incomingBatch = strtolower(trim((string) Arr::get($workOrder, 'batch_number', '')));
+                $existingBatches = $existingKeyMap[$compositeKey] ?? [];
+                $incomingSheetDate = $this->extractSheetDate(Arr::get($workOrder, 'sheet'));
+                $workOrderId = null;
+                $matchedBatch = null;
+                $matchedDate = null;
+                if (!empty($existingBatches)) {
+                    foreach ($existingBatches as $batchKey => $entry) {
+                        if ($incomingBatch !== '' && $batchKey === $incomingBatch) {
+                            continue;
+                        }
+                        $candidateId = $entry['id'] ?? null;
+                        if (!$candidateId) {
+                            continue;
+                        }
+                        $candidateDate = $entry['sheet_date'] ?? null;
+                        if ($workOrderId === null) {
+                            $workOrderId = $candidateId;
+                            $matchedBatch = $batchKey;
+                            $matchedDate = $candidateDate;
+                            continue;
+                        }
+                        if ($candidateDate !== null && ($matchedDate === null || $candidateDate > $matchedDate)) {
+                            $workOrderId = $candidateId;
+                            $matchedBatch = $batchKey;
+                            $matchedDate = $candidateDate;
+                        }
+                    }
+                }
+
+                if ($workOrderId !== null && $matchedDate !== null) {
+                    if ($incomingSheetDate === null || $incomingSheetDate <= $matchedDate) {
+                        continue;
+                    }
+                }
+
+                if ($workOrderId !== null) {
+                    $updatedRow = (bool) $this->workOrderRepository->update($workOrderId, $workOrder);
+                    if ($updatedRow) {
+                        $updated++;
+                        if (array_key_exists('metadata', $workOrder)) {
+                            $this->syncAssignmentsFromMetadata($workOrderId, $workOrder['metadata']);
+                        }
+                    }
+                    if ($incomingBatch !== '') {
+                        if ($matchedBatch !== null) {
+                            unset($existingKeyMap[$compositeKey][$matchedBatch]);
+                        }
+                        $existingKeyMap[$compositeKey] ??= [];
+                        $existingKeyMap[$compositeKey][$incomingBatch] = [
+                            'id' => $workOrderId,
+                            'sheet_date' => $incomingSheetDate,
+                        ];
+                    }
+                    continue;
+                }
+
                 $this->ensureBatchNumber($workOrder);
 
-                $created[] = $this->workOrderRepository
+                $record = $this->workOrderRepository
                     ->create($workOrder)
                     ->load(['customer', 'templateRoute']);
-                $seenInPayload[$compositeKey] = true;
+                $created[] = $record;
+                $recordBatch = strtolower(trim((string) ($record->batch_number ?? '')));
+                $existingKeyMap[$compositeKey] ??= [];
+                $existingKeyMap[$compositeKey][$recordBatch] = [
+                    'id' => $record->id,
+                    'sheet_date' => $this->extractSheetDate($record->sheet ?? null),
+                ];
             } catch (Throwable $e) {
                 $failed[] = [
                     'work_order_no' => $workOrder['work_order_no'] ?? null,
@@ -281,6 +328,7 @@ class WorkOrderService implements WorkOrderServiceInterface
         return [
             'items' => WorkOrderResource::collection(collect($created))->resolve(),
             'count' => count($created),
+            'updated' => $updated,
             'failed' => count($failed),
             'errors' => $failed,
         ];
@@ -779,7 +827,11 @@ class WorkOrderService implements WorkOrderServiceInterface
         ];
     }
 
-    public function linkTemplateRoutesByReference(?string $reference = null, ?string $batchNumber = null): array
+    public function linkTemplateRoutesByReference(
+        ?string $reference = null,
+        ?string $batchNumber = null,
+        ?string $templateBatchNumber = null
+    ): array
     {
         $referenceMode = strtolower(trim((string) $reference));
         if (in_array($referenceMode, ['customer_part_number_ref', 'customer_part_number', 'customer_part_no'], true)) {
@@ -792,6 +844,8 @@ class WorkOrderService implements WorkOrderServiceInterface
 
         $batchNumber = trim((string) $batchNumber);
         $batchNumber = $batchNumber !== '' ? $batchNumber : null;
+        $templateBatchNumber = trim((string) $templateBatchNumber);
+        $templateBatchNumber = $templateBatchNumber !== '' ? $templateBatchNumber : null;
 
         $hasTemplatePartNumberRef = Schema::hasColumn('template_routes', 'customer_part_number_ref');
         $hasTemplateWorkOrderRef = Schema::hasColumn('template_routes', 'wod_ref');
@@ -810,6 +864,8 @@ class WorkOrderService implements WorkOrderServiceInterface
             ];
             if ($batchNumber !== null)
                 $result['batch_number'] = $batchNumber;
+            if ($templateBatchNumber !== null)
+                $result['template_batch_number'] = $templateBatchNumber;
             return $result;
         }
 
@@ -843,9 +899,9 @@ class WorkOrderService implements WorkOrderServiceInterface
 
         $templatesQuery = TemplateRoute::query()->select($templateSelect);
 
-        // IMPORTANT: if batchNumber provided AND template_routes has batch_number, only consider that batch
-        if ($batchNumber !== null && $hasTemplateBatchNumber) {
-            $templatesQuery->where('batch_number', $batchNumber);
+        // IMPORTANT: if templateBatchNumber provided AND template_routes has batch_number, only consider that batch
+        if ($templateBatchNumber !== null && $hasTemplateBatchNumber) {
+            $templatesQuery->where('batch_number', $templateBatchNumber);
         }
 
         // newest first (so first match wins)
@@ -861,6 +917,8 @@ class WorkOrderService implements WorkOrderServiceInterface
             ];
             if ($batchNumber !== null)
                 $result['batch_number'] = $batchNumber;
+            if ($templateBatchNumber !== null)
+                $result['template_batch_number'] = $templateBatchNumber;
             return $result;
         }
 
@@ -948,6 +1006,8 @@ class WorkOrderService implements WorkOrderServiceInterface
             ];
             if ($batchNumber !== null)
                 $result['batch_number'] = $batchNumber;
+            if ($templateBatchNumber !== null)
+                $result['template_batch_number'] = $templateBatchNumber;
             return $result;
         }
 
@@ -1005,6 +1065,8 @@ class WorkOrderService implements WorkOrderServiceInterface
         ];
         if ($batchNumber !== null)
             $result['batch_number'] = $batchNumber;
+        if ($templateBatchNumber !== null)
+            $result['template_batch_number'] = $templateBatchNumber;
 
         return $result;
     }
@@ -1290,6 +1352,11 @@ class WorkOrderService implements WorkOrderServiceInterface
 
     protected function syncReleaseFlag(array &$data): void
     {
+        if ($this->shouldReleaseByCompletion($data)) {
+            $data['is_released'] = true;
+            return;
+        }
+
         if (array_key_exists('is_released', $data)) {
             $data['is_released'] = (bool) $data['is_released'];
             return;
@@ -1312,6 +1379,32 @@ class WorkOrderService implements WorkOrderServiceInterface
         if (in_array($normalized, ['released', 'in progress', 'active', 'completed', 'complete', 'done'], true)) {
             $data['is_released'] = true;
         }
+    }
+
+    protected function shouldReleaseByCompletion(array $data): bool
+    {
+        $dateRaw = $data['production_date_completed'] ?? null;
+        $qtyRaw = $data['production_qty_completed'] ?? null;
+
+        if (!is_string($dateRaw)) {
+            return false;
+        }
+
+        $date = trim($dateRaw);
+        if ($date === '') {
+            return false;
+        }
+
+        $parsed = \DateTimeImmutable::createFromFormat('Y-m-d', $date);
+        if (!$parsed || $parsed->format('Y-m-d') !== $date) {
+            return false;
+        }
+
+        if (!is_numeric($qtyRaw)) {
+            return false;
+        }
+
+        return (float) $qtyRaw > 0;
     }
 
     protected function syncCustomerSnapshot(array &$data): void
@@ -1351,12 +1444,71 @@ class WorkOrderService implements WorkOrderServiceInterface
 
         $expression = "LOWER(CONCAT_WS('|', TRIM(COALESCE(work_order_no, '')), TRIM(COALESCE(customer_code, '')), TRIM(COALESCE(customer_part_number, ''))))";
 
-        return WorkOrder::query()
-            ->selectRaw("{$expression} AS composite_key")
+        $rows = WorkOrder::query()
+            ->selectRaw("{$expression} AS composite_key, id, batch_number, sheet")
             ->whereIn(DB::raw($expression), array_values(array_unique($compositeKeys)))
-            ->pluck('composite_key')
-            ->mapWithKeys(fn($key) => [$key => true])
-            ->all();
+            ->orderByDesc('id')
+            ->get();
+
+        $map = [];
+        foreach ($rows as $row) {
+            $key = strtolower(trim((string) ($row->composite_key ?? '')));
+            if ($key === '') {
+                continue;
+            }
+            $batchKey = strtolower(trim((string) ($row->batch_number ?? '')));
+            $sheetDate = $this->extractSheetDate($row->sheet ?? null);
+            $map[$key] ??= [];
+            if (!isset($map[$key][$batchKey])) {
+                $map[$key][$batchKey] = [
+                    'id' => $row->id,
+                    'sheet_date' => $sheetDate,
+                ];
+                continue;
+            }
+            $existingDate = $map[$key][$batchKey]['sheet_date'] ?? null;
+            if ($existingDate === null && $sheetDate !== null) {
+                $map[$key][$batchKey] = [
+                    'id' => $row->id,
+                    'sheet_date' => $sheetDate,
+                ];
+            } elseif ($existingDate !== null && $sheetDate !== null && $sheetDate > $existingDate) {
+                $map[$key][$batchKey] = [
+                    'id' => $row->id,
+                    'sheet_date' => $sheetDate,
+                ];
+            }
+        }
+
+        return $map;
+    }
+
+    protected function extractSheetDate(?string $sheet): ?int
+    {
+        if (!$sheet) {
+            return null;
+        }
+
+        if (!preg_match('/(\d{6})(?!.*\d)/', $sheet, $matches)) {
+            return null;
+        }
+
+        $token = $matches[1] ?? '';
+        if ($token === '') {
+            return null;
+        }
+
+        $date = \DateTimeImmutable::createFromFormat('dmy', $token);
+        if (!$date) {
+            return null;
+        }
+
+        $errors = \DateTimeImmutable::getLastErrors();
+        if (!empty($errors['warning_count']) || !empty($errors['error_count'])) {
+            return null;
+        }
+
+        return $date->setTime(0, 0, 0)->getTimestamp();
     }
 
     protected function templateRouteAppearsActive(TemplateRoute $templateRoute): bool

@@ -61,7 +61,8 @@ interface WorkOrderServiceInterface
      */
     public function linkTemplateRoutesByReference(
         ?string $reference = null,
-        ?string $batchNumber = null
+        ?string $batchNumber = null,
+        ?string $templateBatchNumber = null
     ): array;
 
     /**
