@@ -1013,10 +1013,12 @@ class WorkOrderService implements WorkOrderServiceInterface
 
         $linked = 0;
         $skipped = 0;
+        $hasIsReleased = Schema::hasColumn('work_orders', 'is_released');
 
-        DB::transaction(function () use ($eligibleOrders, $templatesById, $useCustomerPartNumber, $allowWorkOrderFallback, $normalizeRefs, $partNumberIndex, $workOrderIndex, &$linked, &$skipped) {
+        DB::transaction(function () use ($eligibleOrders, $templatesById, $useCustomerPartNumber, $allowWorkOrderFallback, $normalizeRefs, $partNumberIndex, $workOrderIndex, $hasIsReleased, &$linked, &$skipped) {
             foreach ($eligibleOrders as $order) {
                 $templateId = $order->template_route_id;
+                $matchedByPartNumber = false;
 
                 // 1) Match by customer_part_number (supports multiple in one field)
                 if (empty($templateId) && $useCustomerPartNumber) {
@@ -1024,6 +1026,7 @@ class WorkOrderService implements WorkOrderServiceInterface
                     foreach ($refs as $ref) {
                         if (isset($partNumberIndex[$ref])) {
                             $templateId = $partNumberIndex[$ref];
+                            $matchedByPartNumber = true;
                             break;
                         }
                     }
@@ -1050,6 +1053,9 @@ class WorkOrderService implements WorkOrderServiceInterface
 
                 $order->template_route_id = $templateData['id'];
                 $order->metadata = $templateData['metadata'];
+                if ($matchedByPartNumber && $hasIsReleased) {
+                    $order->is_released = true;
+                }
                 $order->save();
 
                 $linked++;
