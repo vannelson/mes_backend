@@ -22,6 +22,10 @@ class MachineRepository extends BaseRepository implements MachineRepositoryInter
             $query->where('production_area', 'LIKE', "%{$area}%");
         }
 
+        if ($name = Arr::get($filters, 'machine_name')) {
+            $query->where('machine_name', 'LIKE', "%{$name}%");
+        }
+
         if ($type = Arr::get($filters, 'machine_type')) {
             $query->where('machine_type', 'LIKE', "%{$type}%");
         }
@@ -36,7 +40,8 @@ class MachineRepository extends BaseRepository implements MachineRepositoryInter
 
         if ($search = Arr::get($filters, 'q')) {
             $query->where(function ($q) use ($search) {
-                $q->where('machine_type', 'LIKE', "%{$search}%")
+                $q->where('machine_name', 'LIKE', "%{$search}%")
+                    ->orWhere('machine_type', 'LIKE', "%{$search}%")
                     ->orWhere('machine_no', 'LIKE', "%{$search}%")
                     ->orWhere('production_area', 'LIKE', "%{$search}%");
             });

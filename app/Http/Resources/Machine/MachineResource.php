@@ -12,6 +12,7 @@ class MachineResource extends JsonResource
         return [
             'id' => $this->id,
             'production_area' => $this->production_area,
+            'machine_name' => $this->machine_name,
             'machine_type' => $this->machine_type,
             'printing_type' => $this->printing_type,
             'machine_no' => $this->machine_no,

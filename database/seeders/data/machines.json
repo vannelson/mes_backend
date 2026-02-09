@@ -1,7 +1,7 @@
 [
   {
     "production_area": "Class 100",
-    "machine_type": "HDS",
+    "machine_name": "HDS",
     "printing_type": null,
     "machine_no": 90,
     "cost_center_old": 4810,
@@ -28,7 +28,7 @@
   },
   {
     "production_area": "Class 100",
-    "machine_type": "SANKI",
+    "machine_name": "SANKI",
     "printing_type": null,
     "machine_no": 63,
     "cost_center_old": 4820,
@@ -55,7 +55,7 @@
   },
   {
     "production_area": "Class 10000",
-    "machine_type": "SYSCO",
+    "machine_name": "SYSCO",
     "printing_type": null,
     "machine_no": 87,
     "cost_center_old": 4910,
@@ -82,7 +82,7 @@
   },
   {
     "production_area": "Class 10000",
-    "machine_type": "Slitting",
+    "machine_name": "Slitting",
     "printing_type": null,
     "machine_no": 104,
     "cost_center_old": 4940,
@@ -109,7 +109,7 @@
   },
   {
     "production_area": "Class 10000",
-    "machine_type": "Fujishiko",
+    "machine_name": "Fujishiko",
     "printing_type": null,
     "machine_no": 69,
     "cost_center_old": 4920,
@@ -136,7 +136,7 @@
   },
   {
     "production_area": "Class 10000",
-    "machine_type": "Fujishiko",
+    "machine_name": "Fujishiko",
     "printing_type": null,
     "machine_no": 62,
     "cost_center_old": 4925,
@@ -163,7 +163,7 @@
   },
   {
     "production_area": "Class 10000",
-    "machine_type": "Fujishiko",
+    "machine_name": "Fujishiko",
     "printing_type": null,
     "machine_no": 67,
     "cost_center_old": null,
@@ -190,7 +190,7 @@
   },
   {
     "production_area": "Class 10000",
-    "machine_type": "Fujishiko",
+    "machine_name": "Fujishiko",
     "printing_type": null,
     "machine_no": 66,
     "cost_center_old": null,
@@ -217,7 +217,7 @@
   },
   {
     "production_area": "Class 10000",
-    "machine_type": "SANKI",
+    "machine_name": "SANKI",
     "printing_type": null,
     "machine_no": 68,
     "cost_center_old": 4930,
@@ -244,7 +244,7 @@
   },
   {
     "production_area": "Class 10000",
-    "machine_type": "SANKI",
+    "machine_name": "SANKI",
     "printing_type": null,
     "machine_no": 70,
     "cost_center_old": 4935,
@@ -271,7 +271,7 @@
   },
   {
     "production_area": "Class 10000",
-    "machine_type": "HDS",
+    "machine_name": "HDS",
     "printing_type": null,
     "machine_no": 103,
     "cost_center_old": null,
@@ -298,7 +298,7 @@
   },
   {
     "production_area": "Class 10000",
-    "machine_type": "Rolling Machine 8",
+    "machine_name": "Rolling Machine 8",
     "printing_type": null,
     "machine_no": "R08",
     "cost_center_old": 4950,
@@ -325,7 +325,7 @@
   },
   {
     "production_area": null,
-    "machine_type": "Rolling Machine 9",
+    "machine_name": "Rolling Machine 9",
     "printing_type": null,
     "machine_no": "R09",
     "cost_center_old": null,
@@ -352,7 +352,7 @@
   },
   {
     "production_area": null,
-    "machine_type": "Table",
+    "machine_name": "Table",
     "printing_type": null,
     "machine_no": null,
     "cost_center_old": null,
@@ -379,7 +379,7 @@
   },
   {
     "production_area": null,
-    "machine_type": "Table",
+    "machine_name": "Table",
     "printing_type": null,
     "machine_no": null,
     "cost_center_old": null,
@@ -406,7 +406,7 @@
   },
   {
     "production_area": "GMP Room",
-    "machine_type": "Brotech DF330",
+    "machine_name": "Brotech DF330",
     "printing_type": "Flexo",
     "machine_no": 73,
     "cost_center_old": 4500,
@@ -433,7 +433,7 @@
   },
   {
     "production_area": "GMP Room",
-    "machine_type": "Brotech FS330 AOI",
+    "machine_name": "Brotech FS330 AOI",
     "printing_type": null,
     "machine_no": "VCS 01",
     "cost_center_old": 4590,
@@ -460,7 +460,7 @@
   },
   {
     "production_area": "GMP Room",
-    "machine_type": "Luster AOI",
+    "machine_name": "Luster AOI",
     "printing_type": null,
     "machine_no": "VCS 02",
     "cost_center_old": 4580,
@@ -487,7 +487,7 @@
   },
   {
     "production_area": "GMP Room",
-    "machine_type": "Luster AOI",
+    "machine_name": "Luster AOI",
     "printing_type": null,
     "machine_no": "B",
     "cost_center_old": null,
@@ -514,7 +514,7 @@
   },
   {
     "production_area": "GMP Room",
-    "machine_type": "NewFoil Hotstamping",
+    "machine_name": "NewFoil Hotstamping",
     "printing_type": null,
     "machine_no": 30,
     "cost_center_old": 4510,
@@ -541,7 +541,7 @@
   },
   {
     "production_area": "GMP Room",
-    "machine_type": "Lamination",
+    "machine_name": "Lamination",
     "printing_type": null,
     "machine_no": "LM03",
     "cost_center_old": null,
@@ -568,7 +568,7 @@
   },
   {
     "production_area": "GMP Room",
-    "machine_type": "Fujishiko UDP-5000",
+    "machine_name": "Fujishiko UDP-5000",
     "printing_type": null,
     "machine_no": 60,
     "cost_center_old": 4530,
@@ -595,7 +595,7 @@
   },
   {
     "production_area": "GMP Room",
-    "machine_type": "Iwasaki",
+    "machine_name": "Iwasaki",
     "printing_type": null,
     "machine_no": 1,
     "cost_center_old": 4540,
@@ -622,7 +622,7 @@
   },
   {
     "production_area": "GMP Room",
-    "machine_type": "Sanki SDR300",
+    "machine_name": "Sanki SDR300",
     "printing_type": null,
     "machine_no": 65,
     "cost_center_old": 4550,
@@ -649,7 +649,7 @@
   },
   {
     "production_area": null,
-    "machine_type": "RFID",
+    "machine_name": "RFID",
     "printing_type": null,
     "machine_no": "RFID 2",
     "cost_center_old": null,
@@ -676,7 +676,7 @@
   },
   {
     "production_area": null,
-    "machine_type": "GMP Table",
+    "machine_name": "GMP Table",
     "printing_type": null,
     "machine_no": "GMP Table",
     "cost_center_old": null,
@@ -703,7 +703,7 @@
   },
   {
     "production_area": "Digital Room",
-    "machine_type": "Brotech DF330",
+    "machine_name": "Brotech DF330",
     "printing_type": "Flexo",
     "machine_no": 86,
     "cost_center_old": 4200,
@@ -730,7 +730,7 @@
   },
   {
     "production_area": "Digital Room",
-    "machine_type": "Brotech DF330",
+    "machine_name": "Brotech DF330",
     "printing_type": "Flexo",
     "machine_no": 77,
     "cost_center_old": null,
@@ -757,7 +757,7 @@
   },
   {
     "production_area": "Digital Room",
-    "machine_type": "Polly",
+    "machine_name": "Polly",
     "printing_type": null,
     "machine_no": 82,
     "cost_center_old": 4290,
@@ -784,7 +784,7 @@
   },
   {
     "production_area": "Digital Room",
-    "machine_type": "Vorey Digital Cut",
+    "machine_name": "Vorey Digital Cut",
     "printing_type": null,
     "machine_no": 100,
     "cost_center_old": 4280,
@@ -811,7 +811,7 @@
   },
   {
     "production_area": "Digital Room",
-    "machine_type": "Polly Digital Cut",
+    "machine_name": "Polly Digital Cut",
     "printing_type": null,
     "machine_no": 92,
     "cost_center_old": null,
@@ -838,7 +838,7 @@
   },
   {
     "production_area": "Digital Room",
-    "machine_type": "Xeikon 3500",
+    "machine_name": "Xeikon 3500",
     "printing_type": "Digital",
     "machine_no": 72,
     "cost_center_old": 4220,
@@ -865,7 +865,7 @@
   },
   {
     "production_area": "Digital Room",
-    "machine_type": "HP Indigo",
+    "machine_name": "HP Indigo",
     "printing_type": "Digital",
     "machine_no": 93,
     "cost_center_old": 4230,
@@ -892,7 +892,7 @@
   },
   {
     "production_area": null,
-    "machine_type": "HP Indigo",
+    "machine_name": "HP Indigo",
     "printing_type": "Digital",
     "machine_no": 79,
     "cost_center_old": null,
@@ -919,7 +919,7 @@
   },
   {
     "production_area": null,
-    "machine_type": "OKI",
+    "machine_name": "OKI",
     "printing_type": "Digital",
     "machine_no": 88,
     "cost_center_old": null,
@@ -946,7 +946,7 @@
   },
   {
     "production_area": null,
-    "machine_type": "OKI",
+    "machine_name": "OKI",
     "printing_type": "Digital",
     "machine_no": 89,
     "cost_center_old": null,
@@ -973,7 +973,7 @@
   },
   {
     "production_area": null,
-    "machine_type": "Roland Inkjet",
+    "machine_name": "Roland Inkjet",
     "printing_type": "Inkjet",
     "machine_no": null,
     "cost_center_old": null,
@@ -1000,7 +1000,7 @@
   },
   {
     "production_area": null,
-    "machine_type": "Laser",
+    "machine_name": "Laser",
     "printing_type": null,
     "machine_no": 105,
     "cost_center_old": null,
@@ -1027,7 +1027,7 @@
   },
   {
     "production_area": "Production Floor",
-    "machine_type": "SANKI SD-300 Intermittent",
+    "machine_name": "SANKI SD-300 Intermittent",
     "printing_type": "LP",
     "machine_no": 59,
     "cost_center_old": 5000,
@@ -1054,7 +1054,7 @@
   },
   {
     "production_area": "Production Floor",
-    "machine_type": "FSK SR520",
+    "machine_name": "FSK SR520",
     "printing_type": "LP",
     "machine_no": 55,
     "cost_center_old": 5020,
@@ -1081,7 +1081,7 @@
   },
   {
     "production_area": "Production Floor",
-    "machine_type": "FSK SR520",
+    "machine_name": "FSK SR520",
     "printing_type": "LP",
     "machine_no": 12,
     "cost_center_old": null,
@@ -1108,7 +1108,7 @@
   },
   {
     "production_area": "Production Floor",
-    "machine_type": "FSK SR520",
+    "machine_name": "FSK SR520",
     "printing_type": "LP",
     "machine_no": 20,
     "cost_center_old": 5021,
@@ -1135,7 +1135,7 @@
   },
   {
     "production_area": "Production Floor",
-    "machine_type": "FSK SR400",
+    "machine_name": "FSK SR400",
     "printing_type": "LP",
     "machine_no": 28,
     "cost_center_old": null,
@@ -1162,7 +1162,7 @@
   },
   {
     "production_area": "Production Floor",
-    "machine_type": "Baby Sanki",
+    "machine_name": "Baby Sanki",
     "printing_type": "LP",
     "machine_no": 78,
     "cost_center_old": null,
@@ -1189,7 +1189,7 @@
   },
   {
     "production_area": "Production Floor",
-    "machine_type": "POLLY",
+    "machine_name": "POLLY",
     "printing_type": null,
     "machine_no": 71,
     "cost_center_old": null,
@@ -1216,7 +1216,7 @@
   },
   {
     "production_area": "Production Floor",
-    "machine_type": "Sanki SP250 Full Rotary",
+    "machine_name": "Sanki SP250 Full Rotary",
     "printing_type": "LP",
     "machine_no": 37,
     "cost_center_old": 5010,
@@ -1243,7 +1243,7 @@
   },
   {
     "production_area": "Production Floor",
-    "machine_type": "PC SHIKI",
+    "machine_name": "PC SHIKI",
     "printing_type": "LP",
     "machine_no": 47,
     "cost_center_old": null,
@@ -1270,7 +1270,7 @@
   },
   {
     "production_area": "Production Floor",
-    "machine_type": "Lintec Intermittent",
+    "machine_name": "Lintec Intermittent",
     "printing_type": "LP",
     "machine_no": 32,
     "cost_center_old": 5030,
@@ -1297,7 +1297,7 @@
   },
   {
     "production_area": "Production Floor",
-    "machine_type": "Sanki SKP250 Full Rotary",
+    "machine_name": "Sanki SKP250 Full Rotary",
     "printing_type": "LP",
     "machine_no": 26,
     "cost_center_old": 5011,
@@ -1324,7 +1324,7 @@
   },
   {
     "production_area": "Production Floor",
-    "machine_type": "Sanki SKP250 Full Rotary",
+    "machine_name": "Sanki SKP250 Full Rotary",
     "printing_type": "LP",
     "machine_no": 29,
     "cost_center_old": 5012,
@@ -1351,7 +1351,7 @@
   },
   {
     "production_area": "Production Floor",
-    "machine_type": "Sanki 300 Intermittent",
+    "machine_name": "Sanki 300 Intermittent",
     "printing_type": "LP",
     "machine_no": 46,
     "cost_center_old": 5014,
@@ -1378,7 +1378,7 @@
   },
   {
     "production_area": "Production Floor",
-    "machine_type": "Sanki SKP250 Full Rotary",
+    "machine_name": "Sanki SKP250 Full Rotary",
     "printing_type": "LP",
     "machine_no": 31,
     "cost_center_old": 5013,
@@ -1405,7 +1405,7 @@
   },
   {
     "production_area": null,
-    "machine_type": "Taiyo",
+    "machine_name": "Taiyo",
     "printing_type": "LP",
     "machine_no": 102,
     "cost_center_old": null,
@@ -1432,7 +1432,7 @@
   },
   {
     "production_area": null,
-    "machine_type": "Taiyo",
+    "machine_name": "Taiyo",
     "printing_type": "LP",
     "machine_no": 94,
     "cost_center_old": null,
@@ -1459,7 +1459,7 @@
   },
   {
     "production_area": null,
-    "machine_type": "HDS 8",
+    "machine_name": "HDS 8",
     "printing_type": null,
     "machine_no": 95,
     "cost_center_old": null,
@@ -1486,7 +1486,7 @@
   },
   {
     "production_area": null,
-    "machine_type": "HDS 3",
+    "machine_name": "HDS 3",
     "printing_type": null,
     "machine_no": 76,
     "cost_center_old": null,
@@ -1513,7 +1513,7 @@
   },
   {
     "production_area": null,
-    "machine_type": "HDS 3",
+    "machine_name": "HDS 3",
     "printing_type": null,
     "machine_no": 75,
     "cost_center_old": null,
@@ -1540,7 +1540,7 @@
   },
   {
     "production_area": null,
-    "machine_type": "FSK A100",
+    "machine_name": "FSK A100",
     "printing_type": "LP",
     "machine_no": 45,
     "cost_center_old": null,
@@ -1567,7 +1567,7 @@
   },
   {
     "production_area": null,
-    "machine_type": "FSK B100",
+    "machine_name": "FSK B100",
     "printing_type": "LP",
     "machine_no": 22,
     "cost_center_old": null,
@@ -1594,7 +1594,7 @@
   },
   {
     "production_area": null,
-    "machine_type": "FSK 520",
+    "machine_name": "FSK 520",
     "printing_type": "LP",
     "machine_no": 61,
     "cost_center_old": null,
@@ -1621,7 +1621,7 @@
   },
   {
     "production_area": null,
-    "machine_type": "Gallus",
+    "machine_name": "Gallus",
     "printing_type": null,
     "machine_no": null,
     "cost_center_old": null,
@@ -1648,7 +1648,7 @@
   },
   {
     "production_area": "QA Room",
-    "machine_type": "Navitas TT AOI",
+    "machine_name": "Navitas TT AOI",
     "printing_type": null,
     "machine_no": "N1",
     "cost_center_old": 7021,
@@ -1675,7 +1675,7 @@
   },
   {
     "production_area": "QA Room",
-    "machine_type": "Navitas TT AOI",
+    "machine_name": "Navitas TT AOI",
     "printing_type": null,
     "machine_no": "N2",
     "cost_center_old": 7021,
@@ -1702,7 +1702,7 @@
   },
   {
     "production_area": "QA Room",
-    "machine_type": "Luster TT AOI",
+    "machine_name": "Luster TT AOI",
     "printing_type": null,
     "machine_no": "A",
     "cost_center_old": 7023,
@@ -1729,7 +1729,7 @@
   },
   {
     "production_area": "QA Room",
-    "machine_type": "Luster AOI",
+    "machine_name": "Luster AOI",
     "printing_type": null,
     "machine_no": 80,
     "cost_center_old": 7024,
@@ -1756,7 +1756,7 @@
   },
   {
     "production_area": "QA Room",
-    "machine_type": "Luster AOI",
+    "machine_name": "Luster AOI",
     "printing_type": null,
     "machine_no": 85,
     "cost_center_old": 7024,
@@ -1783,7 +1783,7 @@
   },
   {
     "production_area": "QA Room",
-    "machine_type": "Luster AOI",
+    "machine_name": "Luster AOI",
     "printing_type": null,
     "machine_no": 96,
     "cost_center_old": 7024,
@@ -1810,7 +1810,7 @@
   },
   {
     "production_area": "QA Room",
-    "machine_type": "Luster AOI",
+    "machine_name": "Luster AOI",
     "printing_type": null,
     "machine_no": 101,
     "cost_center_old": 7024,
@@ -1837,7 +1837,7 @@
   },
   {
     "production_area": "QA Room",
-    "machine_type": "Luster AOI",
+    "machine_name": "Luster AOI",
     "printing_type": null,
     "machine_no": 91,
     "cost_center_old": 7024,
@@ -1864,7 +1864,7 @@
   },
   {
     "production_area": "QA Room",
-    "machine_type": "Rolling Machine 1",
+    "machine_name": "Rolling Machine 1",
     "printing_type": null,
     "machine_no": "R1",
     "cost_center_old": 7051,
@@ -1891,7 +1891,7 @@
   },
   {
     "production_area": "QA Room",
-    "machine_type": "Rolling Machine 2",
+    "machine_name": "Rolling Machine 2",
     "printing_type": null,
     "machine_no": "R2",
     "cost_center_old": 7051,
@@ -1918,7 +1918,7 @@
   },
   {
     "production_area": "QA Room",
-    "machine_type": "Rolling Machine 3",
+    "machine_name": "Rolling Machine 3",
     "printing_type": null,
     "machine_no": "R3",
     "cost_center_old": 7051,
@@ -1945,7 +1945,7 @@
   },
   {
     "production_area": "QA Room",
-    "machine_type": "Rolling Machine 4",
+    "machine_name": "Rolling Machine 4",
     "printing_type": null,
     "machine_no": "R4",
     "cost_center_old": 7051,
@@ -1972,7 +1972,7 @@
   },
   {
     "production_area": "QA Room",
-    "machine_type": "Rolling Machine 5",
+    "machine_name": "Rolling Machine 5",
     "printing_type": null,
     "machine_no": "R5",
     "cost_center_old": 7051,
@@ -1999,7 +1999,7 @@
   },
   {
     "production_area": "QA Room",
-    "machine_type": "Label Counter 1",
+    "machine_name": "Label Counter 1",
     "printing_type": null,
     "machine_no": "QC01",
     "cost_center_old": 7012,
@@ -2026,7 +2026,7 @@
   },
   {
     "production_area": "QA Room",
-    "machine_type": "Label Counter 2",
+    "machine_name": "Label Counter 2",
     "printing_type": null,
     "machine_no": "QC02",
     "cost_center_old": 7012,
@@ -2053,7 +2053,7 @@
   },
   {
     "production_area": "QA Room",
-    "machine_type": "Label Counter 3",
+    "machine_name": "Label Counter 3",
     "printing_type": null,
     "machine_no": "QC03",
     "cost_center_old": 7012,
@@ -2080,7 +2080,7 @@
   },
   {
     "production_area": "QA Room",
-    "machine_type": "Label Counter 4",
+    "machine_name": "Label Counter 4",
     "printing_type": null,
     "machine_no": "QC04",
     "cost_center_old": 7012,
@@ -2107,7 +2107,7 @@
   },
   {
     "production_area": "QA Room",
-    "machine_type": "Label Counter 5",
+    "machine_name": "Label Counter 5",
     "printing_type": null,
     "machine_no": "QC05",
     "cost_center_old": 7012,
@@ -2134,7 +2134,7 @@
   },
   {
     "production_area": "Slitting Room",
-    "machine_type": "Slitting FG",
+    "machine_name": "Slitting FG",
     "printing_type": null,
     "machine_no": "RS02",
     "cost_center_old": 6012,
@@ -2161,7 +2161,7 @@
   },
   {
     "production_area": "Slitting Room",
-    "machine_type": "Slitting FG",
+    "machine_name": "Slitting FG",
     "printing_type": null,
     "machine_no": "RS07",
     "cost_center_old": 6017,
@@ -2188,7 +2188,7 @@
   },
   {
     "production_area": "Slitting Room",
-    "machine_type": "Slitting FG",
+    "machine_name": "Slitting FG",
     "printing_type": null,
     "machine_no": "RS01",
     "cost_center_old": 6011,
@@ -2215,7 +2215,7 @@
   },
   {
     "production_area": "Slitting Room",
-    "machine_type": "Slitting FG",
+    "machine_name": "Slitting FG",
     "printing_type": null,
     "machine_no": "RS03",
     "cost_center_old": 6013,
@@ -2242,7 +2242,7 @@
   },
   {
     "production_area": "Slitting Room",
-    "machine_type": "Slitting Polly",
+    "machine_name": "Slitting Polly",
     "printing_type": null,
     "machine_no": "RS08",
     "cost_center_old": 6018,
@@ -2269,7 +2269,7 @@
   },
   {
     "production_area": "Slitting Room",
-    "machine_type": "Slitting Master",
+    "machine_name": "Slitting Master",
     "printing_type": null,
     "machine_no": "MS02",
     "cost_center_old": 3092,
@@ -2296,7 +2296,7 @@
   },
   {
     "production_area": "Slitting Room",
-    "machine_type": "Slitting Master",
+    "machine_name": "Slitting Master",
     "printing_type": null,
     "machine_no": "MS03",
     "cost_center_old": 3093,
@@ -2323,7 +2323,7 @@
   },
   {
     "production_area": "Slitting Room",
-    "machine_type": "Slitting Master",
+    "machine_name": "Slitting Master",
     "printing_type": null,
     "machine_no": "MS05",
     "cost_center_old": 3095,
@@ -2350,7 +2350,7 @@
   },
   {
     "production_area": "Slitting Room",
-    "machine_type": "Printing",
+    "machine_name": "Printing",
     "printing_type": null,
     "machine_no": null,
     "cost_center_old": null,
@@ -2377,7 +2377,7 @@
   },
   {
     "production_area": "Slitting Room",
-    "machine_type": "Digital",
+    "machine_name": "Digital",
     "printing_type": null,
     "machine_no": 5000,
     "cost_center_old": null,
@@ -2404,7 +2404,7 @@
   },
   {
     "production_area": "Slitting Room",
-    "machine_type": "GMP",
+    "machine_name": "GMP",
     "printing_type": null,
     "machine_no": 5100,
     "cost_center_old": null,
@@ -2431,7 +2431,7 @@
   },
   {
     "production_area": "Slitting Room",
-    "machine_type": "Flexo",
+    "machine_name": "Flexo",
     "printing_type": null,
     "machine_no": 5200,
     "cost_center_old": null,
@@ -2458,7 +2458,7 @@
   },
   {
     "production_area": "Slitting Room",
-    "machine_type": "Diecut",
+    "machine_name": "Diecut",
     "printing_type": null,
     "machine_no": null,
     "cost_center_old": null,
@@ -2485,7 +2485,7 @@
   },
   {
     "production_area": "Slitting Room",
-    "machine_type": "Class 100",
+    "machine_name": "Class 100",
     "printing_type": null,
     "machine_no": 6100,
     "cost_center_old": null,
@@ -2512,7 +2512,7 @@
   },
   {
     "production_area": "Slitting Room",
-    "machine_type": "Class 1000",
+    "machine_name": "Class 1000",
     "printing_type": null,
     "machine_no": 6200,
     "cost_center_old": null,
@@ -2539,7 +2539,7 @@
   },
   {
     "production_area": "Slitting Room",
-    "machine_type": "Slitting",
+    "machine_name": "Slitting",
     "printing_type": null,
     "machine_no": 7500,
     "cost_center_old": null,
@@ -2566,7 +2566,7 @@
   },
   {
     "production_area": "Slitting Room",
-    "machine_type": "QA",
+    "machine_name": "QA",
     "printing_type": null,
     "machine_no": 8000,
     "cost_center_old": null,

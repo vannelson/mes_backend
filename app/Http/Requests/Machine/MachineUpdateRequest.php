@@ -16,7 +16,8 @@ class MachineUpdateRequest extends FormRequest
         return [
             'image' => ['sometimes', 'nullable', 'image', 'mimes:jpg,jpeg,png,webp', 'max:5120'],
             'production_area' => ['sometimes', 'nullable', 'string', 'max:120'],
-            'machine_type' => ['sometimes', 'required', 'string', 'max:120'],
+            'machine_name' => ['sometimes', 'required', 'string', 'max:120'],
+            'machine_type' => ['sometimes', 'nullable', 'string', 'max:120'],
             'printing_type' => ['sometimes', 'nullable', 'string', 'max:120'],
             'machine_no' => ['sometimes', 'nullable', 'string', 'max:50'],
             'cost_center_old' => ['sometimes', 'nullable', 'string', 'max:50'],

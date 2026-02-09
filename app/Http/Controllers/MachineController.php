@@ -29,7 +29,7 @@ class MachineController extends Controller
         $filters = Arr::get($request->all(), 'filters', []);
 
         // Accept top-level query params (e.g., ?q=FSK) as filters for compatibility with new UI
-        foreach (['q', 'production_area', 'machine_type', 'machine_no', 'cost_center_new'] as $key) {
+        foreach (['q', 'production_area', 'machine_name', 'machine_type', 'machine_no', 'cost_center_new'] as $key) {
             $value = $request->get($key);
             if ($value !== null && $value !== '') {
                 $filters[$key] = $value;

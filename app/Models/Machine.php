@@ -11,6 +11,7 @@ class Machine extends Model
 
     protected $fillable = [
         'production_area',
+        'machine_name',
         'machine_type',
         'printing_type',
         'machine_no',

@@ -73,7 +73,7 @@ class MachineImageSeeder extends Seeder
 
                     $machine = Machine::create([
                         'machine_no' => $machineNo,
-                        'machine_type' => $record['machine_name'] ?: ($record['code'] ?: null),
+                        'machine_name' => $record['machine_name'] ?: ($record['code'] ?: null),
                         'metadata' => $metadata,
                     ]);
 
@@ -96,7 +96,7 @@ class MachineImageSeeder extends Seeder
 
             $machine = Machine::create([
                 'machine_no' => $record['code'],
-                'machine_type' => $record['machine_name'] ?: $record['code'],
+                'machine_name' => $record['machine_name'] ?: $record['code'],
                 'metadata' => $metadata,
             ]);
 

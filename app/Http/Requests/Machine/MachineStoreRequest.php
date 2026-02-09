@@ -15,7 +15,8 @@ class MachineStoreRequest extends FormRequest
     {
         return [
             'production_area' => ['nullable', 'string', 'max:120'],
-            'machine_type' => ['required', 'string', 'max:120'],
+            'machine_name' => ['required', 'string', 'max:120'],
+            'machine_type' => ['nullable', 'string', 'max:120'],
             'printing_type' => ['nullable', 'string', 'max:120'],
             'machine_no' => ['nullable', 'string', 'max:50'],
             'cost_center_old' => ['nullable', 'string', 'max:50'],

@@ -296,13 +296,13 @@ class DashboardController extends Controller
             ->values()
             ->all();
         $byType = Machine::query()
-            ->select('machine_type', DB::raw('COUNT(*) as total'))
-            ->groupBy('machine_type')
+            ->select('machine_name', DB::raw('COUNT(*) as total'))
+            ->groupBy('machine_name')
             ->orderByDesc('total')
             ->get()
             ->map(function ($row): array {
                 return [
-                    'type' => $row->machine_type ?: 'Unspecified',
+                    'type' => $row->machine_name ?: 'Unspecified',
                     'count' => (int) $row->total,
                 ];
             })
