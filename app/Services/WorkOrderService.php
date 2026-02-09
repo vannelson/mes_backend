@@ -1064,9 +1064,12 @@ class WorkOrderService implements WorkOrderServiceInterface
                 }
 
                 $order->template_route_id = $templateData['id'];
-                $order->metadata = $templateData['metadata'];
+                $order->metadata = $this->prepareTemplateMetadataForWorkOrder(
+                    $templateData['metadata'] ?? null,
+                    'Released'
+                );
                 if ($hasIsReleased) {
-                    $statusRaw = strtolower(trim((string) Arr::get($templateData['metadata'], 'state.status', '')));
+                    $statusRaw = strtolower(trim((string) Arr::get($order->metadata, 'state.status', '')));
                     $order->is_released = $this->resolveIsReleased($order, $statusRaw);
                 }
                 $order->save();
@@ -1360,12 +1363,55 @@ class WorkOrderService implements WorkOrderServiceInterface
         return $metadata;
     }
 
+    protected function prepareTemplateMetadataForWorkOrder(
+        mixed $metadata,
+        ?string $defaultStatus = null
+    ): array {
+        $normalized = $this->normalizeTemplateMetadata($metadata);
+        if (!is_array($normalized)) {
+            $normalized = [];
+        }
+
+        if ($this->isListArray($normalized)) {
+            $normalized = ['routes' => $normalized];
+        }
+
+        if (!isset($normalized['state']) || !is_array($normalized['state'])) {
+            $normalized['state'] = [];
+        }
+
+        if ($defaultStatus !== null) {
+            $current = $normalized['state']['status'] ?? null;
+            if (!is_string($current) || trim($current) === '') {
+                $normalized['state']['status'] = $defaultStatus;
+            }
+        }
+
+        return $normalized;
+    }
+
+    protected function isListArray(array $value): bool
+    {
+        $index = 0;
+        foreach (array_keys($value) as $key) {
+            if ($key !== $index) {
+                return false;
+            }
+            $index++;
+        }
+
+        return true;
+    }
+
     protected function syncTemplateMetadata(array &$data): void
     {
         if (!empty($data['template_route_id'])) {
             $templateRoute = TemplateRoute::findOrFail($data['template_route_id']);
             // reuse template metadata so work orders stay in sync with the chosen template
-            $data['metadata'] = $templateRoute->metadata;
+            $data['metadata'] = $this->prepareTemplateMetadataForWorkOrder(
+                $templateRoute->metadata,
+                'Released'
+            );
         }
     }
 
