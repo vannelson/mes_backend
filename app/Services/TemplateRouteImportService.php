@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Models\Machine;
 use App\Models\TemplateRoute;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
@@ -102,6 +103,12 @@ class TemplateRouteImportService
         'wo_journal_line_no',
     ];
 
+    private array $dayMonRequiredColumns = [
+        'customer_part_number',
+        'machine_code',
+        'wo_journal_line_no',
+    ];
+
     private array $fallbackHeaderKeys = [
         'customer_part_number' => [
             'item code',
@@ -114,97 +121,189 @@ class TemplateRouteImportService
     public function import(UploadedFile $file, ?string $sheetIdentifier, int $userId, bool $dryRun, ?string $batchNumber = null): array
     {
         $this->extendExecutionLimits();
-        $spreadsheet = $this->loadSpreadsheet($file);
-        $worksheet = $this->resolveWorksheet($spreadsheet, $sheetIdentifier);
-        $header = $this->detectHeader($worksheet);
-        if (empty($header['map'])) {
-            throw new RuntimeException('Unable to locate the header row.');
-        }
-
-        $missing = array_values(array_filter(
-            $this->requiredColumns,
-            fn ($required) => !array_key_exists($required, $header['map'])
-        ));
-        if (!empty($missing)) {
-            throw ValidationException::withMessages([
-                'columns' => ['Missing required columns: ' . implode(', ', $missing)],
-            ]);
-        }
+        $reader = $this->buildReader($file);
+        $sheetNames = $this->listWorksheetNames($reader, $file);
+        [$worksheets, $sheetLabel, $multipleSheets] = $this->resolveSheetNames($sheetNames, $sheetIdentifier);
+        $requiredColumns = $this->getRequiredColumns($sheetLabel);
+        $isDayMonSheet = $this->isDayMonSheetName($sheetLabel) || $this->isAllMonthSheetName($sheetLabel);
 
         $rowsTotal = 0;
         $validRows = [];
+        $invalidParts = [];
         $errors = [];
-        $headerRowNumber = $header['row_number'];
-        $highestRow = $worksheet->getHighestRow();
+        $machineIndex = null;
 
-        for ($rowNumber = $headerRowNumber + 1; $rowNumber <= $highestRow; $rowNumber++) {
-            if ($this->isWorksheetRowEmpty($worksheet, $rowNumber, $header['map'])) {
-                continue;
-            }
-            $rowsTotal++;
-
-            $payload = $this->mapWorksheetRowToPayload($worksheet, $rowNumber, $header['map']);
-            $partNumber = $this->normalizePartNumber($payload['customer_part_number'] ?? null);
-            $machineTypeRaw = $this->sanitizeText($payload['machine_type'] ?? null);
-
-            if ($partNumber === '' || $machineTypeRaw === '') {
+        foreach ($worksheets as $sheetName) {
+            $spreadsheet = $this->loadSpreadsheetForSheet($reader, $file, $sheetName);
+            $worksheet = $spreadsheet->getSheetByName($sheetName) ?: $spreadsheet->getSheet(0);
+            if (! $worksheet) {
                 $errors[] = [
-                    'row_number' => $rowNumber,
-                    'message' => 'Missing customer part number or machine type.',
-                    'columns' => ['customer_part_number', 'machine_type'],
+                    'row_number' => $multipleSheets ? "{$sheetName}:0" : 0,
+                    'message' => "Sheet {$sheetName}: Unable to load worksheet.",
+                    'columns' => [],
                 ];
+                $spreadsheet->disconnectWorksheets();
+                unset($spreadsheet);
                 continue;
             }
 
-            $machineType = $this->normalizeMachineType($machineTypeRaw);
-            if ($machineType === null) {
+            $currentSheetLabel = $worksheet->getTitle() ?: $sheetName;
+            $header = $this->detectHeader($worksheet, $requiredColumns);
+            if (empty($header['map'])) {
                 $errors[] = [
-                    'row_number' => $rowNumber,
-                    'message' => 'Unknown machine type.',
-                    'columns' => ['machine_type'],
+                    'row_number' => $multipleSheets ? "{$currentSheetLabel}:0" : 0,
+                    'message' => "Sheet {$currentSheetLabel}: Unable to locate the header row.",
+                    'columns' => [],
                 ];
+                $spreadsheet->disconnectWorksheets();
+                unset($spreadsheet);
                 continue;
             }
 
-            $woJournalLineNo = $this->toNumber($payload['wo_journal_line_no'] ?? null);
-            if ($woJournalLineNo === null) {
+            $missing = array_values(array_filter(
+                $requiredColumns,
+                fn ($required) => !array_key_exists($required, $header['map'])
+            ));
+            if (!empty($missing)) {
                 $errors[] = [
-                    'row_number' => $rowNumber,
-                    'message' => 'Invalid WO Journal Line No.',
-                    'columns' => ['wo_journal_line_no'],
+                    'row_number' => $multipleSheets ? "{$currentSheetLabel}:0" : 0,
+                    'message' => "Sheet {$currentSheetLabel}: Missing required columns: " . implode(', ', $missing),
+                    'columns' => $missing,
                 ];
+                $spreadsheet->disconnectWorksheets();
+                unset($spreadsheet);
                 continue;
             }
 
-            $workOrderLineNo = $this->toNumber($payload['work_order_line_no'] ?? null);
-            $validRows[] = [
-                'row_number' => $rowNumber,
-                'customer_part_number' => $partNumber,
-                'work_order_line_no' => $workOrderLineNo,
-                'wo_journal_line_no' => $woJournalLineNo,
-                'machine_type' => $machineType,
-                'machine_code' => $this->sanitizeText($payload['machine_code'] ?? null),
-                'machine_name' => $this->sanitizeText($payload['machine_name'] ?? null),
-                'process_no' => $this->toNumber($payload['process_no'] ?? null),
-                'posted' => $this->toBoolean($payload['posted'] ?? null),
-                'no_of_press' => $this->sanitizeText($payload['no_of_press'] ?? null),
-                'no_of_ups' => $this->sanitizeText($payload['no_of_ups'] ?? null),
-                'printed_quantity' => $this->sanitizeText($payload['printed_quantity'] ?? null),
-                'qc_approved_quantity' => $this->sanitizeText($payload['qc_approved_quantity'] ?? null),
-                'date_completed' => $this->normalizeDate($payload['date_completed'] ?? null),
-                'remarks' => $this->sanitizeText($payload['remarks'] ?? null),
-            ];
+            $headerRowNumber = $header['row_number'];
+            $highestRow = $worksheet->getHighestRow();
+
+            for ($rowNumber = $headerRowNumber + 1; $rowNumber <= $highestRow; $rowNumber++) {
+                if ($this->isWorksheetRowEmpty($worksheet, $rowNumber, $header['map'])) {
+                    continue;
+                }
+                $rowsTotal++;
+
+                $rowRef = $multipleSheets ? "{$currentSheetLabel}:{$rowNumber}" : $rowNumber;
+                $payload = $this->mapWorksheetRowToPayload($worksheet, $rowNumber, $header['map']);
+                $partNumber = $this->normalizePartNumber($payload['customer_part_number'] ?? null);
+                $machineTypeRaw = $this->sanitizeText($payload['machine_type'] ?? null);
+                $machineNameRaw = $this->sanitizeText($payload['machine_name'] ?? null);
+                $machineCode = $this->normalizeMachineCode($payload['machine_code'] ?? null);
+
+                if ($partNumber === '') {
+                    $errors[] = [
+                        'row_number' => $rowRef,
+                        'message' => 'Missing customer part number.',
+                        'columns' => ['customer_part_number'],
+                    ];
+                    continue;
+                }
+
+                if ($isDayMonSheet) {
+                    if ($machineCode === '') {
+                        $errors[] = [
+                            'row_number' => $rowRef,
+                            'message' => 'Missing machine code for day-Mon sheet.',
+                            'columns' => ['machine_code'],
+                        ];
+                        $invalidParts[$partNumber] = true;
+                        continue;
+                    }
+
+                    if ($machineTypeRaw === '' || $machineNameRaw === '') {
+                        $machineIndex ??= $this->loadMachineIndex();
+                        $machine = $machineIndex[$machineCode] ?? null;
+                        if ($machine) {
+                            if ($machineTypeRaw === '') {
+                                $machineTypeRaw = $this->sanitizeText($machine['machine_type'] ?? null);
+                            }
+                            if ($machineNameRaw === '') {
+                                $machineNameRaw = $this->sanitizeText($machine['machine_name'] ?? null);
+                            }
+                        }
+                    }
+
+                    if ($machineTypeRaw === '' || $machineNameRaw === '') {
+                        $errors[] = [
+                            'row_number' => $rowRef,
+                            'message' => sprintf(
+                                'Unidentified machine for code "%s".',
+                                $machineCode !== '' ? $machineCode : ($payload['machine_code'] ?? '')
+                            ),
+                            'columns' => ['machine_code'],
+                        ];
+                        $invalidParts[$partNumber] = true;
+                        continue;
+                    }
+                }
+
+                if ($machineTypeRaw === '') {
+                    $errors[] = [
+                        'row_number' => $rowRef,
+                        'message' => 'Missing customer part number or machine type.',
+                        'columns' => ['customer_part_number', 'machine_type'],
+                    ];
+                    continue;
+                }
+
+                $machineType = $this->normalizeMachineType($machineTypeRaw);
+                if ($machineType === null) {
+                    $errors[] = [
+                        'row_number' => $rowRef,
+                        'message' => 'Unknown machine type.',
+                        'columns' => ['machine_type'],
+                    ];
+                    $invalidParts[$partNumber] = true;
+                    continue;
+                }
+
+                $woJournalLineNo = $this->toNumber($payload['wo_journal_line_no'] ?? null);
+                if ($woJournalLineNo === null) {
+                    $errors[] = [
+                        'row_number' => $rowRef,
+                        'message' => 'Invalid WO Journal Line No.',
+                        'columns' => ['wo_journal_line_no'],
+                    ];
+                    continue;
+                }
+
+                $workOrderLineNo = $this->toNumber($payload['work_order_line_no'] ?? null);
+                $validRows[] = [
+                    'row_number' => $rowRef,
+                    'customer_part_number' => $partNumber,
+                    'work_order_line_no' => $workOrderLineNo,
+                    'wo_journal_line_no' => $woJournalLineNo,
+                    'machine_type' => $machineType,
+                    'machine_code' => $machineCode !== '' ? $machineCode : $this->sanitizeText($payload['machine_code'] ?? null),
+                    'machine_name' => $machineNameRaw !== '' ? $machineNameRaw : $this->sanitizeText($payload['machine_name'] ?? null),
+                    'process_no' => $this->toNumber($payload['process_no'] ?? null),
+                    'posted' => $this->toBoolean($payload['posted'] ?? null),
+                    'no_of_press' => $this->sanitizeText($payload['no_of_press'] ?? null),
+                    'no_of_ups' => $this->sanitizeText($payload['no_of_ups'] ?? null),
+                    'printed_quantity' => $this->sanitizeText($payload['printed_quantity'] ?? null),
+                    'qc_approved_quantity' => $this->sanitizeText($payload['qc_approved_quantity'] ?? null),
+                    'date_completed' => $this->normalizeDate($payload['date_completed'] ?? null),
+                    'remarks' => $this->sanitizeText($payload['remarks'] ?? null),
+                ];
+            }
+
+            $spreadsheet->disconnectWorksheets();
+            unset($spreadsheet);
+        }
+
+        if (!empty($invalidParts)) {
+            $validRows = array_values(array_filter(
+                $validRows,
+                static fn ($row) => !isset($invalidParts[$row['customer_part_number']])
+            ));
         }
 
         $built = $this->buildTemplatesFromRows($validRows, !$dryRun);
 
         if (!$dryRun) {
-            $sheetLabel = $worksheet->getTitle() ?: null;
             $this->replaceTemplates($built['records'], $userId, $batchNumber, $sheetLabel);
         }
-
-        $spreadsheet->disconnectWorksheets();
-        unset($spreadsheet);
 
         return [
             'summary' => [
@@ -756,12 +855,12 @@ class TemplateRouteImportService
         return $candidates[0];
     }
 
-    private function detectHeader(Worksheet $worksheet): array
+    private function detectHeader(Worksheet $worksheet, array $requiredColumns): array
     {
         $limit = min(self::HEADER_LOOKAHEAD, $worksheet->getHighestRow());
         for ($rowNumber = 1; $rowNumber <= $limit; $rowNumber++) {
             $map = $this->buildColumnMapFromWorksheetRow($worksheet, $rowNumber);
-            if (!empty($map) && $this->hasRequiredColumns($map)) {
+            if (!empty($map) && $this->hasRequiredColumns($map, $requiredColumns)) {
                 return [
                     'row_number' => $rowNumber,
                     'map' => $map,
@@ -775,14 +874,21 @@ class TemplateRouteImportService
         ];
     }
 
-    private function hasRequiredColumns(array $map): bool
+    private function hasRequiredColumns(array $map, array $requiredColumns): bool
     {
-        foreach ($this->requiredColumns as $required) {
+        foreach ($requiredColumns as $required) {
             if (!array_key_exists($required, $map)) {
                 return false;
             }
         }
         return true;
+    }
+
+    private function getRequiredColumns(?string $sheetLabel): array
+    {
+        return ($this->isDayMonSheetName($sheetLabel) || $this->isAllMonthSheetName($sheetLabel))
+            ? $this->dayMonRequiredColumns
+            : $this->requiredColumns;
     }
 
     private function buildColumnMapFromWorksheetRow(Worksheet $worksheet, int $rowNumber): array
@@ -871,6 +977,25 @@ class TemplateRouteImportService
         return $text !== '' ? strtoupper($text) : '';
     }
 
+    private function normalizeMachineCode(mixed $value): string
+    {
+        $text = $this->sanitizeText($value);
+        if ($text === '') {
+            return '';
+        }
+
+        $clean = str_replace([',', ' '], '', $text);
+        if ($clean === '') {
+            return '';
+        }
+
+        if (is_numeric($clean)) {
+            return (string) ((int) round((float) $clean));
+        }
+
+        return strtoupper($text);
+    }
+
     private function sanitizeText(mixed $value): string
     {
         if ($value === null) {
@@ -884,6 +1009,154 @@ class TemplateRouteImportService
             return $trimmed === '-' ? '' : $trimmed;
         }
         return '';
+    }
+
+    private function isDayMonSheetName(?string $sheetLabel): bool
+    {
+        return $this->extractDayMonParts($sheetLabel) !== null;
+    }
+
+    private function loadMachineIndex(): array
+    {
+        $index = [];
+        $machines = Machine::query()
+            ->select(['machine_no', 'machine_name', 'machine_type'])
+            ->whereNotNull('machine_no')
+            ->get();
+
+        foreach ($machines as $machine) {
+            $raw = $this->sanitizeText($machine->machine_no);
+            if ($raw === '') {
+                continue;
+            }
+
+            $normalized = $this->normalizeMachineCode($raw);
+            $payload = [
+                'machine_name' => $machine->machine_name,
+                'machine_type' => $machine->machine_type,
+            ];
+
+            $index[$normalized] = $payload;
+            $index[$raw] = $payload;
+            $index[strtoupper($raw)] = $payload;
+        }
+
+        return $index;
+    }
+
+    private function resolveWorksheets(Spreadsheet $spreadsheet, ?string $sheetIdentifier): array
+    {
+        if ($this->isAllMonthSheetName($sheetIdentifier)) {
+            $month = $this->parseAllMonthSheetName($sheetIdentifier);
+            $matched = [];
+            foreach ($spreadsheet->getWorksheetIterator() as $sheet) {
+                $parts = $this->extractDayMonParts($sheet->getTitle());
+                if (!$parts) {
+                    continue;
+                }
+                if ($parts['month'] === $month) {
+                    $matched[] = $sheet;
+                }
+            }
+
+            if (empty($matched)) {
+                throw new RuntimeException("No day-Mon sheets found for {$sheetIdentifier}.");
+            }
+
+            return [$matched, $sheetIdentifier];
+        }
+
+        $worksheet = $this->resolveWorksheet($spreadsheet, $sheetIdentifier);
+        $label = $worksheet->getTitle() ?: $sheetIdentifier;
+
+        return [[$worksheet], $label];
+    }
+
+    private function extractDayMonParts(?string $sheetLabel): ?array
+    {
+        if ($sheetLabel === null) {
+            return null;
+        }
+
+        $label = trim($sheetLabel);
+        if ($label === '') {
+            return null;
+        }
+
+        if (!preg_match('/^(\d{1,2})-([A-Za-z]{3})$/', $label, $matches)) {
+            return null;
+        }
+
+        $day = (int) $matches[1];
+        if ($day < 1 || $day > 31) {
+            return null;
+        }
+
+        $month = $this->normalizeMonthToken($matches[2]);
+        if ($month === null) {
+            return null;
+        }
+
+        return [
+            'day' => $day,
+            'month' => $month,
+        ];
+    }
+
+    private function isAllMonthSheetName(?string $sheetLabel): bool
+    {
+        return $this->parseAllMonthSheetName($sheetLabel) !== null;
+    }
+
+    private function parseAllMonthSheetName(?string $sheetLabel): ?string
+    {
+        if ($sheetLabel === null) {
+            return null;
+        }
+
+        $label = trim($sheetLabel);
+        if ($label === '') {
+            return null;
+        }
+
+        if (!preg_match('/^All\s+([A-Za-z]+)$/i', $label, $matches)) {
+            return null;
+        }
+
+        return $this->normalizeMonthToken($matches[1]);
+    }
+
+    private function normalizeMonthToken(string $token): ?string
+    {
+        $key = ucfirst(strtolower(trim($token)));
+        $map = [
+            'Jan' => 'Jan',
+            'January' => 'Jan',
+            'Feb' => 'Feb',
+            'February' => 'Feb',
+            'Mar' => 'Mar',
+            'March' => 'Mar',
+            'Apr' => 'Apr',
+            'April' => 'Apr',
+            'May' => 'May',
+            'Jun' => 'Jun',
+            'June' => 'Jun',
+            'Jul' => 'Jul',
+            'July' => 'Jul',
+            'Aug' => 'Aug',
+            'August' => 'Aug',
+            'Sep' => 'Sep',
+            'Sept' => 'Sep',
+            'September' => 'Sep',
+            'Oct' => 'Oct',
+            'October' => 'Oct',
+            'Nov' => 'Nov',
+            'November' => 'Nov',
+            'Dec' => 'Dec',
+            'December' => 'Dec',
+        ];
+
+        return $map[$key] ?? null;
     }
 
     private function toNumber(mixed $value): ?int
@@ -967,6 +1240,99 @@ class TemplateRouteImportService
         } catch (Throwable $e) {
             throw new RuntimeException('Unable to read the uploaded spreadsheet.', 0, $e);
         }
+    }
+
+    private function buildReader(UploadedFile $file): IReader
+    {
+        try {
+            $reader = IOFactory::createReaderForFile($file->getRealPath());
+            if (method_exists($reader, 'setReadDataOnly')) {
+                $reader->setReadDataOnly(true);
+            }
+            if (method_exists($reader, 'setReadEmptyCells')) {
+                $reader->setReadEmptyCells(false);
+            }
+            if (method_exists($reader, 'setReadFilter')) {
+                $reader->setReadFilter(new TemplateRouteColumnReadFilter());
+            }
+            return $reader;
+        } catch (Throwable $e) {
+            throw new RuntimeException('Unable to read the uploaded spreadsheet.', 0, $e);
+        }
+    }
+
+    private function listWorksheetNames(IReader $reader, UploadedFile $file): array
+    {
+        $path = $file->getRealPath();
+        if (method_exists($reader, 'listWorksheetNames')) {
+            return array_values(array_filter($reader->listWorksheetNames($path) ?? []));
+        }
+        if (method_exists($reader, 'listWorksheetInfo')) {
+            $info = $reader->listWorksheetInfo($path) ?? [];
+            $names = [];
+            foreach ($info as $entry) {
+                $name = $entry['worksheetName'] ?? null;
+                if ($name) {
+                    $names[] = $name;
+                }
+            }
+            return array_values(array_unique($names));
+        }
+        return [];
+    }
+
+    private function resolveSheetNames(array $sheetNames, ?string $sheetIdentifier): array
+    {
+        if (empty($sheetNames)) {
+            throw new RuntimeException('No worksheets detected in the uploaded spreadsheet.');
+        }
+
+        if ($this->isAllMonthSheetName($sheetIdentifier)) {
+            $month = $this->parseAllMonthSheetName($sheetIdentifier);
+            $matched = [];
+            foreach ($sheetNames as $name) {
+                $parts = $this->extractDayMonParts($name);
+                if ($parts && $parts['month'] === $month) {
+                    $matched[] = $name;
+                }
+            }
+            if (empty($matched)) {
+                throw new RuntimeException("No day-Mon sheets found for {$sheetIdentifier}.");
+            }
+            return [$matched, $sheetIdentifier, true];
+        }
+
+        if ($sheetIdentifier === null || $sheetIdentifier === '') {
+            return [[$sheetNames[0]], $sheetNames[0], false];
+        }
+
+        if (is_numeric($sheetIdentifier)) {
+            $index = max(0, (int) $sheetIdentifier);
+            if ($index > 0) {
+                $index--;
+            }
+            if ($index >= count($sheetNames)) {
+                throw new RuntimeException("Sheet index {$sheetIdentifier} is out of bounds.");
+            }
+            $name = $sheetNames[$index];
+            return [[$name], $name, false];
+        }
+
+        foreach ($sheetNames as $name) {
+            if (strcasecmp($name, $sheetIdentifier) === 0) {
+                return [[$name], $name, false];
+            }
+        }
+
+        throw new RuntimeException("Sheet '{$sheetIdentifier}' was not found in the workbook.");
+    }
+
+    private function loadSpreadsheetForSheet(IReader $reader, UploadedFile $file, string $sheetName): Spreadsheet
+    {
+        if (method_exists($reader, 'setLoadSheetsOnly')) {
+            $reader->setLoadSheetsOnly([$sheetName]);
+        }
+        return $reader->load($file->getRealPath());
     }
 
     private function resolveWorksheet(Spreadsheet $spreadsheet, ?string $sheetIdentifier): Worksheet
