@@ -1065,8 +1065,9 @@ class WorkOrderService implements WorkOrderServiceInterface
 
                 $order->template_route_id = $templateData['id'];
                 $order->metadata = $templateData['metadata'];
-                if ($matchedByPartNumber && $hasIsReleased) {
-                    $order->is_released = true;
+                if ($hasIsReleased) {
+                    $statusRaw = strtolower(trim((string) Arr::get($templateData['metadata'], 'state.status', '')));
+                    $order->is_released = $this->resolveIsReleased($order, $statusRaw);
                 }
                 $order->save();
 
