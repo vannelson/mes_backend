@@ -90,6 +90,22 @@ class WorkOrderRepository extends BaseRepository implements WorkOrderRepositoryI
             $query->whereDate('requested_delivery_date', '<=', $requestedTo);
         }
 
+        $scheduleFrom = Arr::get($filters, 'schedule_from');
+        $scheduleTo = Arr::get($filters, 'schedule_to');
+        if ($scheduleFrom || $scheduleTo) {
+            $query->where(function ($range) use ($scheduleFrom, $scheduleTo) {
+                if ($scheduleTo) {
+                    $range->whereDate('order_date', '<=', $scheduleTo);
+                }
+                if ($scheduleFrom) {
+                    $range->where(function ($overlap) use ($scheduleFrom) {
+                        $overlap->whereDate('production_due_date', '>=', $scheduleFrom)
+                            ->orWhereDate('order_date', '>=', $scheduleFrom);
+                    });
+                }
+            });
+        }
+
         if ($orderDays = Arr::get($filters, 'order_date_days')) {
             $this->applyDayOfWeekFilter($query, 'order_date', $orderDays);
         }
@@ -134,6 +150,9 @@ class WorkOrderRepository extends BaseRepository implements WorkOrderRepositoryI
             case 'requested_delivery_date':
             case 'status':
             case 'work_order_no':
+            case 'customer_name':
+            case 'customer_code':
+            case 'customer_part_number':
             case 'id':
                 $query->orderBy($orderBy, $direction);
                 break;

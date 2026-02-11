@@ -1351,6 +1351,161 @@ class WorkOrderService implements WorkOrderServiceInterface
         ];
     }
 
+    public function calendarSummary(array $options = []): array
+    {
+        $fromRaw = $options['from'] ?? null;
+        $toRaw = $options['to'] ?? null;
+        $upcomingDays = max(1, (int) ($options['upcoming_days'] ?? 5));
+        $filters = is_array($options['filters'] ?? null) ? $options['filters'] : [];
+
+        $start = $fromRaw ? \Illuminate\Support\Carbon::parse($fromRaw)->startOfDay() : now()->startOfMonth();
+        $end = $toRaw ? \Illuminate\Support\Carbon::parse($toRaw)->startOfDay() : now()->endOfMonth()->startOfDay();
+        if ($end->lt($start)) {
+            [$start, $end] = [$end, $start];
+        }
+
+        $days = [];
+        $cursor = $start->copy();
+        while ($cursor->lte($end)) {
+            $key = $cursor->toDateString();
+            $days[$key] = [
+                'date' => $key,
+                'total' => 0,
+                'due_today' => 0,
+                'upcoming_due' => 0,
+                'status' => [
+                    'backlog' => 0,
+                    'in_progress' => 0,
+                    'completed' => 0,
+                    'packing' => 0,
+                    'released' => 0,
+                ],
+            ];
+            $cursor->addDay();
+        }
+
+        $query = WorkOrder::query()->select([
+            'id',
+            'work_order_no',
+            'order_date',
+            'production_due_date',
+            'requested_delivery_date',
+            'production_date_completed',
+            'status',
+            'metadata',
+            'created_at',
+        ]);
+
+        if ($workOrderNo = Arr::get($filters, 'work_order_no')) {
+            $query->where('work_order_no', 'LIKE', "%{$workOrderNo}%");
+        }
+        if ($customerCode = Arr::get($filters, 'customer_code')) {
+            $query->where('customer_code', 'LIKE', "%{$customerCode}%");
+        }
+        if ($customerName = Arr::get($filters, 'customer_name')) {
+            $query->where('customer_name', 'LIKE', "%{$customerName}%");
+        }
+        if ($customerPartNumber = Arr::get($filters, 'customer_part_number')) {
+            $query->where('customer_part_number', 'LIKE', "%{$customerPartNumber}%");
+        }
+        if ($statusFilter = Arr::get($filters, 'status')) {
+            $query->where('status', $statusFilter);
+        }
+
+        $scheduleFrom = $start->toDateString();
+        $scheduleTo = $end->toDateString();
+        $query->where(function ($range) use ($scheduleFrom, $scheduleTo) {
+            $range->whereDate('order_date', '<=', $scheduleTo);
+            $range->where(function ($overlap) use ($scheduleFrom) {
+                $overlap->whereDate('production_due_date', '>=', $scheduleFrom)
+                    ->orWhereDate('requested_delivery_date', '>=', $scheduleFrom)
+                    ->orWhereDate('order_date', '>=', $scheduleFrom);
+            });
+        });
+
+        $orders = $query->get();
+
+        $dueCounts = array_fill_keys(array_keys($days), 0);
+
+        foreach ($orders as $order) {
+            $metadata = is_array($order->metadata) ? $order->metadata : [];
+            $state = is_array($metadata['state'] ?? null) ? $metadata['state'] : [];
+            $statusRaw = $state['status'] ?? $metadata['status'] ?? $order->status ?? null;
+            $isCompleted = $order->production_date_completed !== null;
+            $status = $this->normalizeStatus($statusRaw, $isCompleted);
+            $bucket = $this->mapCalendarStatus($status);
+
+            $orderDate = $this->resolveOrderDate($order);
+            $dueDate = $this->resolveDueDate($order);
+            if (!$dueDate && $orderDate) {
+                $dueDate = $orderDate->copy();
+            }
+            if (!$orderDate && $dueDate) {
+                $orderDate = $dueDate->copy();
+            }
+            if (!$orderDate || !$dueDate) {
+                continue;
+            }
+
+            $effectiveStart = $orderDate->gt($start) ? $orderDate->copy() : $start->copy();
+            $effectiveEnd = $dueDate->lt($end) ? $dueDate->copy() : $end->copy();
+            if ($effectiveEnd->lt($effectiveStart)) {
+                continue;
+            }
+
+            if (isset($days[$dueDate->toDateString()])) {
+                $dueCounts[$dueDate->toDateString()]++;
+            }
+
+            $walk = $effectiveStart->copy();
+            while ($walk->lte($effectiveEnd)) {
+                $key = $walk->toDateString();
+                if (isset($days[$key])) {
+                    $days[$key]['total'] += 1;
+                    $days[$key]['status'][$bucket] =
+                        ($days[$key]['status'][$bucket] ?? 0) + 1;
+                }
+                $walk->addDay();
+            }
+        }
+
+        $keys = array_keys($days);
+        $prefix = [0];
+        foreach ($keys as $idx => $key) {
+            $prefix[$idx + 1] = $prefix[$idx] + ($dueCounts[$key] ?? 0);
+        }
+
+        $maxDue = 0;
+        $maxUpcoming = 0;
+        $maxTotal = 0;
+        foreach ($keys as $idx => $key) {
+            $dueToday = $dueCounts[$key] ?? 0;
+            $endIdx = min($idx + $upcomingDays, count($keys) - 1);
+            $upcoming =
+                $prefix[$endIdx + 1] - $prefix[$idx + 1];
+            $days[$key]['due_today'] = $dueToday;
+            $days[$key]['upcoming_due'] = $upcoming;
+
+            $maxDue = max($maxDue, $dueToday);
+            $maxUpcoming = max($maxUpcoming, $upcoming);
+            $maxTotal = max($maxTotal, $days[$key]['total'] ?? 0);
+        }
+
+        return [
+            'range' => [
+                'from' => $start->toDateString(),
+                'to' => $end->toDateString(),
+                'upcoming_days' => $upcomingDays,
+            ],
+            'max' => [
+                'due_today' => $maxDue,
+                'upcoming_due' => $maxUpcoming,
+                'total' => $maxTotal,
+            ],
+            'days' => array_values($days),
+        ];
+    }
+
     protected function normalizeTemplateMetadata(mixed $metadata): mixed
     {
         if (is_string($metadata)) {
@@ -2124,6 +2279,33 @@ class WorkOrderService implements WorkOrderServiceInterface
         }
 
         return ucwords($raw);
+    }
+
+    protected function mapCalendarStatus(string $status): string
+    {
+        $raw = strtolower(trim($status));
+        if ($raw === '') {
+            return 'backlog';
+        }
+        if (str_contains($raw, 'complete')) {
+            return 'completed';
+        }
+        if (str_contains($raw, 'pack')) {
+            return 'packing';
+        }
+        if (str_contains($raw, 'progress')) {
+            return 'in_progress';
+        }
+        if (str_contains($raw, 'release')) {
+            return 'released';
+        }
+        if (str_contains($raw, 'draft') || str_contains($raw, 'plan')) {
+            return 'backlog';
+        }
+        if (str_contains($raw, 'hold') || str_contains($raw, 'block')) {
+            return 'backlog';
+        }
+        return 'backlog';
     }
 
     protected function numericValue(mixed $value): float

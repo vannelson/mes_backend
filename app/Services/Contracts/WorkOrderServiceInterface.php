@@ -101,6 +101,11 @@ interface WorkOrderServiceInterface
     public function summary(array $options = []): array;
 
     /**
+     * Provide per-day aggregated summary for calendar month view.
+     */
+    public function calendarSummary(array $options = []): array;
+
+    /**
      * List work orders with WIP status, filters, and pagination.
      */
     public function listWip(

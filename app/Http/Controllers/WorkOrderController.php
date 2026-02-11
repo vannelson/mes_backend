@@ -43,6 +43,7 @@ class WorkOrderController extends Controller
         }
         $order = Arr::get($request->all(), 'order', ['id', 'desc']);
         $limit = (int) Arr::get($request->all(), 'limit', 10);
+        $limit = max(1, min($limit, 100));
         $page = (int) Arr::get($request->all(), 'page', 1);
 
         try {
@@ -124,6 +125,24 @@ class WorkOrderController extends Controller
             return $this->success('Work order summary retrieved successfully!', $data);
         } catch (Throwable $e) {
             return $this->error('Failed to load work order summary.', 500);
+        }
+    }
+
+    public function calendarSummary(Request $request): JsonResponse
+    {
+        $options = [
+            'from' => $request->get('from'),
+            'to' => $request->get('to'),
+            'upcoming_days' => $request->get('upcoming_days'),
+            'filters' => Arr::get($request->all(), 'filters', []),
+        ];
+
+        try {
+            $data = $this->workOrderService->calendarSummary($options);
+
+            return $this->success('Work order calendar summary retrieved successfully!', $data);
+        } catch (Throwable $e) {
+            return $this->error('Failed to load calendar summary.', 500);
         }
     }
 
@@ -257,9 +276,15 @@ class WorkOrderController extends Controller
         try {
             $updated = $this->workOrderService->update($id, $request->validated(), $evidenceImages);
 
-            return $updated
-                ? $this->success('Work order updated successfully!')
-                : $this->error('Nothing to update.', 422);
+            if (!$updated) {
+                return $this->error('Nothing to update.', 422);
+            }
+
+            $workOrder = (is_array($updated) || is_object($updated))
+                ? $updated
+                : $this->workOrderService->detail($id);
+
+            return $this->success('Work order updated successfully!', $workOrder);
         } catch (ValidationException $e) {
             return $this->validationError($e);
         } catch (Throwable $e) {

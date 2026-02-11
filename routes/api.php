@@ -60,6 +60,7 @@ Route::prefix('v1')->group(function () {
         Route::get('work-orders/by-template-route-batch', [WorkOrderController::class, 'listByTemplateRouteBatch']);
         Route::get('work-orders/by-template-route-batch/count', [WorkOrderController::class, 'countByTemplateRouteBatch']);
         Route::get('work-orders/summary', [WorkOrderController::class, 'summary']);
+        Route::get('work-orders/calendar-summary', [WorkOrderController::class, 'calendarSummary']);
         Route::get('work-orders/wip', [WorkOrderController::class, 'wip']);
         Route::post('work-orders', [WorkOrderController::class, 'store']);
         Route::post('work-orders/batch', [WorkOrderController::class, 'batchStore']);
