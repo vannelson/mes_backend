@@ -146,6 +146,28 @@ class WorkOrderController extends Controller
         }
     }
 
+    public function calendarDay(Request $request): JsonResponse
+    {
+        $options = [
+            'date' => $request->get('date') ?? $request->get('day'),
+            'view' => $request->get('view'),
+            'upcoming_days' => $request->get('upcoming_days'),
+            'range_from' => $request->get('range_from'),
+            'range_to' => $request->get('range_to'),
+            'filters' => Arr::get($request->all(), 'filters', []),
+            'limit' => $request->get('limit'),
+            'page' => $request->get('page'),
+        ];
+
+        try {
+            $data = $this->workOrderService->calendarDayOrders($options);
+
+            return $this->success('Work order calendar day retrieved successfully!', $data);
+        } catch (Throwable $e) {
+            return $this->error('Failed to load calendar day orders.', 500);
+        }
+    }
+
     public function store(WorkOrderStoreRequest $request): JsonResponse
     {
         $evidenceImages = $request->file('evidence_images', []);

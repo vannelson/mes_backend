@@ -1506,6 +1506,175 @@ class WorkOrderService implements WorkOrderServiceInterface
         ];
     }
 
+    public function calendarDayOrders(array $options = []): array
+    {
+        $dateRaw = $options['date'] ?? $options['day'] ?? null;
+        $upcomingDays = max(1, (int) ($options['upcoming_days'] ?? 5));
+        $filters = is_array($options['filters'] ?? null) ? $options['filters'] : [];
+        $viewRaw = strtolower(trim((string) ($options['view'] ?? 'due')));
+        $view = in_array($viewRaw, ['all', 'due', 'upcoming', 'normal'], true)
+            ? $viewRaw
+            : 'due';
+        $limit = (int) ($options['limit'] ?? 15);
+        $limit = max(1, min($limit, 1000));
+        $page = max(1, (int) ($options['page'] ?? 1));
+        $rangeFromRaw = $options['range_from'] ?? null;
+        $rangeToRaw = $options['range_to'] ?? null;
+
+        $day = $dateRaw
+            ? \Illuminate\Support\Carbon::parse($dateRaw)->startOfDay()
+            : now()->startOfDay();
+        $rangeStart = $rangeFromRaw
+            ? \Illuminate\Support\Carbon::parse($rangeFromRaw)->startOfDay()
+            : null;
+        $rangeEnd = $rangeToRaw
+            ? \Illuminate\Support\Carbon::parse($rangeToRaw)->startOfDay()
+            : null;
+
+        $query = WorkOrder::query()->select([
+            'id',
+            'work_order_no',
+            'customer_code',
+            'customer_name',
+            'customer_part_number',
+            'order_date',
+            'production_due_date',
+            'requested_delivery_date',
+            'production_date_completed',
+            'status',
+            'metadata',
+        ]);
+
+        if ($workOrderNo = Arr::get($filters, 'work_order_no')) {
+            $query->where('work_order_no', 'LIKE', "%{$workOrderNo}%");
+        }
+        if ($customerCode = Arr::get($filters, 'customer_code')) {
+            $query->where('customer_code', 'LIKE', "%{$customerCode}%");
+        }
+        if ($customerName = Arr::get($filters, 'customer_name')) {
+            $query->where('customer_name', 'LIKE', "%{$customerName}%");
+        }
+        if ($customerPartNumber = Arr::get($filters, 'customer_part_number')) {
+            $query->where('customer_part_number', 'LIKE', "%{$customerPartNumber}%");
+        }
+        if ($statusFilter = Arr::get($filters, 'status')) {
+            $query->where('status', $statusFilter);
+        }
+
+        $dayKey = $day->toDateString();
+        $query->where(function ($range) use ($dayKey) {
+            $range->whereDate('order_date', '<=', $dayKey);
+            $range->where(function ($overlap) use ($dayKey) {
+                $overlap->whereDate('production_due_date', '>=', $dayKey)
+                    ->orWhereDate('requested_delivery_date', '>=', $dayKey)
+                    ->orWhereNull('production_due_date')
+                    ->orWhereNull('requested_delivery_date');
+            });
+        });
+
+        $orders = $query->orderBy('production_due_date')->orderBy('order_date')->get();
+
+        $items = [];
+        $counts = [
+            'total' => 0,
+            'due' => 0,
+            'upcoming' => 0,
+            'normal' => 0,
+        ];
+
+        foreach ($orders as $order) {
+            $metadata = is_array($order->metadata) ? $order->metadata : [];
+            $state = is_array($metadata['state'] ?? null) ? $metadata['state'] : [];
+            $statusRaw = $state['status'] ?? $metadata['status'] ?? $order->status ?? null;
+            $isCompleted = $order->production_date_completed !== null;
+            $status = $this->normalizeStatus($statusRaw, $isCompleted);
+
+            $orderDate = $this->resolveOrderDate($order);
+            $dueDate = $this->resolveDueDate($order);
+            if (!$dueDate && $orderDate) {
+                $dueDate = $orderDate->copy();
+            }
+            if (!$orderDate || !$dueDate) {
+                continue;
+            }
+
+            if ($orderDate->gt($day) || $dueDate->lt($day)) {
+                continue;
+            }
+
+            if ($rangeStart && $dueDate->lt($rangeStart)) {
+                continue;
+            }
+            if ($rangeEnd && $orderDate->gt($rangeEnd)) {
+                continue;
+            }
+
+            $bucket = 'normal';
+            if ($dueDate->equalTo($day)) {
+                $bucket = 'due';
+            } elseif ($dueDate->gt($day) && $dueDate->lte($day->copy()->addDays($upcomingDays))) {
+                $bucket = 'upcoming';
+            }
+
+            $counts['total'] += 1;
+            $counts[$bucket] = ($counts[$bucket] ?? 0) + 1;
+
+            $items[] = [
+                'id' => $order->id,
+                'work_order_no' => $order->work_order_no,
+                'customer_code' => $order->customer_code,
+                'customer_name' => $order->customer_name,
+                'customer_part_number' => $order->customer_part_number,
+                'order_date' => $orderDate->toDateString(),
+                'production_due_date' => $dueDate->toDateString(),
+                'requested_delivery_date' => $order->requested_delivery_date,
+                'status' => $status,
+                'bucket' => $bucket,
+            ];
+        }
+
+        if ($view !== 'all') {
+            $items = array_values(array_filter($items, static fn ($item) => $item['bucket'] === $view));
+        }
+
+        $customers = [];
+        foreach ($items as $item) {
+            $name = $item['customer_name'] ?? null;
+            if (!$name) {
+                continue;
+            }
+            $key = strtolower($item['customer_code'] ?? $name);
+            if (!isset($customers[$key])) {
+                $customers[$key] = [
+                    'name' => $name,
+                    'code' => $item['customer_code'] ?? null,
+                ];
+            }
+        }
+        $customerList = array_values($customers);
+
+        $total = count($items);
+        $lastPage = max(1, (int) ceil($total / $limit));
+        $page = min($page, $lastPage);
+        $offset = ($page - 1) * $limit;
+        $items = array_slice($items, $offset, $limit);
+
+        return [
+            'date' => $day->toDateString(),
+            'view' => $view,
+            'upcoming_days' => $upcomingDays,
+            'counts' => $counts,
+            'data' => $items,
+            'customers' => $customerList,
+            'meta' => [
+                'current_page' => $page,
+                'last_page' => $lastPage,
+                'per_page' => $limit,
+                'total' => $total,
+            ],
+        ];
+    }
+
     protected function normalizeTemplateMetadata(mixed $metadata): mixed
     {
         if (is_string($metadata)) {

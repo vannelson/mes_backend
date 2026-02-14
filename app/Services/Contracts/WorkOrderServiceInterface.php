@@ -106,6 +106,11 @@ interface WorkOrderServiceInterface
     public function calendarSummary(array $options = []): array;
 
     /**
+     * Provide work orders related to a specific calendar day for timeline view.
+     */
+    public function calendarDayOrders(array $options = []): array;
+
+    /**
      * List work orders with WIP status, filters, and pagination.
      */
     public function listWip(
