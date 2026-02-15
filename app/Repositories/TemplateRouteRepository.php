@@ -29,6 +29,32 @@ class TemplateRouteRepository extends BaseRepository implements TemplateRouteRep
         return $query->get();
     }
 
+    public function options(
+        array $filters = [],
+        array $order = [],
+        int $limit = 10,
+        int $page = 1,
+        bool $withWorkOrdersCount = false
+    ): LengthAwarePaginator
+    {
+        $query = $this->applyFilters($filters, $order, false)
+            ->select([
+                'id',
+                'template',
+                'batch_number',
+                'sheet',
+                'metadata',
+                'created_at',
+                'updated_at',
+            ]);
+
+        if ($withWorkOrdersCount) {
+            $query->withCount('workOrders');
+        }
+
+        return $query->paginate($limit, ['*'], 'page', $page);
+    }
+
     public function findByTemplate(string $template): ?TemplateRoute
     {
         return $this->model->newQuery()->where('template', $template)->first();
@@ -65,9 +91,13 @@ class TemplateRouteRepository extends BaseRepository implements TemplateRouteRep
             ->delete();
     }
 
-    protected function applyFilters(array $filters = [], array $order = [])
+    protected function applyFilters(array $filters = [], array $order = [], bool $withManager = true)
     {
-        $query = $this->model->newQuery()->with('manager');
+        $query = $this->model->newQuery();
+
+        if ($withManager) {
+            $query->with('manager');
+        }
 
         if ($batchNumber = Arr::get($filters, 'batch_number')) {
             $query->where('batch_number', $batchNumber);

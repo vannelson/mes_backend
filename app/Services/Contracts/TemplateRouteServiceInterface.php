@@ -6,6 +6,14 @@ interface TemplateRouteServiceInterface
 {
     public function getList(array $filters = [], array $order = [], int $limit = 10, int $page = 1): array;
 
+    public function getOptions(
+        array $filters = [],
+        array $order = [],
+        int $limit = 10,
+        int $page = 1,
+        bool $withWorkOrdersCount = false
+    ): array;
+
     public function detail(int $id): array;
 
     public function create(array $data): array;

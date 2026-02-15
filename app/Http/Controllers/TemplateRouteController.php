@@ -53,6 +53,34 @@ class TemplateRouteController extends Controller
         }
     }
 
+    public function options(Request $request): JsonResponse
+    {
+        $filters = Arr::get($request->all(), 'filters', []);
+        $order = Arr::get($request->all(), 'order', ['template', 'asc']);
+        $limit = (int) Arr::get($request->all(), 'limit', 100);
+        $limit = max(1, min($limit, 500));
+        $page = (int) Arr::get($request->all(), 'page', 1);
+
+        $search = trim((string) $request->get('search', ''));
+        if ($search !== '') {
+            $filters['template'] = $search;
+        }
+
+        $withCounts = filter_var(
+            $request->get('with_work_orders_count'),
+            FILTER_VALIDATE_BOOLEAN,
+            FILTER_NULL_ON_FAILURE
+        ) ?? false;
+
+        try {
+            $data = $this->templateRouteService->getOptions($filters, $order, $limit, $page, $withCounts);
+
+            return $this->successPagination('Template route options retrieved successfully!', $data);
+        } catch (Throwable $e) {
+            return $this->error('Failed to load template route options.', 500);
+        }
+    }
+
     public function import(TemplateRouteImportRequest $request): JsonResponse
     {
         try {

@@ -97,6 +97,7 @@ Route::prefix('v1')->group(function () {
         Route::get('diecut-types', [DiecutTypeController::class, 'index']);
 
         Route::get('template-routes', [TemplateRouteController::class, 'index']);
+        Route::get('template-routes/options', [TemplateRouteController::class, 'options']);
         Route::get('template-routes/ordered-by-work-orders', [TemplateRouteController::class, 'orderedByWorkOrders']);
         Route::post('template-routes/import', [TemplateRouteController::class, 'import']);
         Route::post('template-routes/batch/replace', [TemplateRouteController::class, 'replaceBatch']);

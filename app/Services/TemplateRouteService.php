@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Http\Resources\TemplateRoute\TemplateRouteOptionResource;
 use App\Http\Resources\TemplateRoute\TemplateRouteResource;
 use App\Repositories\Contracts\TemplateRouteRepositoryInterface;
 use App\Services\Contracts\TemplateRouteServiceInterface;
@@ -42,6 +43,25 @@ class TemplateRouteService implements TemplateRouteServiceInterface
 
         return TemplateRouteResource::collection(
             $this->templateRouteRepository->listing($filters, $order, $limit, $page)
+        )->response()->getData(true);
+    }
+
+    public function getOptions(
+        array $filters = [],
+        array $order = [],
+        int $limit = 10,
+        int $page = 1,
+        bool $withWorkOrdersCount = false
+    ): array
+    {
+        return TemplateRouteOptionResource::collection(
+            $this->templateRouteRepository->options(
+                $filters,
+                $order,
+                $limit,
+                $page,
+                $withWorkOrdersCount
+            )
         )->response()->getData(true);
     }
 
