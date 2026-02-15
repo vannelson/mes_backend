@@ -71,6 +71,15 @@ interface WorkOrderServiceInterface
     public function listWithActiveTemplateRoutes(): array;
 
     /**
+     * Provide grouped virtualization snapshot with KPI rollups.
+     */
+    public function virtualizationSnapshot(
+        ?int $templateRouteId = null,
+        array $filters = [],
+        array $order = []
+    ): array;
+
+    /**
      * Paginated list of work orders filtered by batch number.
      */
     public function listByBatch(string $batchNumber, int $limit = 10, int $page = 1): array;

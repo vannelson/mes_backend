@@ -115,6 +115,25 @@ class WorkOrderController extends Controller
         }
     }
 
+    public function virtualization(Request $request): JsonResponse
+    {
+        $templateRouteId = $request->get('template_route_id');
+        if (is_string($templateRouteId)) {
+            $templateRouteId = trim($templateRouteId);
+            $templateRouteId = $templateRouteId === '' ? null : (int) $templateRouteId;
+        }
+        $filters = Arr::get($request->all(), 'filters', []);
+        $order = Arr::get($request->all(), 'order', ['id', 'desc']);
+
+        try {
+            $data = $this->workOrderService->virtualizationSnapshot($templateRouteId, $filters, $order);
+
+            return $this->success('Work order virtualization snapshot retrieved successfully!', $data);
+        } catch (Throwable $e) {
+            return $this->error('Failed to load virtualization snapshot.', 500);
+        }
+    }
+
     public function summary(Request $request): JsonResponse
     {
         $options = $request->only(['on_time_days', 'throughput_days', 'due_soon_days']);

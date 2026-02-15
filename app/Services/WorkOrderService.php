@@ -16,6 +16,7 @@ use Illuminate\Http\File;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\File as FileFacade;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
@@ -837,6 +838,333 @@ class WorkOrderService implements WorkOrderServiceInterface
             'data' => WorkOrderResource::collection($filtered)->resolve(),
             'count' => $filtered->count(),
         ];
+    }
+
+    public function virtualizationSnapshot(
+        ?int $templateRouteId = null,
+        array $filters = [],
+        array $order = []
+    ): array {
+        $cacheKey = 'work_orders.virtualization.' . md5(json_encode([
+            'template_route_id' => $templateRouteId,
+            'filters' => $filters,
+            'order' => $order,
+        ], JSON_UNESCAPED_SLASHES));
+
+        return Cache::remember($cacheKey, now()->addSeconds(8), function () use ($templateRouteId, $filters, $order): array {
+            $query = WorkOrder::query()
+                ->with(['customer', 'templateRoute', 'userAssignments.user'])
+                ->whereNotNull('template_route_id')
+                ->whereHas('templateRoute');
+
+            $this->applyWorkOrderFilters($query, $filters);
+            $this->applyWorkOrderOrdering($query, $order);
+
+            $orders = $query->get();
+
+            $filtered = $orders->values();
+
+            $groups = $filtered->groupBy('template_route_id');
+            $groupList = $groups->map(function ($items): array {
+                $template = $items->first()->templateRoute;
+                return [
+                    'id' => $template->id,
+                    'template' => $template->template,
+                    'batch_number' => $template->batch_number,
+                    'sheet' => $template->sheet,
+                    'route_name_sequence_key' => $template->route_name_sequence_key,
+                    'route_sequence_with_machines' => $template->route_sequence_with_machines,
+                    'work_orders_count' => $items->count(),
+                ];
+            })->sortByDesc('work_orders_count')->values()->all();
+
+            $selectedId = $templateRouteId;
+            if (!$selectedId && !empty($groupList)) {
+                $selectedId = $groupList[0]['id'];
+            }
+            if ($selectedId && !$groups->has($selectedId) && !empty($groupList)) {
+                $selectedId = $groupList[0]['id'];
+            }
+
+            $selectedOrders = $selectedId ? ($groups->get($selectedId) ?? collect()) : collect();
+            $summary = $this->buildVirtualizationSummary($selectedOrders);
+
+            $workOrders = $selectedOrders->values()->map(function (WorkOrder $order): array {
+                $payload = (new WorkOrderResource($order))->resolve();
+                $payload['user_assignments'] = $order->userAssignments
+                    ->map(function (UserWorkOrder $assignment): array {
+                        return [
+                            'id' => $assignment->id,
+                            'user_id' => $assignment->user_id,
+                            'route_key' => $assignment->route_key,
+                            'route_code' => $assignment->route_code,
+                            'route_name' => $assignment->route_name,
+                            'order_seq' => $assignment->order_seq,
+                            'assigned_qty' => $assignment->assigned_qty,
+                            'user' => $assignment->user ? [
+                                'id' => $assignment->user->id,
+                                'firstname' => $assignment->user->firstname,
+                                'lastname' => $assignment->user->lastname,
+                                'middlename' => $assignment->user->middlename,
+                                'email' => $assignment->user->email,
+                                'picture_url' => $assignment->user->picture_url,
+                            ] : null,
+                        ];
+                    })
+                    ->values()
+                    ->all();
+                return $payload;
+            })->all();
+
+            return [
+                'groups' => $groupList,
+                'selected_template_route_id' => $selectedId,
+                'summary' => $summary,
+                'work_orders' => $workOrders,
+                'generated_at' => now()->toIso8601String(),
+            ];
+        });
+    }
+
+    protected function applyWorkOrderFilters($query, array $filters): void
+    {
+        if ($workOrderNo = Arr::get($filters, 'work_order_no')) {
+            $query->where('work_order_no', 'LIKE', "%{$workOrderNo}%");
+        }
+
+        if ($batchNumber = Arr::get($filters, 'batch_number')) {
+            $query->where('batch_number', 'LIKE', "%{$batchNumber}%");
+        }
+
+        if ($sheet = Arr::get($filters, 'sheet')) {
+            $normalized = strtolower(trim((string) $sheet));
+            if ($normalized !== '') {
+                $query->whereRaw(
+                    "LOWER(TRIM(COALESCE(sheet, ''))) = ?",
+                    [$normalized]
+                );
+            }
+        }
+
+        if ($customerId = Arr::get($filters, 'customer_id')) {
+            $query->where('customer_id', $customerId);
+        }
+
+        if (($selected = Arr::get($filters, 'selected')) !== null) {
+            $query->where('selected', filter_var($selected, FILTER_VALIDATE_BOOLEAN, ['flags' => FILTER_NULL_ON_FAILURE]) ?? (bool) $selected);
+        }
+
+        if ($mesBatchNo = Arr::get($filters, 'mes_batch_no')) {
+            $query->where('mes_batch_no', 'LIKE', "%{$mesBatchNo}%");
+        }
+
+        if ($customerCode = Arr::get($filters, 'customer_code')) {
+            $query->where('customer_code', 'LIKE', "%{$customerCode}%");
+        }
+
+        if ($customerName = Arr::get($filters, 'customer_name')) {
+            $query->where('customer_name', 'LIKE', "%{$customerName}%");
+        }
+
+        if ($customerPartNumber = Arr::get($filters, 'customer_part_number')) {
+            $query->where('customer_part_number', 'LIKE', "%{$customerPartNumber}%");
+        }
+
+        if ($salesPersonCode = Arr::get($filters, 'sales_person_code')) {
+            $query->where('sales_person_code', 'LIKE', "%{$salesPersonCode}%");
+        }
+
+        if ($orderFrom = Arr::get($filters, 'order_date_from')) {
+            $query->whereDate('order_date', '>=', $orderFrom);
+        }
+
+        if ($orderTo = Arr::get($filters, 'order_date_to')) {
+            $query->whereDate('order_date', '<=', $orderTo);
+        }
+
+        if ($dueFrom = Arr::get($filters, 'production_due_from')) {
+            $query->whereDate('production_due_date', '>=', $dueFrom);
+        }
+
+        if ($dueTo = Arr::get($filters, 'production_due_to')) {
+            $query->whereDate('production_due_date', '<=', $dueTo);
+        }
+
+        if ($requestedFrom = Arr::get($filters, 'requested_delivery_from')) {
+            $query->whereDate('requested_delivery_date', '>=', $requestedFrom);
+        }
+
+        if ($requestedTo = Arr::get($filters, 'requested_delivery_to')) {
+            $query->whereDate('requested_delivery_date', '<=', $requestedTo);
+        }
+
+        $scheduleFrom = Arr::get($filters, 'schedule_from');
+        $scheduleTo = Arr::get($filters, 'schedule_to');
+        if ($scheduleFrom || $scheduleTo) {
+            $query->where(function ($range) use ($scheduleFrom, $scheduleTo) {
+                if ($scheduleTo) {
+                    $range->whereDate('order_date', '<=', $scheduleTo);
+                }
+                if ($scheduleFrom) {
+                    $range->where(function ($overlap) use ($scheduleFrom) {
+                        $overlap->whereDate('production_due_date', '>=', $scheduleFrom)
+                            ->orWhereDate('order_date', '>=', $scheduleFrom);
+                    });
+                }
+            });
+        }
+
+        if ($orderDays = Arr::get($filters, 'order_date_days')) {
+            $this->applyDayOfWeekFilter($query, 'order_date', $orderDays);
+        }
+
+        if ($dueDays = Arr::get($filters, 'production_due_days')) {
+            $this->applyDayOfWeekFilter($query, 'production_due_date', $dueDays);
+        }
+
+        if ($requestedDays = Arr::get($filters, 'requested_delivery_days')) {
+            $this->applyDayOfWeekFilter($query, 'requested_delivery_date', $requestedDays);
+        }
+
+        if ($templateRouteId = Arr::get($filters, 'template_route_id')) {
+            $query->where('template_route_id', $templateRouteId);
+        }
+
+        if ($operatorId = Arr::get($filters, 'operator_id')) {
+            $query->whereHas('userAssignments', function ($q) use ($operatorId) {
+                $q->where('user_id', $operatorId);
+            });
+        }
+
+        if ($templateRouteBatch = Arr::get($filters, 'template_route_batch_number')) {
+            $query->whereHas('templateRoute', function ($q) use ($templateRouteBatch) {
+                $q->where('batch_number', $templateRouteBatch);
+            });
+        }
+    }
+
+    protected function applyWorkOrderOrdering($query, array $order): void
+    {
+        [$orderBy, $direction] = !empty($order) ? $order : ['id', 'desc'];
+        $direction = strtolower($direction) === 'asc' ? 'asc' : 'desc';
+
+        switch ($orderBy) {
+            case 'route_link':
+                $query
+                    ->orderByRaw("template_route_id IS NULL " . ($direction === 'asc' ? 'ASC' : 'DESC'))
+                    ->orderBy('template_route_id', $direction)
+                    ->orderBy('id', $direction);
+                break;
+            case 'production_due_date':
+            case 'order_date':
+            case 'requested_delivery_date':
+            case 'status':
+            case 'work_order_no':
+            case 'customer_name':
+            case 'customer_code':
+            case 'customer_part_number':
+            case 'id':
+                $query->orderBy($orderBy, $direction);
+                break;
+            default:
+                $query->orderBy('id', 'desc');
+        }
+    }
+
+    protected function applyDayOfWeekFilter($query, string $column, mixed $days): void
+    {
+        $tokens = $this->normalizeDayTokens($days);
+        if (empty($tokens)) {
+            return;
+        }
+
+        $driver = DB::getDriverName();
+        $mysqlMap = [
+            'mon' => 0,
+            'tue' => 1,
+            'wed' => 2,
+            'thu' => 3,
+            'fri' => 4,
+            'sat' => 5,
+            'sun' => 6,
+        ];
+        $isoMap = [
+            'sun' => 0,
+            'mon' => 1,
+            'tue' => 2,
+            'wed' => 3,
+            'thu' => 4,
+            'fri' => 5,
+            'sat' => 6,
+        ];
+
+        if ($driver === 'mysql') {
+            $values = array_values(array_unique(array_map(fn ($d) => $mysqlMap[$d], $tokens)));
+            $query->whereNotNull($column)
+                ->whereIn(DB::raw("WEEKDAY({$column})"), $values);
+            return;
+        }
+
+        if ($driver === 'pgsql') {
+            $values = array_values(array_unique(array_map(fn ($d) => $isoMap[$d], $tokens)));
+            $query->whereNotNull($column)
+                ->whereIn(DB::raw("EXTRACT(DOW FROM {$column})"), $values);
+            return;
+        }
+
+        if ($driver === 'sqlite') {
+            $values = array_values(array_unique(array_map(fn ($d) => $isoMap[$d], $tokens)));
+            $query->whereNotNull($column)
+                ->whereIn(DB::raw("strftime('%w', {$column})"), $values);
+            return;
+        }
+
+        if ($driver === 'sqlsrv') {
+            $names = array_values(array_unique(array_map([$this, 'dayTokenToName'], $tokens)));
+            $query->whereNotNull($column)
+                ->whereIn(DB::raw("DATENAME(WEEKDAY, {$column})"), $names);
+        }
+    }
+
+    protected function normalizeDayTokens(mixed $days): array
+    {
+        if ($days === null) {
+            return [];
+        }
+
+        $raw = is_array($days) ? $days : preg_split('/[,\s]+/', (string) $days);
+        $valid = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
+        $tokens = [];
+
+        foreach ($raw as $day) {
+            if ($day === null) {
+                continue;
+            }
+            $label = strtolower(trim((string) $day));
+            if ($label === '') {
+                continue;
+            }
+            $short = substr($label, 0, 3);
+            if (in_array($short, $valid, true)) {
+                $tokens[] = $short;
+            }
+        }
+
+        return array_values(array_unique($tokens));
+    }
+
+    protected function dayTokenToName(string $token): string
+    {
+        return match ($token) {
+            'mon' => 'Monday',
+            'tue' => 'Tuesday',
+            'wed' => 'Wednesday',
+            'thu' => 'Thursday',
+            'fri' => 'Friday',
+            'sat' => 'Saturday',
+            'sun' => 'Sunday',
+            default => $token,
+        };
     }
 
     public function linkTemplateRoutesByReference(
@@ -2186,6 +2514,405 @@ class WorkOrderService implements WorkOrderServiceInterface
             'total' => $total,
             'completed' => $completed,
         ];
+    }
+
+    protected function buildVirtualizationSummary($orders): array
+    {
+        $uptimeSeconds = 0;
+        $downtimeSeconds = 0;
+        $producedTotal = 0;
+        $targetTotal = 0;
+        $scrapTotal = 0;
+        $performanceSum = 0;
+        $performanceCount = 0;
+        $activeWorkOrders = 0;
+        $machinesRunning = [];
+        $operatorsRunning = [];
+        $totalOutputToday = 0;
+
+        $nowTs = now()->getTimestamp();
+        $today = now()->toDateString();
+
+        foreach ($orders as $order) {
+            $metadata = $this->normalizeMetadata($order->metadata);
+            $statusRaw = strtolower(trim((string) Arr::get($metadata, 'state.status', '')));
+            if (!in_array($statusRaw, ['completed', 'complete', 'done'], true)) {
+                $activeWorkOrders++;
+            }
+
+            $routes = $this->extractRoutes($metadata);
+            foreach ($routes as $route) {
+                if (!is_array($route)) {
+                    continue;
+                }
+
+                $timeTracker = $this->resolveRouteTimeTracker($route);
+                $entries = $this->normalizeTimeTrackerEntries($timeTracker['entries'] ?? []);
+                $durations = $this->computeTimeTrackerDurations($entries, $nowTs);
+                $uptimeSeconds += $durations['uptime'];
+                $downtimeSeconds += $durations['downtime'];
+
+                $lastEntry = $this->resolveLastTimeEntry($entries);
+                $status = $this->resolveTimeTrackerStatus($lastEntry);
+                if ($status === 'running') {
+                    $machineLabel = $this->resolveMachineLabelFromRoute($route);
+                    if ($machineLabel) {
+                        $machinesRunning[$machineLabel] = true;
+                    }
+
+                    $operatorId = $this->extractOperatorId($lastEntry);
+                    if ($operatorId) {
+                        $operatorsRunning[$operatorId] = true;
+                    }
+                }
+
+                $produced = $this->resolvePrintedQty($entries);
+                if ($produced !== null) {
+                    $producedTotal += $produced;
+                }
+
+                $target = $this->resolveTargetPrintedQty($entries, $metadata);
+                if ($target !== null) {
+                    $targetTotal += $target;
+                }
+
+                $scrap = $this->resolveRouteScrap($route);
+                $scrapTotal += $scrap;
+
+                $performance = $this->resolvePerformanceRatio($produced, $target, $entries);
+                if ($performance !== null) {
+                    $performanceSum += $performance;
+                    $performanceCount++;
+                }
+
+                $todayOutput = $this->resolveTodayOutput($entries, $today);
+                $totalOutputToday += $todayOutput;
+            }
+        }
+
+        $availability =
+            ($uptimeSeconds + $downtimeSeconds) > 0
+                ? $uptimeSeconds / ($uptimeSeconds + $downtimeSeconds)
+                : 0.0;
+        $performance = $performanceCount > 0
+            ? $performanceSum / $performanceCount
+            : ($targetTotal > 0 ? min(1, $producedTotal / $targetTotal) : 0.0);
+        $quality = $producedTotal > 0
+            ? max(0, min(1, ($producedTotal - $scrapTotal) / $producedTotal))
+            : 0.0;
+        $oee = $availability * $performance * $quality;
+
+        $scrapRate = $producedTotal > 0 ? $scrapTotal / $producedTotal : 0.0;
+
+        return [
+            'availability' => [
+                'value' => $availability,
+                'uptime_seconds' => $uptimeSeconds,
+                'downtime_seconds' => $downtimeSeconds,
+            ],
+            'performance' => [
+                'value' => $performance,
+            ],
+            'quality' => [
+                'value' => $quality,
+            ],
+            'oee' => [
+                'value' => $oee,
+            ],
+            'cards' => [
+                'total_active_work_orders' => $activeWorkOrders,
+                'machines_running' => count($machinesRunning),
+                'operators_active' => count($operatorsRunning),
+                'total_output_today' => $totalOutputToday,
+                'downtime_minutes' => (int) round($downtimeSeconds / 60),
+                'scrap_rate' => $scrapRate,
+                'average_cycle_efficiency' => $performance,
+            ],
+        ];
+    }
+
+    protected function resolveRouteTimeTracker(array $route): array
+    {
+        $metadata = is_array($route['metadata'] ?? null) ? $route['metadata'] : [];
+        $timeTracker = $metadata['timeTracker'] ?? $metadata['time_tracker'] ?? [];
+        if (is_array($timeTracker)) {
+            return $timeTracker;
+        }
+
+        return [];
+    }
+
+    protected function normalizeTimeTrackerEntries(mixed $entries): array
+    {
+        if (!is_array($entries)) {
+            return [];
+        }
+
+        return array_values(array_filter($entries, static fn($entry): bool => is_array($entry)));
+    }
+
+    protected function computeTimeTrackerDurations(array $entries, int $nowTs): array
+    {
+        $normalized = [];
+        foreach ($entries as $entry) {
+            $timestamp = $this->parseTimeTrackerTimestamp($entry['at'] ?? null);
+            if ($timestamp === null) {
+                continue;
+            }
+            $normalized[] = [
+                'timestamp' => $timestamp,
+                'action' => strtolower(trim((string) ($entry['action'] ?? ''))),
+            ];
+        }
+
+        usort($normalized, static fn($a, $b) => $a['timestamp'] <=> $b['timestamp']);
+
+        $uptime = 0;
+        $downtime = 0;
+        $state = null;
+        $lastTs = null;
+
+        foreach ($normalized as $entry) {
+            $ts = $entry['timestamp'];
+            if ($lastTs !== null && $state !== null) {
+                $delta = max(0, $ts - $lastTs);
+                if ($state === 'running') {
+                    $uptime += $delta;
+                } elseif ($state === 'paused') {
+                    $downtime += $delta;
+                }
+            }
+
+            $state = $this->timeTrackerActionToState($entry['action']);
+            $lastTs = $ts;
+        }
+
+        if ($lastTs !== null && in_array($state, ['running', 'paused'], true)) {
+            $delta = max(0, $nowTs - $lastTs);
+            if ($state === 'running') {
+                $uptime += $delta;
+            } else {
+                $downtime += $delta;
+            }
+        }
+
+        return [
+            'uptime' => $uptime,
+            'downtime' => $downtime,
+        ];
+    }
+
+    protected function parseTimeTrackerTimestamp(?string $value): ?int
+    {
+        if (!$value) {
+            return null;
+        }
+        try {
+            return (int) (new \DateTimeImmutable($value))->getTimestamp();
+        } catch (\Throwable) {
+            return null;
+        }
+    }
+
+    protected function resolveLastTimeEntry(array $entries): ?array
+    {
+        if (empty($entries)) {
+            return null;
+        }
+
+        $last = null;
+        $lastTs = null;
+        foreach ($entries as $entry) {
+            if (!is_array($entry)) {
+                continue;
+            }
+            $timestamp = $this->parseTimeTrackerTimestamp($entry['at'] ?? null);
+            if ($timestamp === null) {
+                $last = $entry;
+                continue;
+            }
+            if ($lastTs === null || $timestamp >= $lastTs) {
+                $lastTs = $timestamp;
+                $last = $entry;
+            }
+        }
+
+        return $last ?? $entries[count($entries) - 1] ?? null;
+    }
+
+    protected function resolveTimeTrackerStatus(?array $entry): string
+    {
+        if (!$entry) {
+            return 'idle';
+        }
+        $action = strtolower(trim((string) ($entry['action'] ?? '')));
+        if ($action === 'start') {
+            return 'running';
+        }
+        if ($action === 'pause') {
+            return 'paused';
+        }
+        if ($action === 'stop') {
+            return 'stopped';
+        }
+        return 'idle';
+    }
+
+    protected function resolvePrintedQty(array $entries): ?float
+    {
+        $max = null;
+        foreach ($entries as $entry) {
+            if (!is_array($entry)) {
+                continue;
+            }
+            $value = $entry['total_printed_qty'] ?? $entry['totalPrintedQty'] ?? $entry['printed_qty'] ?? $entry['printedQty'] ?? null;
+            if ($value === null) {
+                continue;
+            }
+            $numeric = $this->numericValue($value);
+            if ($max === null || $numeric > $max) {
+                $max = $numeric;
+            }
+        }
+
+        return $max;
+    }
+
+    protected function resolveTargetPrintedQty(array $entries, array $metadata): ?float
+    {
+        $max = null;
+        foreach ($entries as $entry) {
+            if (!is_array($entry)) {
+                continue;
+            }
+            $value = $entry['target_printed_qty'] ?? $entry['targetPrintedQty'] ?? null;
+            if ($value === null) {
+                continue;
+            }
+            $numeric = $this->numericValue($value);
+            if ($max === null || $numeric > $max) {
+                $max = $numeric;
+            }
+        }
+
+        if ($max !== null) {
+            return $max;
+        }
+
+        $qty = Arr::get($metadata, 'state.qty');
+        if ($qty === null || $qty === '') {
+            return null;
+        }
+
+        return $this->numericValue($qty);
+    }
+
+    protected function resolveRouteScrap(array $route): float
+    {
+        $scrap = $route['scrap'] ?? 0;
+        return is_numeric($scrap) ? (float) $scrap : 0.0;
+    }
+
+    protected function resolvePerformanceRatio(?float $produced, ?float $target, array $entries): ?float
+    {
+        if ($produced !== null && $target !== null && $target > 0) {
+            return min(1, $produced / $target);
+        }
+
+        foreach ($entries as $entry) {
+            if (!is_array($entry)) {
+                continue;
+            }
+            $value = $entry['route_progress_pct'] ?? $entry['routeProgressPct'] ?? null;
+            if ($value === null) {
+                continue;
+            }
+            $numeric = $this->numericValue($value);
+            return max(0, min(1, $numeric / 100));
+        }
+
+        return null;
+    }
+
+    protected function resolveTodayOutput(array $entries, string $today): float
+    {
+        $max = null;
+        foreach ($entries as $entry) {
+            if (!is_array($entry)) {
+                continue;
+            }
+            $timestamp = $entry['at'] ?? null;
+            if (!$timestamp) {
+                continue;
+            }
+            try {
+                $date = (new \DateTimeImmutable($timestamp))->format('Y-m-d');
+            } catch (\Throwable) {
+                continue;
+            }
+            if ($date !== $today) {
+                continue;
+            }
+            $value = $entry['total_printed_qty'] ?? $entry['totalPrintedQty'] ?? $entry['printed_qty'] ?? $entry['printedQty'] ?? null;
+            if ($value === null) {
+                continue;
+            }
+            $numeric = $this->numericValue($value);
+            if ($max === null || $numeric > $max) {
+                $max = $numeric;
+            }
+        }
+
+        return $max ?? 0.0;
+    }
+
+    protected function resolveMachineLabelFromRoute(array $route): ?string
+    {
+        $machine = $route['machine'] ?? Arr::get($route, 'metadata.machine') ?? null;
+        if (is_array($machine)) {
+            $label = $machine['machine_name']
+                ?? $machine['name']
+                ?? $machine['machine_type']
+                ?? $machine['type']
+                ?? $machine['label']
+                ?? $machine['machine_code']
+                ?? $machine['code']
+                ?? null;
+            return $label ? trim((string) $label) : null;
+        }
+
+        if (is_string($machine)) {
+            $trimmed = trim($machine);
+            return $trimmed !== '' ? $trimmed : null;
+        }
+
+        return null;
+    }
+
+    protected function extractOperatorId(?array $entry): ?string
+    {
+        if (!$entry) {
+            return null;
+        }
+        $operator = $entry['operator_id'] ?? $entry['operatorId'] ?? $entry['operator'] ?? $entry['user_id'] ?? null;
+        if ($operator === null || $operator === '') {
+            return null;
+        }
+        return (string) $operator;
+    }
+
+    protected function timeTrackerActionToState(?string $action): ?string
+    {
+        if (!$action) {
+            return null;
+        }
+        $normalized = strtolower(trim($action));
+        return match ($normalized) {
+            'start' => 'running',
+            'pause' => 'paused',
+            'stop' => 'stopped',
+            default => null,
+        };
     }
 
     protected function normalizeWipStatusKey(?string $value): ?string
