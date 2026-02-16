@@ -842,11 +842,13 @@ class WorkOrderService implements WorkOrderServiceInterface
 
     public function virtualizationSnapshot(
         ?int $templateRouteId = null,
+        ?string $templateRouteKey = null,
         array $filters = [],
         array $order = []
     ): array {
         $cacheKey = 'work_orders.virtualization.' . md5(json_encode([
             'template_route_id' => $templateRouteId,
+            'template_route_key' => $templateRouteKey,
             'filters' => $filters,
             'order' => $order,
         ], JSON_UNESCAPED_SLASHES));
@@ -864,29 +866,46 @@ class WorkOrderService implements WorkOrderServiceInterface
 
             $filtered = $orders->values();
 
-            $groups = $filtered->groupBy('template_route_id');
-            $groupList = $groups->map(function ($items): array {
+            $groups = $filtered->groupBy(function (WorkOrder $order) {
+                $template = $order->templateRoute;
+                $key = $template?->route_name_sequence_key ?: $template?->template ?: '';
+                $trimmed = trim((string) $key);
+                return $trimmed !== '' ? $trimmed : (string) $template?->id;
+            });
+            $groupList = $groups->map(function ($items, $key): array {
                 $template = $items->first()->templateRoute;
                 return [
-                    'id' => $template->id,
-                    'template' => $template->template,
-                    'batch_number' => $template->batch_number,
-                    'sheet' => $template->sheet,
-                    'route_name_sequence_key' => $template->route_name_sequence_key,
-                    'route_sequence_with_machines' => $template->route_sequence_with_machines,
+                    'id' => (string) $key,
+                    'template' => $template?->template ?? (string) $key,
+                    'batch_number' => $template?->batch_number,
+                    'sheet' => $template?->sheet,
+                    'route_name_sequence_key' => $template?->route_name_sequence_key ?? (string) $key,
+                    'route_sequence_with_machines' => null,
+                    'template_route_ids' => $items->pluck('template_route_id')->unique()->values()->all(),
                     'work_orders_count' => $items->count(),
                 ];
-            })->sortByDesc('work_orders_count')->values()->all();
+            })
+                ->sortBy(function ($item) {
+                    return strtolower((string) ($item['template'] ?? ''));
+                })
+                ->values()
+                ->all();
 
-            $selectedId = $templateRouteId;
-            if (!$selectedId && !empty($groupList)) {
-                $selectedId = $groupList[0]['id'];
+            $selectedKey = $templateRouteKey;
+            if (!$selectedKey && $templateRouteId) {
+                $matched = $filtered->firstWhere('template_route_id', $templateRouteId);
+                $selectedKey = $matched?->templateRoute?->route_name_sequence_key
+                    ?: $matched?->templateRoute?->template
+                    ?: null;
             }
-            if ($selectedId && !$groups->has($selectedId) && !empty($groupList)) {
-                $selectedId = $groupList[0]['id'];
+            if (!$selectedKey && !empty($groupList)) {
+                $selectedKey = $groupList[0]['id'];
+            }
+            if ($selectedKey && !$groups->has($selectedKey) && !empty($groupList)) {
+                $selectedKey = $groupList[0]['id'];
             }
 
-            $selectedOrders = $selectedId ? ($groups->get($selectedId) ?? collect()) : collect();
+            $selectedOrders = $selectedKey ? ($groups->get($selectedKey) ?? collect()) : collect();
             $summary = $this->buildVirtualizationSummary($selectedOrders);
 
             $workOrders = $selectedOrders->values()->map(function (WorkOrder $order): array {
@@ -918,7 +937,7 @@ class WorkOrderService implements WorkOrderServiceInterface
 
             return [
                 'groups' => $groupList,
-                'selected_template_route_id' => $selectedId,
+                'selected_template_route_id' => $selectedKey,
                 'summary' => $summary,
                 'work_orders' => $workOrders,
                 'generated_at' => now()->toIso8601String(),

@@ -122,11 +122,21 @@ class WorkOrderController extends Controller
             $templateRouteId = trim($templateRouteId);
             $templateRouteId = $templateRouteId === '' ? null : (int) $templateRouteId;
         }
+        $templateRouteKey = $request->get('template_route_key');
+        if (is_string($templateRouteKey)) {
+            $templateRouteKey = trim($templateRouteKey);
+            $templateRouteKey = $templateRouteKey === '' ? null : $templateRouteKey;
+        }
         $filters = Arr::get($request->all(), 'filters', []);
         $order = Arr::get($request->all(), 'order', ['id', 'desc']);
 
         try {
-            $data = $this->workOrderService->virtualizationSnapshot($templateRouteId, $filters, $order);
+            $data = $this->workOrderService->virtualizationSnapshot(
+                $templateRouteId,
+                $templateRouteKey,
+                $filters,
+                $order
+            );
 
             return $this->success('Work order virtualization snapshot retrieved successfully!', $data);
         } catch (Throwable $e) {

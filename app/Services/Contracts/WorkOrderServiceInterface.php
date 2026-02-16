@@ -75,6 +75,7 @@ interface WorkOrderServiceInterface
      */
     public function virtualizationSnapshot(
         ?int $templateRouteId = null,
+        ?string $templateRouteKey = null,
         array $filters = [],
         array $order = []
     ): array;
