@@ -853,7 +853,7 @@ class WorkOrderService implements WorkOrderServiceInterface
             'order' => $order,
         ], JSON_UNESCAPED_SLASHES));
 
-        return Cache::remember($cacheKey, now()->addSeconds(8), function () use ($templateRouteId, $filters, $order): array {
+        return Cache::remember($cacheKey, now()->addSeconds(8), function () use ($templateRouteId, $templateRouteKey, $filters, $order): array {
             $query = WorkOrder::query()
                 ->with(['customer', 'templateRoute', 'userAssignments.user'])
                 ->whereNotNull('template_route_id')
