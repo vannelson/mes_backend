@@ -12,6 +12,7 @@ use App\Models\WorkOrder;
 use App\Repositories\Contracts\WorkOrderRepositoryInterface;
 use App\Services\Contracts\WorkOrderServiceInterface;
 use App\Services\WorkOrderImportService;
+use App\Services\FirebaseRealtimeService;
 use Illuminate\Http\File;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\File as FileFacade;
@@ -28,7 +29,8 @@ class WorkOrderService implements WorkOrderServiceInterface
 {
     public function __construct(
         protected WorkOrderRepositoryInterface $workOrderRepository,
-        protected WorkOrderImportService $workOrderImportService
+        protected WorkOrderImportService $workOrderImportService,
+        protected FirebaseRealtimeService $firebaseRealtimeService
     ) {
     }
 
@@ -515,6 +517,21 @@ class WorkOrderService implements WorkOrderServiceInterface
         $route['metadata'] = $routeMetadata;
 
         $this->workOrderRepository->update($id, ['metadata' => $metadata]);
+
+        try {
+            $this->firebaseRealtimeService->publishVirtualizationUpdate([
+                'work_order_id' => $workOrder->id,
+                'work_order_no' => $workOrder->work_order_no,
+                'template_route_id' => $workOrder->template_route_id,
+                'route_key' => $payload['route_key'] ?? $payload['routeKey'] ?? ($route['route'] ?? $route['key'] ?? null),
+                'action' => $action,
+                'operator_id' => $operatorId,
+                'entry_id' => $entry['id'] ?? null,
+                'at' => $entry['at'] ?? null,
+            ]);
+        } catch (\Throwable) {
+            // Firebase updates should not block time tracker writes.
+        }
 
         return [
             'entry' => $entry,

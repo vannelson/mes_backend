@@ -46,5 +46,9 @@ return [
         'key' => env('PUTER_API_KEY'),
         'endpoint' => env('PUTER_API_ENDPOINT'),
     ],
+    'firebase' => [
+        'database_url' => env('FIREBASE_DATABASE_URL'),
+        'service_account_path' => env('FIREBASE_SERVICE_ACCOUNT_PATH'),
+    ],
 
 ];
