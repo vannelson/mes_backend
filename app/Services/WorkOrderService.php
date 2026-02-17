@@ -361,6 +361,20 @@ class WorkOrderService implements WorkOrderServiceInterface
             $this->syncAssignmentsFromMetadata($id, $data['metadata']);
         }
 
+        if ($updated) {
+            try {
+                $order = $this->workOrderRepository->findById($id);
+                $this->firebaseRealtimeService->publishVirtualizationUpdate([
+                    'work_order_id' => $order->id,
+                    'work_order_no' => $order->work_order_no,
+                    'template_route_id' => $order->template_route_id,
+                    'action' => 'work_order_update',
+                ]);
+            } catch (\Throwable) {
+                // Ignore realtime errors on update.
+            }
+        }
+
         return $updated;
     }
 
@@ -861,7 +875,8 @@ class WorkOrderService implements WorkOrderServiceInterface
         ?int $templateRouteId = null,
         ?string $templateRouteKey = null,
         array $filters = [],
-        array $order = []
+        array $order = [],
+        bool $forceFresh = false
     ): array {
         $cacheKey = 'work_orders.virtualization.' . md5(json_encode([
             'template_route_id' => $templateRouteId,
@@ -870,96 +885,109 @@ class WorkOrderService implements WorkOrderServiceInterface
             'order' => $order,
         ], JSON_UNESCAPED_SLASHES));
 
+        if ($forceFresh) {
+            return $this->buildVirtualizationSnapshot($templateRouteId, $templateRouteKey, $filters, $order);
+        }
+
         return Cache::remember($cacheKey, now()->addSeconds(8), function () use ($templateRouteId, $templateRouteKey, $filters, $order): array {
-            $query = WorkOrder::query()
-                ->with(['customer', 'templateRoute', 'userAssignments.user'])
-                ->whereNotNull('template_route_id')
-                ->whereHas('templateRoute');
+            return $this->buildVirtualizationSnapshot($templateRouteId, $templateRouteKey, $filters, $order);
+        });
+    }
 
-            $this->applyWorkOrderFilters($query, $filters);
-            $this->applyWorkOrderOrdering($query, $order);
+    protected function buildVirtualizationSnapshot(
+        ?int $templateRouteId = null,
+        ?string $templateRouteKey = null,
+        array $filters = [],
+        array $order = []
+    ): array {
+        $query = WorkOrder::query()
+            ->with(['customer', 'templateRoute', 'userAssignments.user'])
+            ->whereNotNull('template_route_id')
+            ->whereHas('templateRoute');
 
-            $orders = $query->get();
+        $this->applyWorkOrderFilters($query, $filters);
+        $this->applyWorkOrderOrdering($query, $order);
 
-            $filtered = $orders->values();
+        $orders = $query->get();
 
-            $groups = $filtered->groupBy(function (WorkOrder $order) {
-                $template = $order->templateRoute;
-                $key = $template?->route_name_sequence_key ?: $template?->template ?: '';
-                $trimmed = trim((string) $key);
-                return $trimmed !== '' ? $trimmed : (string) $template?->id;
-            });
-            $groupList = $groups->map(function ($items, $key): array {
-                $template = $items->first()->templateRoute;
-                return [
-                    'id' => (string) $key,
-                    'template' => $template?->template ?? (string) $key,
-                    'batch_number' => $template?->batch_number,
-                    'sheet' => $template?->sheet,
-                    'route_name_sequence_key' => $template?->route_name_sequence_key ?? (string) $key,
-                    'route_sequence_with_machines' => null,
-                    'template_route_ids' => $items->pluck('template_route_id')->unique()->values()->all(),
-                    'work_orders_count' => $items->count(),
-                ];
+        $filtered = $orders->values();
+
+        $groups = $filtered->groupBy(function (WorkOrder $order) {
+            $template = $order->templateRoute;
+            $key = $template?->route_name_sequence_key ?: $template?->template ?: '';
+            $trimmed = trim((string) $key);
+            return $trimmed !== '' ? $trimmed : (string) $template?->id;
+        });
+        $groupList = $groups->map(function ($items, $key): array {
+            $template = $items->first()->templateRoute;
+            return [
+                'id' => (string) $key,
+                'template' => $template?->template ?? (string) $key,
+                'batch_number' => $template?->batch_number,
+                'sheet' => $template?->sheet,
+                'route_name_sequence_key' => $template?->route_name_sequence_key ?? (string) $key,
+                'route_sequence_with_machines' => null,
+                'template_route_ids' => $items->pluck('template_route_id')->unique()->values()->all(),
+                'work_orders_count' => $items->count(),
+            ];
+        })
+            ->sortBy(function ($item) {
+                return strtolower((string) ($item['template'] ?? ''));
             })
-                ->sortBy(function ($item) {
-                    return strtolower((string) ($item['template'] ?? ''));
+            ->values()
+            ->all();
+
+        $selectedKey = $templateRouteKey;
+        if (!$selectedKey && $templateRouteId) {
+            $matched = $filtered->firstWhere('template_route_id', $templateRouteId);
+            $selectedKey = $matched?->templateRoute?->route_name_sequence_key
+                ?: $matched?->templateRoute?->template
+                ?: null;
+        }
+        if (!$selectedKey && !empty($groupList)) {
+            $selectedKey = $groupList[0]['id'];
+        }
+        if ($selectedKey && !$groups->has($selectedKey) && !empty($groupList)) {
+            $selectedKey = $groupList[0]['id'];
+        }
+
+        $selectedOrders = $selectedKey ? ($groups->get($selectedKey) ?? collect()) : collect();
+        $summary = $this->buildVirtualizationSummary($selectedOrders);
+
+        $workOrders = $selectedOrders->values()->map(function (WorkOrder $order): array {
+            $payload = (new WorkOrderResource($order))->resolve();
+            $payload['user_assignments'] = $order->userAssignments
+                ->map(function (UserWorkOrder $assignment): array {
+                    return [
+                        'id' => $assignment->id,
+                        'user_id' => $assignment->user_id,
+                        'route_key' => $assignment->route_key,
+                        'route_code' => $assignment->route_code,
+                        'route_name' => $assignment->route_name,
+                        'order_seq' => $assignment->order_seq,
+                        'assigned_qty' => $assignment->assigned_qty,
+                        'user' => $assignment->user ? [
+                            'id' => $assignment->user->id,
+                            'firstname' => $assignment->user->firstname,
+                            'lastname' => $assignment->user->lastname,
+                            'middlename' => $assignment->user->middlename,
+                            'email' => $assignment->user->email,
+                            'picture_url' => $assignment->user->picture_url,
+                        ] : null,
+                    ];
                 })
                 ->values()
                 ->all();
+            return $payload;
+        })->all();
 
-            $selectedKey = $templateRouteKey;
-            if (!$selectedKey && $templateRouteId) {
-                $matched = $filtered->firstWhere('template_route_id', $templateRouteId);
-                $selectedKey = $matched?->templateRoute?->route_name_sequence_key
-                    ?: $matched?->templateRoute?->template
-                    ?: null;
-            }
-            if (!$selectedKey && !empty($groupList)) {
-                $selectedKey = $groupList[0]['id'];
-            }
-            if ($selectedKey && !$groups->has($selectedKey) && !empty($groupList)) {
-                $selectedKey = $groupList[0]['id'];
-            }
-
-            $selectedOrders = $selectedKey ? ($groups->get($selectedKey) ?? collect()) : collect();
-            $summary = $this->buildVirtualizationSummary($selectedOrders);
-
-            $workOrders = $selectedOrders->values()->map(function (WorkOrder $order): array {
-                $payload = (new WorkOrderResource($order))->resolve();
-                $payload['user_assignments'] = $order->userAssignments
-                    ->map(function (UserWorkOrder $assignment): array {
-                        return [
-                            'id' => $assignment->id,
-                            'user_id' => $assignment->user_id,
-                            'route_key' => $assignment->route_key,
-                            'route_code' => $assignment->route_code,
-                            'route_name' => $assignment->route_name,
-                            'order_seq' => $assignment->order_seq,
-                            'assigned_qty' => $assignment->assigned_qty,
-                            'user' => $assignment->user ? [
-                                'id' => $assignment->user->id,
-                                'firstname' => $assignment->user->firstname,
-                                'lastname' => $assignment->user->lastname,
-                                'middlename' => $assignment->user->middlename,
-                                'email' => $assignment->user->email,
-                                'picture_url' => $assignment->user->picture_url,
-                            ] : null,
-                        ];
-                    })
-                    ->values()
-                    ->all();
-                return $payload;
-            })->all();
-
-            return [
-                'groups' => $groupList,
-                'selected_template_route_id' => $selectedKey,
-                'summary' => $summary,
-                'work_orders' => $workOrders,
-                'generated_at' => now()->toIso8601String(),
-            ];
-        });
+        return [
+            'groups' => $groupList,
+            'selected_template_route_id' => $selectedKey,
+            'summary' => $summary,
+            'work_orders' => $workOrders,
+            'generated_at' => now()->toIso8601String(),
+        ];
     }
 
     protected function applyWorkOrderFilters($query, array $filters): void

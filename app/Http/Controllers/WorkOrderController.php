@@ -129,13 +129,18 @@ class WorkOrderController extends Controller
         }
         $filters = Arr::get($request->all(), 'filters', []);
         $order = Arr::get($request->all(), 'order', ['id', 'desc']);
+        $forceFresh = filter_var(
+            $request->get('fresh', $request->get('force', false)),
+            FILTER_VALIDATE_BOOLEAN
+        );
 
         try {
             $data = $this->workOrderService->virtualizationSnapshot(
                 $templateRouteId,
                 $templateRouteKey,
                 $filters,
-                $order
+                $order,
+                $forceFresh
             );
 
             return $this->success('Work order virtualization snapshot retrieved successfully!', $data);

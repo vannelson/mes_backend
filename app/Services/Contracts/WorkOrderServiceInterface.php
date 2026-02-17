@@ -77,7 +77,8 @@ interface WorkOrderServiceInterface
         ?int $templateRouteId = null,
         ?string $templateRouteKey = null,
         array $filters = [],
-        array $order = []
+        array $order = [],
+        bool $forceFresh = false
     ): array;
 
     /**
