@@ -27,6 +27,9 @@ use Throwable;
 
 class WorkOrderService implements WorkOrderServiceInterface
 {
+    private const VIRTUALIZATION_MAX_RANGE_DAYS = 7;
+    private const VIRTUALIZATION_MAX_ORDERS = 128;
+
     public function __construct(
         protected WorkOrderRepositoryInterface $workOrderRepository,
         protected WorkOrderImportService $workOrderImportService,
@@ -900,12 +903,19 @@ class WorkOrderService implements WorkOrderServiceInterface
         array $filters = [],
         array $order = []
     ): array {
-        $query = WorkOrder::query()
-            ->with(['customer', 'templateRoute', 'userAssignments.user'])
+        $this->assertVirtualizationRange($filters);
+
+        $baseQuery = WorkOrder::query()
             ->whereNotNull('template_route_id')
             ->whereHas('templateRoute');
 
-        $this->applyWorkOrderFilters($query, $filters);
+        $this->applyWorkOrderFilters($baseQuery, $filters);
+
+        $total = (clone $baseQuery)->count();
+        $this->assertVirtualizationOrderLimit($total);
+
+        $query = $baseQuery->with(['customer', 'templateRoute', 'userAssignments.user']);
+
         $this->applyWorkOrderOrdering($query, $order);
 
         $orders = $query->get();
@@ -997,6 +1007,70 @@ class WorkOrderService implements WorkOrderServiceInterface
             'work_orders' => $workOrders,
             'generated_at' => now()->toIso8601String(),
         ];
+    }
+
+    protected function assertVirtualizationRange(array $filters): void
+    {
+        $ranges = [
+            ['label' => 'order_date', 'from' => Arr::get($filters, 'order_date_from'), 'to' => Arr::get($filters, 'order_date_to')],
+            ['label' => 'production_due_date', 'from' => Arr::get($filters, 'production_due_from'), 'to' => Arr::get($filters, 'production_due_to')],
+            ['label' => 'requested_delivery_date', 'from' => Arr::get($filters, 'requested_delivery_from'), 'to' => Arr::get($filters, 'requested_delivery_to')],
+            ['label' => 'schedule', 'from' => Arr::get($filters, 'schedule_from'), 'to' => Arr::get($filters, 'schedule_to')],
+        ];
+
+        foreach ($ranges as $range) {
+            $from = $range['from'];
+            $to = $range['to'];
+            if (!$from && !$to) {
+                continue;
+            }
+
+            if (!$from || !$to) {
+                throw ValidationException::withMessages([
+                    $range['label'] => sprintf(
+                        'Virtualization requires a start and end date (max %d days).',
+                        self::VIRTUALIZATION_MAX_RANGE_DAYS
+                    ),
+                ]);
+            }
+
+            try {
+                $start = \Illuminate\Support\Carbon::parse($from)->startOfDay();
+                $end = \Illuminate\Support\Carbon::parse($to)->startOfDay();
+            } catch (Throwable $e) {
+                throw ValidationException::withMessages([
+                    $range['label'] => 'Virtualization date range is invalid.',
+                ]);
+            }
+
+            if ($start->gt($end)) {
+                [$start, $end] = [$end, $start];
+            }
+
+            $days = $start->diffInDays($end) + 1;
+            if ($days > self::VIRTUALIZATION_MAX_RANGE_DAYS) {
+                throw ValidationException::withMessages([
+                    $range['label'] => sprintf(
+                        'Virtualization date range cannot exceed %d days.',
+                        self::VIRTUALIZATION_MAX_RANGE_DAYS
+                    ),
+                ]);
+            }
+        }
+    }
+
+    protected function assertVirtualizationOrderLimit(int $count): void
+    {
+        if ($count <= self::VIRTUALIZATION_MAX_ORDERS) {
+            return;
+        }
+
+        throw ValidationException::withMessages([
+            'work_orders' => sprintf(
+                'Virtualization supports up to %d work orders. Narrow the filters to continue.',
+                self::VIRTUALIZATION_MAX_ORDERS
+            ),
+        ]);
     }
 
     protected function applyWorkOrderFilters($query, array $filters): void

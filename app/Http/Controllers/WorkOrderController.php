@@ -144,6 +144,8 @@ class WorkOrderController extends Controller
             );
 
             return $this->success('Work order virtualization snapshot retrieved successfully!', $data);
+        } catch (ValidationException $e) {
+            return $this->validationError($e);
         } catch (Throwable $e) {
             return $this->error('Failed to load virtualization snapshot.', 500);
         }
