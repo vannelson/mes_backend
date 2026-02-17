@@ -15,7 +15,7 @@ class WorkOrderTimeTrackerRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'action' => ['required', 'string', Rule::in(['start', 'pause', 'stop'])],
+            'action' => ['required', 'string', Rule::in(['start', 'pause', 'stop', 'progress'])],
             'route_key' => ['required_without_all:route_index,order_seq', 'string', 'max:120'],
             'route_index' => ['required_without_all:route_key,order_seq', 'integer', 'min:0'],
             'order_seq' => ['required_without_all:route_key,route_index', 'integer', 'min:1'],

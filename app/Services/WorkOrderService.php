@@ -2747,7 +2747,10 @@ class WorkOrderService implements WorkOrderServiceInterface
                 }
             }
 
-            $state = $this->timeTrackerActionToState($entry['action']);
+            $nextState = $this->timeTrackerActionToState($entry['action']);
+            if ($nextState !== null) {
+                $state = $nextState;
+            }
             $lastTs = $ts;
         }
 
@@ -2790,6 +2793,10 @@ class WorkOrderService implements WorkOrderServiceInterface
             if (!is_array($entry)) {
                 continue;
             }
+            $action = strtolower(trim((string) ($entry['action'] ?? '')));
+            if ($action !== '' && !in_array($action, ['start', 'pause', 'stop'], true)) {
+                continue;
+            }
             $timestamp = $this->parseTimeTrackerTimestamp($entry['at'] ?? null);
             if ($timestamp === null) {
                 $last = $entry;
@@ -2801,7 +2808,11 @@ class WorkOrderService implements WorkOrderServiceInterface
             }
         }
 
-        return $last ?? $entries[count($entries) - 1] ?? null;
+        if ($last) {
+            return $last;
+        }
+
+        return $entries[count($entries) - 1] ?? null;
     }
 
     protected function resolveTimeTrackerStatus(?array $entry): string
