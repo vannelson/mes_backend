@@ -938,6 +938,10 @@ class WorkOrderService implements WorkOrderServiceInterface
             ->all();
 
         $selectedKey = $templateRouteKey;
+        $useAll = is_string($selectedKey) && strtolower(trim($selectedKey)) === 'all';
+        if ($useAll) {
+            unset($filters['template_route_id'], $filters['template_route_key']);
+        }
         if (!$selectedKey && $templateRouteId) {
             $matched = $filtered->firstWhere('template_route_id', $templateRouteId);
             $selectedKey = $matched?->templateRoute?->route_name_sequence_key
@@ -947,11 +951,16 @@ class WorkOrderService implements WorkOrderServiceInterface
         if (!$selectedKey && !empty($groupList)) {
             $selectedKey = $groupList[0]['id'];
         }
-        if ($selectedKey && !$groups->has($selectedKey) && !empty($groupList)) {
+        if (!$useAll && $selectedKey && !$groups->has($selectedKey) && !empty($groupList)) {
             $selectedKey = $groupList[0]['id'];
         }
 
-        $selectedOrders = $selectedKey ? ($groups->get($selectedKey) ?? collect()) : collect();
+        if ($useAll) {
+            $selectedKey = 'all';
+            $selectedOrders = $filtered;
+        } else {
+            $selectedOrders = $selectedKey ? ($groups->get($selectedKey) ?? collect()) : collect();
+        }
         $summary = $this->buildVirtualizationSummary($selectedOrders);
 
         $workOrders = $selectedOrders->values()->map(function (WorkOrder $order): array {
