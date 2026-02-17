@@ -6,6 +6,7 @@ use GuzzleHttp\Client;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
+use Kreait\Firebase\Factory;
 
 class FirebaseRealtimeService
 {
@@ -27,6 +28,51 @@ class FirebaseRealtimeService
             return false;
         }
 
+        $value = $payload;
+        $value['updated_at'] = $value['updated_at'] ?? now()->toIso8601String();
+        $value['nonce'] = $value['nonce'] ?? (string) Str::uuid();
+
+        if ($this->publishViaSdk($databaseUrl, $serviceAccountPath, $value)) {
+            return true;
+        }
+
+        if ($this->publishViaRest($databaseUrl, $serviceAccountPath, $value)) {
+            return true;
+        }
+
+        return $this->publishViaOpenRules($databaseUrl, $value);
+    }
+
+    protected function publishViaSdk(string $databaseUrl, string $serviceAccountPath, array $value): bool
+    {
+        if (!class_exists(Factory::class)) {
+            return false;
+        }
+
+        $resolvedPath = $this->resolveServiceAccountPath($serviceAccountPath);
+        if (!$resolvedPath) {
+            return false;
+        }
+
+        try {
+            $database = (new Factory())
+                ->withServiceAccount($resolvedPath)
+                ->withDatabaseUri($databaseUrl)
+                ->createDatabase();
+            $database->getReference('mes/workorders/virtualization/last_update')
+                ->set($value);
+            return true;
+        } catch (\Throwable $e) {
+            Log::warning('Firebase RTDB SDK publish failed.', [
+                'message' => $e->getMessage(),
+            ]);
+        }
+
+        return false;
+    }
+
+    protected function publishViaRest(string $databaseUrl, string $serviceAccountPath, array $value): bool
+    {
         $serviceAccount = $this->loadServiceAccount($serviceAccountPath);
         if (!$serviceAccount) {
             return false;
@@ -36,10 +82,6 @@ class FirebaseRealtimeService
         if (!$accessToken) {
             return false;
         }
-
-        $value = $payload;
-        $value['updated_at'] = $value['updated_at'] ?? now()->toIso8601String();
-        $value['nonce'] = $value['nonce'] ?? (string) Str::uuid();
 
         $url = rtrim($databaseUrl, '/') . '/mes/workorders/virtualization/last_update.json';
 
@@ -58,7 +100,23 @@ class FirebaseRealtimeService
         return false;
     }
 
-    protected function loadServiceAccount(string $path): ?array
+    protected function publishViaOpenRules(string $databaseUrl, array $value): bool
+    {
+        $url = rtrim($databaseUrl, '/') . '/mes/workorders/virtualization/last_update.json';
+
+        try {
+            $this->client->put($url, ['json' => $value]);
+            return true;
+        } catch (\Throwable $e) {
+            Log::warning('Firebase RTDB open-rule publish failed.', [
+                'message' => $e->getMessage(),
+            ]);
+        }
+
+        return false;
+    }
+
+    protected function resolveServiceAccountPath(string $path): ?string
     {
         $resolved = $path;
         if (!str_starts_with($path, DIRECTORY_SEPARATOR) && !preg_match('/^[A-Za-z]:\\\\/', $path)) {
@@ -69,6 +127,16 @@ class FirebaseRealtimeService
             Log::warning('Firebase service account file not found.', [
                 'path' => $resolved,
             ]);
+            return null;
+        }
+
+        return $resolved;
+    }
+
+    protected function loadServiceAccount(string $path): ?array
+    {
+        $resolved = $this->resolveServiceAccountPath($path);
+        if (!$resolved) {
             return null;
         }
 
