@@ -41,7 +41,7 @@ Route::prefix('v1')->group(function () {
         Route::post('customers', [CustomerController::class, 'store']);
         Route::get('customers/top', [CustomerController::class, 'top']);
         Route::get('customers/options', [CustomerController::class, 'options']);
-        Route::get('customers/{id}', [CustomerController::class, 'show']);
+        Route::get('customers/{id}', [CustomerController::class, 'show'])->whereNumber('id');
         Route::put('customers/{id}', [CustomerController::class, 'update']);
         Route::delete('customers/{id}', [CustomerController::class, 'destroy']);
 
@@ -75,7 +75,7 @@ Route::prefix('v1')->group(function () {
         Route::get('work-orders/with-template-routes', [WorkOrderController::class, 'withActiveTemplateRoutes']);
         Route::get('work-orders/virtualization', [WorkOrderController::class, 'virtualization']);
         Route::put('work-orders/bulk-update', [WorkOrderController::class, 'bulkUpdateByCustomer']);
-        Route::get('work-orders/{id}', [WorkOrderController::class, 'show']);
+        Route::get('work-orders/{id}', [WorkOrderController::class, 'show'])->whereNumber('id');
         Route::put('work-orders/{id}', [WorkOrderController::class, 'update']);
         Route::post('work-orders/{id}/assignments', [WorkOrderController::class, 'syncAssignments']);
         Route::post('work-orders/{id}/time-tracker', [WorkOrderController::class, 'recordTimeTracker']);
@@ -106,7 +106,7 @@ Route::prefix('v1')->group(function () {
         Route::post('template-routes/import', [TemplateRouteController::class, 'import']);
         Route::post('template-routes/batch/replace', [TemplateRouteController::class, 'replaceBatch']);
         Route::post('template-routes', [TemplateRouteController::class, 'store']);
-        Route::get('template-routes/{id}', [TemplateRouteController::class, 'show']);
+        Route::get('template-routes/{id}', [TemplateRouteController::class, 'show'])->whereNumber('id');
         Route::put('template-routes/{id}', [TemplateRouteController::class, 'update']);
         Route::delete('template-routes/{id}', [TemplateRouteController::class, 'destroy']);
 
