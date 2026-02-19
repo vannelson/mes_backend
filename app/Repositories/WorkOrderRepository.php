@@ -8,6 +8,7 @@ use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 
 class WorkOrderRepository extends BaseRepository implements WorkOrderRepositoryInterface
 {
@@ -132,6 +133,64 @@ class WorkOrderRepository extends BaseRepository implements WorkOrderRepositoryI
             $query->whereHas('templateRoute', function ($q) use ($templateRouteBatch) {
                 $q->where('batch_number', $templateRouteBatch);
             });
+        }
+
+        if ($status = Arr::get($filters, 'status')) {
+            $normalized = strtolower(trim((string) $status));
+            if ($normalized !== '') {
+                $statusField = "LOWER(TRIM(COALESCE(status, '')))";
+                $stateStatus = "LOWER(TRIM(COALESCE(JSON_UNQUOTE(JSON_EXTRACT(metadata, '$.state.status')), '')))";
+                $metaStatus = "LOWER(TRIM(COALESCE(JSON_UNQUOTE(JSON_EXTRACT(metadata, '$.status')), '')))";
+
+                $query->where(function ($q) use ($normalized, $statusField, $stateStatus, $metaStatus) {
+                    if (str_contains($normalized, 'complete')) {
+                        $q->whereNotNull('production_date_completed')
+                            ->orWhereRaw("{$statusField} IN ('completed','complete','done')")
+                            ->orWhereRaw("{$stateStatus} IN ('completed','complete','done')")
+                            ->orWhereRaw("{$metaStatus} IN ('completed','complete','done')");
+                        return;
+                    }
+
+                    if (str_contains($normalized, 'release')) {
+                        $q->whereRaw("{$statusField} LIKE '%release%'")
+                            ->orWhereRaw("{$stateStatus} LIKE '%release%'")
+                            ->orWhereRaw("{$metaStatus} LIKE '%release%'");
+                        if (Schema::hasColumn('work_orders', 'is_released')) {
+                            $q->orWhere('is_released', true);
+                        }
+                        return;
+                    }
+
+                    if (str_contains($normalized, 'progress')) {
+                        $q->whereRaw("{$statusField} IN ('in progress','in_progress','in-progress','active')")
+                            ->orWhereRaw("{$stateStatus} IN ('in progress','in_progress','in-progress','active')")
+                            ->orWhereRaw("{$metaStatus} IN ('in progress','in_progress','in-progress','active')")
+                            ->orWhere(function ($inner) use ($statusField, $stateStatus, $metaStatus) {
+                                $inner
+                                    ->whereRaw("{$statusField} = ''")
+                                    ->whereRaw("{$stateStatus} = ''")
+                                    ->whereRaw("{$metaStatus} = ''")
+                                    ->whereNull('production_date_completed');
+                            });
+                        return;
+                    }
+
+                    if (
+                        str_contains($normalized, 'backlog') ||
+                        str_contains($normalized, 'draft') ||
+                        str_contains($normalized, 'plan')
+                    ) {
+                        $q->whereRaw("{$statusField} IN ('draft','planned','plan','new','backlog','on hold','hold','blocked','paused')")
+                            ->orWhereRaw("{$stateStatus} IN ('draft','planned','plan','new','backlog','on hold','hold','blocked','paused')")
+                            ->orWhereRaw("{$metaStatus} IN ('draft','planned','plan','new','backlog','on hold','hold','blocked','paused')");
+                        return;
+                    }
+
+                    $q->whereRaw("{$statusField} = ?", [$normalized])
+                        ->orWhereRaw("{$stateStatus} = ?", [$normalized])
+                        ->orWhereRaw("{$metaStatus} = ?", [$normalized]);
+                });
+            }
         }
 
         [$orderBy, $direction] = !empty($order) ? $order : ['id', 'desc'];

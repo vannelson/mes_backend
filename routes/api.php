@@ -39,6 +39,7 @@ Route::prefix('v1')->group(function () {
 
         Route::get('customers', [CustomerController::class, 'index']);
         Route::post('customers', [CustomerController::class, 'store']);
+        Route::get('customers/top', [CustomerController::class, 'top']);
         Route::get('customers/options', [CustomerController::class, 'options']);
         Route::get('customers/{id}', [CustomerController::class, 'show']);
         Route::put('customers/{id}', [CustomerController::class, 'update']);
@@ -62,6 +63,7 @@ Route::prefix('v1')->group(function () {
         Route::get('work-orders/summary', [WorkOrderController::class, 'summary']);
         Route::get('work-orders/calendar-summary', [WorkOrderController::class, 'calendarSummary']);
         Route::get('work-orders/calendar-day', [WorkOrderController::class, 'calendarDay']);
+        Route::get('work-orders/collection-report', [WorkOrderController::class, 'collectionReport']);
         Route::get('work-orders/wip', [WorkOrderController::class, 'wip']);
         Route::post('work-orders', [WorkOrderController::class, 'store']);
         Route::post('work-orders/batch', [WorkOrderController::class, 'batchStore']);
@@ -98,6 +100,7 @@ Route::prefix('v1')->group(function () {
         Route::get('diecut-types', [DiecutTypeController::class, 'index']);
 
         Route::get('template-routes', [TemplateRouteController::class, 'index']);
+        Route::get('template-routes/top', [TemplateRouteController::class, 'top']);
         Route::get('template-routes/options', [TemplateRouteController::class, 'options']);
         Route::get('template-routes/ordered-by-work-orders', [TemplateRouteController::class, 'orderedByWorkOrders']);
         Route::post('template-routes/import', [TemplateRouteController::class, 'import']);

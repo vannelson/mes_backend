@@ -1990,6 +1990,8 @@ class WorkOrderService implements WorkOrderServiceInterface
         $view = in_array($viewRaw, ['all', 'due', 'upcoming', 'normal'], true)
             ? $viewRaw
             : 'due';
+        $sortBy = strtolower(trim((string) ($options['sort_by'] ?? $options['sort'] ?? '')));
+        $sortDir = strtolower(trim((string) ($options['sort_dir'] ?? '')));
         $limit = (int) ($options['limit'] ?? 15);
         $limit = max(1, min($limit, 1000));
         $page = max(1, (int) ($options['page'] ?? 1));
@@ -2006,8 +2008,11 @@ class WorkOrderService implements WorkOrderServiceInterface
             ? \Illuminate\Support\Carbon::parse($rangeToRaw)->startOfDay()
             : null;
 
-        $query = WorkOrder::query()->select([
+        $query = WorkOrder::query()
+            ->with(['templateRoute:id,template'])
+            ->select([
             'id',
+            'template_route_id',
             'work_order_no',
             'customer_code',
             'customer_name',
@@ -2032,10 +2037,9 @@ class WorkOrderService implements WorkOrderServiceInterface
         if ($customerPartNumber = Arr::get($filters, 'customer_part_number')) {
             $query->where('customer_part_number', 'LIKE', "%{$customerPartNumber}%");
         }
-        if ($statusFilter = Arr::get($filters, 'status')) {
-            $query->where('status', $statusFilter);
+        if ($templateRouteId = Arr::get($filters, 'template_route_id')) {
+            $query->where('template_route_id', $templateRouteId);
         }
-
         $dayKey = $day->toDateString();
         $query->where(function ($range) use ($dayKey) {
             $range->whereDate('order_date', '<=', $dayKey);
@@ -2094,22 +2098,85 @@ class WorkOrderService implements WorkOrderServiceInterface
             $counts['total'] += 1;
             $counts[$bucket] = ($counts[$bucket] ?? 0) + 1;
 
+            $routePreview = $this->buildRoutePreview($order->metadata);
+            $hasRouteLink = !empty($order->template_route_id) || count($routePreview) > 0;
+
             $items[] = [
                 'id' => $order->id,
                 'work_order_no' => $order->work_order_no,
                 'customer_code' => $order->customer_code,
                 'customer_name' => $order->customer_name,
                 'customer_part_number' => $order->customer_part_number,
+                'template_route_id' => $order->template_route_id,
+                'template' => $order->templateRoute?->template,
                 'order_date' => $orderDate->toDateString(),
                 'production_due_date' => $dueDate->toDateString(),
                 'requested_delivery_date' => $order->requested_delivery_date,
                 'status' => $status,
                 'bucket' => $bucket,
+                'has_route_link' => $hasRouteLink,
+                'route_link' => $hasRouteLink ? 1 : 0,
+                'routes_total' => count($routePreview),
+                'routes' => $routePreview,
             ];
+        }
+
+        if ($statusFilter = Arr::get($filters, 'status')) {
+            $normalizedFilter = strtolower(trim((string) $statusFilter));
+            $items = array_values(array_filter($items, static function ($item) use ($normalizedFilter): bool {
+                $current = strtolower(trim((string) ($item['status'] ?? '')));
+                return $current === $normalizedFilter;
+            }));
+
+            $counts = [
+                'total' => 0,
+                'due' => 0,
+                'upcoming' => 0,
+                'normal' => 0,
+            ];
+            foreach ($items as $item) {
+                $bucket = $item['bucket'] ?? 'normal';
+                $counts['total'] += 1;
+                $counts[$bucket] = ($counts[$bucket] ?? 0) + 1;
+            }
         }
 
         if ($view !== 'all') {
             $items = array_values(array_filter($items, static fn ($item) => $item['bucket'] === $view));
+        }
+
+        $sortBy = in_array($sortBy, ['route_link', 'status'], true) ? $sortBy : '';
+        if ($sortBy !== '') {
+            if ($sortDir === '') {
+                $sortDir = $sortBy === 'route_link' ? 'desc' : 'asc';
+            }
+            $sortDir = $sortDir === 'desc' ? 'desc' : 'asc';
+            $statusOrder = [
+                'Draft' => 1,
+                'Released' => 2,
+                'In Progress' => 3,
+                'On Hold' => 4,
+                'Completed' => 5,
+            ];
+            usort($items, static function ($a, $b) use ($sortBy, $sortDir, $statusOrder) {
+                if ($sortBy === 'route_link') {
+                    $left = !empty($a['has_route_link']) ? 1 : 0;
+                    $right = !empty($b['has_route_link']) ? 1 : 0;
+                    if ($left !== $right) {
+                        return $sortDir === 'desc' ? $right <=> $left : $left <=> $right;
+                    }
+                }
+                if ($sortBy === 'status') {
+                    $left = $statusOrder[$a['status'] ?? ''] ?? 99;
+                    $right = $statusOrder[$b['status'] ?? ''] ?? 99;
+                    if ($left !== $right) {
+                        return $sortDir === 'desc' ? $right <=> $left : $left <=> $right;
+                    }
+                }
+                $leftDate = $a['production_due_date'] ?? '';
+                $rightDate = $b['production_due_date'] ?? '';
+                return $leftDate <=> $rightDate;
+            });
         }
 
         $customers = [];
@@ -2147,6 +2214,147 @@ class WorkOrderService implements WorkOrderServiceInterface
                 'per_page' => $limit,
                 'total' => $total,
             ],
+        ];
+    }
+
+    public function collectionReport(array $options = []): array
+    {
+        $asOfRaw = $options['as_of'] ?? null;
+        $filters = is_array($options['filters'] ?? null) ? $options['filters'] : [];
+        $upcomingDays = max(1, (int) ($options['upcoming_days'] ?? 5));
+        $asOf = $asOfRaw
+            ? \Illuminate\Support\Carbon::parse($asOfRaw)->startOfDay()
+            : now()->startOfDay();
+
+        $buckets = [
+            ['key' => 'd1_10', 'label' => '1-10 Days', 'min' => 1, 'max' => 10],
+            ['key' => 'd11_20', 'label' => '11-20 Days', 'min' => 11, 'max' => 20],
+            ['key' => 'd21_30', 'label' => '21-30 Days', 'min' => 21, 'max' => 30],
+            ['key' => 'd31_plus', 'label' => '30+ Days', 'min' => 31, 'max' => null],
+        ];
+        $types = [
+            ['key' => 'normal', 'label' => 'Normal'],
+            ['key' => 'due', 'label' => 'DueDate'],
+            ['key' => 'upcoming', 'label' => 'Upcoming'],
+        ];
+        $bucketKeys = array_column($buckets, 'key');
+        $typeKeys = array_column($types, 'key');
+
+        $query = WorkOrder::query()->select([
+            'id',
+            'work_order_no',
+            'customer_code',
+            'customer_name',
+            'order_date',
+            'production_due_date',
+            'requested_delivery_date',
+            'production_date_completed',
+            'status',
+            'metadata',
+        ]);
+
+        if ($workOrderNo = Arr::get($filters, 'work_order_no')) {
+            $query->where('work_order_no', 'LIKE', "%{$workOrderNo}%");
+        }
+        if ($customerCode = Arr::get($filters, 'customer_code')) {
+            $query->where('customer_code', 'LIKE', "%{$customerCode}%");
+        }
+        if ($customerName = Arr::get($filters, 'customer_name')) {
+            $query->where('customer_name', 'LIKE', "%{$customerName}%");
+        }
+        if ($customerPartNumber = Arr::get($filters, 'customer_part_number')) {
+            $query->where('customer_part_number', 'LIKE', "%{$customerPartNumber}%");
+        }
+        if ($statusFilter = Arr::get($filters, 'status')) {
+            $query->where('status', $statusFilter);
+        }
+
+        $query->whereNull('production_date_completed');
+
+        $orders = $query->get();
+        $rows = [];
+        $totals = [
+            'total' => 0,
+            'buckets' => array_fill_keys($bucketKeys, array_fill_keys($typeKeys, 0)),
+        ];
+
+        foreach ($orders as $order) {
+            $orderDate = $this->resolveOrderDate($order);
+            if (!$orderDate) {
+                continue;
+            }
+            $orderDate = $orderDate->copy()->startOfDay();
+            $ageDays = $orderDate->diffInDays($asOf, false);
+            if ($ageDays < 0) {
+                continue;
+            }
+            $ageDays = max(1, $ageDays);
+
+            $dueDate = $this->resolveDueDate($order) ?? $orderDate->copy();
+            $dueDate = $dueDate->copy()->startOfDay();
+            $daysToDue = $asOf->diffInDays($dueDate, false);
+
+            $typeKey = 'normal';
+            if ($daysToDue === 0) {
+                $typeKey = 'due';
+            } elseif ($daysToDue < 0 && abs($daysToDue) <= $upcomingDays) {
+                $typeKey = 'upcoming';
+            }
+
+            $bucketKey = null;
+            foreach ($buckets as $bucket) {
+                $min = $bucket['min'];
+                $max = $bucket['max'];
+                if ($ageDays < $min) {
+                    continue;
+                }
+                if ($max !== null && $ageDays > $max) {
+                    continue;
+                }
+                $bucketKey = $bucket['key'];
+                break;
+            }
+            if (!$bucketKey) {
+                continue;
+            }
+
+            $customerCode = $order->customer_code ? trim((string) $order->customer_code) : null;
+            $customerName = $order->customer_name ? trim((string) $order->customer_name) : null;
+            $customerKey = strtolower(trim((string) ($customerCode ?: $customerName ?: 'unknown')));
+
+            if (!isset($rows[$customerKey])) {
+                $rows[$customerKey] = [
+                    'customer_key' => $customerKey,
+                    'customer_code' => $customerCode,
+                    'customer_name' => $customerName ?: 'Unknown',
+                    'total' => 0,
+                    'buckets' => array_fill_keys($bucketKeys, array_fill_keys($typeKeys, 0)),
+                ];
+            }
+
+            $rows[$customerKey]['total'] += 1;
+            $rows[$customerKey]['buckets'][$bucketKey][$typeKey] += 1;
+            $totals['total'] += 1;
+            $totals['buckets'][$bucketKey][$typeKey] += 1;
+        }
+
+        $rows = array_values($rows);
+        usort($rows, static function (array $a, array $b): int {
+            return ($b['total'] ?? 0) <=> ($a['total'] ?? 0);
+        });
+
+        return [
+            'as_of' => $asOf->toDateString(),
+            'upcoming_days' => $upcomingDays,
+            'buckets' => array_map(static fn ($bucket) => [
+                'key' => $bucket['key'],
+                'label' => $bucket['label'],
+                'min' => $bucket['min'],
+                'max' => $bucket['max'],
+            ], $buckets),
+            'types' => $types,
+            'rows' => $rows,
+            'totals' => $totals,
         ];
     }
 
@@ -2470,6 +2678,84 @@ class WorkOrderService implements WorkOrderServiceInterface
         }
 
         return [];
+    }
+
+    protected function buildRoutePreview(mixed $metadata): array
+    {
+        $normalized = $this->normalizeMetadata($metadata);
+        if (empty($normalized)) {
+            return [];
+        }
+
+        $routes =
+            Arr::get($normalized, 'assignments.routes') ??
+            Arr::get($normalized, 'route_assignments') ??
+            Arr::get($normalized, 'routeAssignments') ??
+            Arr::get($normalized, 'routes') ??
+            Arr::get($normalized, 'steps') ??
+            Arr::get($normalized, 'data');
+
+        if ($routes === null && array_is_list($normalized)) {
+            $routes = $normalized;
+        }
+
+        if (is_string($routes)) {
+            $decoded = json_decode($routes, true);
+            if (json_last_error() === JSON_ERROR_NONE) {
+                $routes = $decoded;
+            }
+        }
+
+        if (is_array($routes) && Arr::has($routes, 'routes')) {
+            $routes = Arr::get($routes, 'routes', []);
+        }
+
+        if (!is_array($routes)) {
+            return [];
+        }
+
+        $preview = [];
+        foreach (array_values($routes) as $index => $route) {
+            if (!is_array($route)) {
+                continue;
+            }
+
+            $orderSeq = Arr::get($route, 'order_seq')
+                ?? Arr::get($route, 'orderSeq')
+                ?? Arr::get($route, 'seq')
+                ?? ($index + 1);
+            $label =
+                Arr::get($route, 'name')
+                ?? Arr::get($route, 'route')
+                ?? Arr::get($route, 'key')
+                ?? Arr::get($route, 'label')
+                ?? ('Route ' . $orderSeq);
+            $machine =
+                Arr::get($route, 'machine')
+                ?? Arr::get($route, 'machine_name')
+                ?? Arr::get($route, 'metadata.machine')
+                ?? Arr::get($route, 'metadata.machine_name')
+                ?? Arr::get($route, 'metadata.machine_code');
+            $status =
+                Arr::get($route, 'status')
+                ?? Arr::get($route, 'state.status')
+                ?? Arr::get($route, 'progress.status')
+                ?? Arr::get($route, 'metadata.status');
+            $operators = Arr::get($route, 'operators');
+            $operatorCount = is_array($operators) ? count($operators) : 0;
+
+            $preview[] = [
+                'order_seq' => (int) $orderSeq,
+                'label' => $label,
+                'route' => Arr::get($route, 'route') ?? Arr::get($route, 'key') ?? $label,
+                'name' => Arr::get($route, 'name') ?? $label,
+                'machine' => $machine,
+                'status' => $status,
+                'operators' => $operatorCount,
+            ];
+        }
+
+        return $preview;
     }
 
     protected function syncAssignmentsFromMetadata(int $workOrderId, mixed $metadata): void

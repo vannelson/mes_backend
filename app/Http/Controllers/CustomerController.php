@@ -55,6 +55,9 @@ class CustomerController extends Controller
         if ($search !== '') {
             $filters['search'] = $search;
         }
+        if (!is_null($request->get('with_work_orders'))) {
+            $filters['with_work_orders'] = $request->get('with_work_orders');
+        }
 
         try {
             $data = $this->customerService->getOptions($filters, $order, $limit, $page);
@@ -62,6 +65,23 @@ class CustomerController extends Controller
             return $this->successPagination('Customer options retrieved successfully!', $data);
         } catch (Throwable $e) {
             return $this->error('Failed to load customer options.', 500);
+        }
+    }
+
+    /**
+     * List top customers by work order count.
+     */
+    public function top(Request $request): JsonResponse
+    {
+        $filters = Arr::get($request->all(), 'filters', []);
+        $limit = max(1, (int) Arr::get($request->all(), 'limit', 5));
+
+        try {
+            $data = $this->customerService->getTopByWorkOrders($filters, $limit);
+
+            return $this->success('Top customers retrieved successfully!', $data);
+        } catch (Throwable $e) {
+            return $this->error('Failed to load top customers.', 500);
         }
     }
 

@@ -65,6 +65,9 @@ class TemplateRouteController extends Controller
         if ($search !== '') {
             $filters['template'] = $search;
         }
+        if (!array_key_exists('with_work_orders', $filters) && $request->has('with_work_orders')) {
+            $filters['with_work_orders'] = $request->get('with_work_orders');
+        }
 
         $withCounts = filter_var(
             $request->get('with_work_orders_count'),
@@ -81,6 +84,19 @@ class TemplateRouteController extends Controller
         }
     }
 
+    public function top(Request $request): JsonResponse
+    {
+        $filters = Arr::get($request->all(), 'filters', []);
+        $limit = max(1, (int) Arr::get($request->all(), 'limit', 5));
+
+        try {
+            $data = $this->templateRouteService->getTopUsed($filters, $limit);
+
+            return $this->success('Top templates retrieved successfully!', $data);
+        } catch (Throwable $e) {
+            return $this->error('Failed to load top templates.', 500);
+        }
+    }
     public function import(TemplateRouteImportRequest $request): JsonResponse
     {
         try {

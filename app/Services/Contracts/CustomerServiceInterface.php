@@ -15,6 +15,11 @@ interface CustomerServiceInterface
     public function getOptions(array $filters = [], array $order = [], int $limit = 10, int $page = 1): array;
 
     /**
+     * List top customers by work order volume.
+     */
+    public function getTopByWorkOrders(array $filters = [], int $limit = 5): array;
+
+    /**
      * Retrieve single customer detail.
      */
     public function detail(int $id): array;

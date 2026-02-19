@@ -9,6 +9,64 @@ use Illuminate\Http\Resources\Json\JsonResource;
 
 class WorkOrderResource extends JsonResource
 {
+    protected function normalizeStatus(mixed $status, bool $isCompleted): string
+    {
+        if ($isCompleted) {
+            return 'Completed';
+        }
+
+        $raw = strtolower(trim((string) $status));
+        if ($raw === '') {
+            return 'In Progress';
+        }
+
+        $map = [
+            'draft' => 'Draft',
+            'planned' => 'Draft',
+            'plan' => 'Draft',
+            'new' => 'Draft',
+            'released' => 'Released',
+            'release' => 'Released',
+            'ready' => 'Released',
+            'in_progress' => 'In Progress',
+            'in-progress' => 'In Progress',
+            'in progress' => 'In Progress',
+            'active' => 'In Progress',
+            'hold' => 'On Hold',
+            'on hold' => 'On Hold',
+            'blocked' => 'On Hold',
+            'paused' => 'On Hold',
+        ];
+
+        if (isset($map[$raw])) {
+            return $map[$raw];
+        }
+
+        if (str_contains($raw, 'release')) {
+            return 'Released';
+        }
+        if (str_contains($raw, 'hold') || str_contains($raw, 'block')) {
+            return 'On Hold';
+        }
+
+        return ucwords($raw);
+    }
+
+    protected function resolveNormalizedStatus(): string
+    {
+        $metadata = $this->metadata;
+        if (is_string($metadata)) {
+            $decoded = json_decode($metadata, true);
+            if (json_last_error() === JSON_ERROR_NONE) {
+                $metadata = $decoded;
+            }
+        }
+        $state = is_array($metadata['state'] ?? null) ? $metadata['state'] : [];
+        $statusRaw = $state['status'] ?? ($metadata['status'] ?? ($this->status ?? null));
+        $isCompleted = $this->production_date_completed !== null;
+
+        return $this->normalizeStatus($statusRaw, $isCompleted);
+    }
     protected function resolveEvidenceUrl(?string $path): ?string
     {
         if (! $path) {
@@ -53,6 +111,7 @@ class WorkOrderResource extends JsonResource
             'order_date' => $this->order_date,
             'production_date_completed' => $this->production_date_completed,
             'production_qty_completed' => $this->production_qty_completed,
+            'status' => $this->resolveNormalizedStatus(),
             'qr_code' => $this->qr_code,
             'sheet' => $this->sheet,
             'is_released' => $this->is_released,

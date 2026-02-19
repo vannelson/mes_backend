@@ -193,6 +193,8 @@ class WorkOrderController extends Controller
             'filters' => Arr::get($request->all(), 'filters', []),
             'limit' => $request->get('limit'),
             'page' => $request->get('page'),
+            'sort_by' => $request->get('sort_by'),
+            'sort_dir' => $request->get('sort_dir'),
         ];
 
         try {
@@ -201,6 +203,23 @@ class WorkOrderController extends Controller
             return $this->success('Work order calendar day retrieved successfully!', $data);
         } catch (Throwable $e) {
             return $this->error('Failed to load calendar day orders.', 500);
+        }
+    }
+
+    public function collectionReport(Request $request): JsonResponse
+    {
+        $options = [
+            'as_of' => $request->get('as_of'),
+            'upcoming_days' => $request->get('upcoming_days'),
+            'filters' => Arr::get($request->all(), 'filters', []),
+        ];
+
+        try {
+            $data = $this->workOrderService->collectionReport($options);
+
+            return $this->success('Work order collection report retrieved successfully!', $data);
+        } catch (Throwable $e) {
+            return $this->error('Failed to load collection report.', 500);
         }
     }
 

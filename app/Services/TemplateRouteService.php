@@ -4,10 +4,12 @@ namespace App\Services;
 
 use App\Http\Resources\TemplateRoute\TemplateRouteOptionResource;
 use App\Http\Resources\TemplateRoute\TemplateRouteResource;
+use App\Models\WorkOrder;
 use App\Repositories\Contracts\TemplateRouteRepositoryInterface;
 use App\Services\Contracts\TemplateRouteServiceInterface;
 use Illuminate\Support\Arr;
 use Illuminate\Pagination\LengthAwarePaginator;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
 class TemplateRouteService implements TemplateRouteServiceInterface
@@ -64,7 +66,59 @@ class TemplateRouteService implements TemplateRouteServiceInterface
             )
         )->response()->getData(true);
     }
+    public function getTopUsed(array $filters = [], int $limit = 5): array
+    {
+        $query = WorkOrder::query()
+            ->leftJoin('template_routes', 'template_routes.id', '=', 'work_orders.template_route_id')
+            ->whereNotNull('work_orders.template_route_id')
+            ->select(
+                'work_orders.template_route_id',
+                'template_routes.template',
+                DB::raw('COUNT(*) as total')
+            )
+            ->groupBy('work_orders.template_route_id', 'template_routes.template');
 
+        if ($dueFrom = Arr::get($filters, 'production_due_from')) {
+            $query->whereDate('work_orders.production_due_date', '>=', $dueFrom);
+        }
+        if ($dueTo = Arr::get($filters, 'production_due_to')) {
+            $query->whereDate('work_orders.production_due_date', '<=', $dueTo);
+        }
+
+        if ($statusFilter = Arr::get($filters, 'status')) {
+            $query->where('work_orders.status', $statusFilter);
+        }
+
+        $scheduleFrom = Arr::get($filters, 'schedule_from');
+        $scheduleTo = Arr::get($filters, 'schedule_to');
+        if ($scheduleFrom || $scheduleTo) {
+            $query->where(function ($range) use ($scheduleFrom, $scheduleTo) {
+                if ($scheduleTo) {
+                    $range->whereDate('work_orders.order_date', '<=', $scheduleTo);
+                }
+                if ($scheduleFrom) {
+                    $range->where(function ($overlap) use ($scheduleFrom) {
+                        $overlap->whereDate('work_orders.production_due_date', '>=', $scheduleFrom)
+                            ->orWhereDate('work_orders.order_date', '>=', $scheduleFrom);
+                    });
+                }
+            });
+        }
+
+        return $query
+            ->orderByDesc('total')
+            ->limit($limit)
+            ->get()
+            ->map(static function ($row): array {
+                return [
+                    'template_route_id' => (int) $row->template_route_id,
+                    'template' => $row->template ?: ('Template #' . $row->template_route_id),
+                    'work_orders' => (int) $row->total,
+                ];
+            })
+            ->values()
+            ->all();
+    }
     public function detail(int $id): array
     {
         return (new TemplateRouteResource($this->templateRouteRepository->findById($id)))->response()->getData(true);

@@ -43,10 +43,23 @@ class TemplateRouteRepository extends BaseRepository implements TemplateRouteRep
                 'template',
                 'batch_number',
                 'sheet',
+                'route_name_sequence_key',
+                'route_sequence_with_machines',
                 'metadata',
                 'created_at',
                 'updated_at',
             ]);
+
+        $withWorkOrders = Arr::get($filters, 'with_work_orders');
+        if (!is_null($withWorkOrders)) {
+            $flag = filter_var($withWorkOrders, FILTER_VALIDATE_BOOLEAN, ['flags' => FILTER_NULL_ON_FAILURE]);
+            if ($flag === null) {
+                $flag = (bool) $withWorkOrders;
+            }
+            if ($flag) {
+                $query->whereHas('workOrders');
+            }
+        }
 
         if ($withWorkOrdersCount) {
             $query->withCount('workOrders');

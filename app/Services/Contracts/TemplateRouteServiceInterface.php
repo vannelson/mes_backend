@@ -14,6 +14,8 @@ interface TemplateRouteServiceInterface
         bool $withWorkOrdersCount = false
     ): array;
 
+    public function getTopUsed(array $filters = [], int $limit = 5): array;
+
     public function detail(int $id): array;
 
     public function create(array $data): array;

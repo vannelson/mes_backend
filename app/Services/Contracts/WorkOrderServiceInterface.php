@@ -122,6 +122,11 @@ interface WorkOrderServiceInterface
     public function calendarDayOrders(array $options = []): array;
 
     /**
+     * Provide collection report grouped by customer and aging buckets.
+     */
+    public function collectionReport(array $options = []): array;
+
+    /**
      * List work orders with WIP status, filters, and pagination.
      */
     public function listWip(
