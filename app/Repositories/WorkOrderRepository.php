@@ -214,6 +214,9 @@ class WorkOrderRepository extends BaseRepository implements WorkOrderRepositoryI
             case 'customer_part_number':
             case 'id':
                 $query->orderBy($orderBy, $direction);
+                if ($orderBy !== 'id') {
+                    $query->orderBy('id', $direction);
+                }
                 break;
             default:
                 $query->orderBy('id', 'desc');
