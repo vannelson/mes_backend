@@ -6,6 +6,7 @@ use App\Http\Requests\WorkOrder\WorkOrderStepCompleteRequest;
 use App\Http\Requests\WorkOrder\WorkOrderStepReworkRequest;
 use App\Models\WorkOrder;
 use App\Models\WorkOrderStepCompletion;
+use App\Services\WorkOrderNotificationService;
 use App\Traits\ResponseTrait;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Http\JsonResponse;
@@ -15,6 +16,11 @@ use Throwable;
 class WorkOrderStepCompletionController extends Controller
 {
     use ResponseTrait;
+
+    public function __construct(
+        protected WorkOrderNotificationService $notificationService
+    ) {
+    }
 
     public function complete(WorkOrderStepCompleteRequest $request, int $id, string $stepKey): JsonResponse
     {
@@ -73,6 +79,15 @@ class WorkOrderStepCompletionController extends Controller
                 ? ($workOrder->completed_at ?? now())
                 : null;
             $workOrder->save();
+
+            try {
+                $this->notificationService->notifyWorkOrder($workOrder, $request->user(), 'validation', [
+                    'step_key' => $completion->step_key,
+                    'status' => $completion->status,
+                ]);
+            } catch (Throwable) {
+                // Notification failures should not block completion.
+            }
 
             return $this->success('Work order step marked as completed!', [
                 'work_order_id' => $workOrder->id,
@@ -216,6 +231,15 @@ class WorkOrderStepCompletionController extends Controller
                 $workOrder->status = 'in_progress';
             }
             $workOrder->save();
+
+            try {
+                $this->notificationService->notifyWorkOrder($workOrder, $request->user(), 'rework', [
+                    'step_key' => $workOrder->canonicalStepKeyForStep($steps[$stepIndex], $stepIndex),
+                    'reason' => $reason,
+                ]);
+            } catch (Throwable) {
+                // Notification failures should not block rework.
+            }
 
             return $this->success('Work order step rework initialized!', [
                 'work_order_id' => $workOrder->id,

@@ -21,10 +21,20 @@ class FirebaseRealtimeService
 
     public function publishVirtualizationUpdate(array $payload): bool
     {
+        return $this->publishUpdate('mes/workorders/virtualization/last_update', $payload);
+    }
+
+    public function publishNotificationUpdate(array $payload): bool
+    {
+        return $this->publishUpdate('mes/notifications/last_update', $payload);
+    }
+
+    protected function publishUpdate(string $path, array $payload): bool
+    {
         $databaseUrl = config('services.firebase.database_url');
         $serviceAccountPath = config('services.firebase.service_account_path');
 
-        if (!$databaseUrl || !$serviceAccountPath) {
+        if (!$databaseUrl) {
             return false;
         }
 
@@ -32,18 +42,20 @@ class FirebaseRealtimeService
         $value['updated_at'] = $value['updated_at'] ?? now()->toIso8601String();
         $value['nonce'] = $value['nonce'] ?? (string) Str::uuid();
 
-        if ($this->publishViaSdk($databaseUrl, $serviceAccountPath, $value)) {
-            return true;
+        if ($serviceAccountPath) {
+            if ($this->publishViaSdk($databaseUrl, $serviceAccountPath, $value, $path)) {
+                return true;
+            }
+
+            if ($this->publishViaRest($databaseUrl, $serviceAccountPath, $value, $path)) {
+                return true;
+            }
         }
 
-        if ($this->publishViaRest($databaseUrl, $serviceAccountPath, $value)) {
-            return true;
-        }
-
-        return $this->publishViaOpenRules($databaseUrl, $value);
+        return $this->publishViaOpenRules($databaseUrl, $value, $path);
     }
 
-    protected function publishViaSdk(string $databaseUrl, string $serviceAccountPath, array $value): bool
+    protected function publishViaSdk(string $databaseUrl, string $serviceAccountPath, array $value, string $path): bool
     {
         if (!class_exists(Factory::class)) {
             return false;
@@ -59,8 +71,7 @@ class FirebaseRealtimeService
                 ->withServiceAccount($resolvedPath)
                 ->withDatabaseUri($databaseUrl)
                 ->createDatabase();
-            $database->getReference('mes/workorders/virtualization/last_update')
-                ->set($value);
+            $database->getReference($path)->set($value);
             return true;
         } catch (\Throwable $e) {
             Log::warning('Firebase RTDB SDK publish failed.', [
@@ -71,7 +82,7 @@ class FirebaseRealtimeService
         return false;
     }
 
-    protected function publishViaRest(string $databaseUrl, string $serviceAccountPath, array $value): bool
+    protected function publishViaRest(string $databaseUrl, string $serviceAccountPath, array $value, string $path): bool
     {
         $serviceAccount = $this->loadServiceAccount($serviceAccountPath);
         if (!$serviceAccount) {
@@ -83,7 +94,7 @@ class FirebaseRealtimeService
             return false;
         }
 
-        $url = rtrim($databaseUrl, '/') . '/mes/workorders/virtualization/last_update.json';
+        $url = rtrim($databaseUrl, '/') . '/' . ltrim($path, '/') . '.json';
 
         try {
             $this->client->put($url, [
@@ -100,9 +111,9 @@ class FirebaseRealtimeService
         return false;
     }
 
-    protected function publishViaOpenRules(string $databaseUrl, array $value): bool
+    protected function publishViaOpenRules(string $databaseUrl, array $value, string $path): bool
     {
-        $url = rtrim($databaseUrl, '/') . '/mes/workorders/virtualization/last_update.json';
+        $url = rtrim($databaseUrl, '/') . '/' . ltrim($path, '/') . '.json';
 
         try {
             $this->client->put($url, ['json' => $value]);

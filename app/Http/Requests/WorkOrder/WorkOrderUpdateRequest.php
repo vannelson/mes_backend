@@ -43,6 +43,8 @@ class WorkOrderUpdateRequest extends FormRequest
             'qr_code' => 'nullable|string|max:255',
             'is_released' => ['nullable', 'boolean'],
             'metadata' => ['nullable', 'array'],
+            'notification_context' => ['nullable', 'string', 'max:40'],
+            'notification_meta' => ['nullable', 'array'],
             'evidence_images' => ['nullable', 'array'],
             'evidence_images.*' => ['nullable', 'image', 'mimes:jpg,jpeg,png,webp', 'max:1048576'],
         ];

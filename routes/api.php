@@ -23,6 +23,7 @@ use App\Http\Controllers\VirtualScreenController;
 use App\Http\Controllers\WorkOrderController;
 use App\Http\Controllers\WorkOrderCommentController;
 use App\Http\Controllers\WorkOrderEvidenceController;
+use App\Http\Controllers\WorkOrderNotificationController;
 use Illuminate\Support\Facades\Route;
 
 Route::prefix('v1')->group(function () {
@@ -52,6 +53,11 @@ Route::prefix('v1')->group(function () {
         Route::delete('batch-logs/{id}', [BatchLogController::class, 'destroy']);
 
         Route::get('work-orders', [WorkOrderController::class, 'index']);
+        Route::get('notifications', [WorkOrderNotificationController::class, 'index']);
+        Route::get('notifications/unread-count', [WorkOrderNotificationController::class, 'unreadCount']);
+        Route::put('notifications/{id}/read', [WorkOrderNotificationController::class, 'markRead'])->whereNumber('id');
+        Route::put('notifications/{id}/unread', [WorkOrderNotificationController::class, 'markUnread'])->whereNumber('id');
+        Route::post('notifications/mark-read', [WorkOrderNotificationController::class, 'markManyRead']);
         Route::get('work-order-comments', [WorkOrderCommentController::class, 'index']);
         Route::post('work-order-comments', [WorkOrderCommentController::class, 'store']);
         Route::get('work-order-comments/{id}', [WorkOrderCommentController::class, 'show']);

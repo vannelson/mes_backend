@@ -39,7 +39,7 @@ interface WorkOrderServiceInterface
     /**
      * Update Work Order
      */
-    public function update(int $id, array $data, array $evidenceImages = []): bool;
+    public function update(int $id, array $data, array $evidenceImages = [], ?\App\Models\User $actor = null): bool;
 
     /**
      * Sync work order operator assignments per route.

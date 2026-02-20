@@ -4,7 +4,9 @@ namespace App\Http\Controllers;
 
 use App\Http\Requests\PackingChecklist\PackingChecklistStoreRequest;
 use App\Http\Requests\PackingChecklist\PackingChecklistUpdateRequest;
+use App\Models\WorkOrder;
 use App\Services\Contracts\PackingChecklistServiceInterface;
+use App\Services\WorkOrderNotificationService;
 use App\Traits\ResponseTrait;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -17,7 +19,8 @@ class PackingChecklistController extends Controller
     use ResponseTrait;
 
     public function __construct(
-        protected PackingChecklistServiceInterface $packingChecklistService
+        protected PackingChecklistServiceInterface $packingChecklistService,
+        protected WorkOrderNotificationService $notificationService
     ) {
     }
 
@@ -59,6 +62,13 @@ class PackingChecklistController extends Controller
                 $request->file('product_image'),
                 $request->file('core_image')
             );
+
+            $workOrder = $this->resolveWorkOrder($data);
+            if ($workOrder) {
+                $this->notificationService->notifyWorkOrder($workOrder, $request->user(), 'checklist', [
+                    'checklist_type' => 'packing',
+                ]);
+            }
 
             return $this->success('Packing checklist saved successfully!', $checklist, 201);
         // } catch (ValidationException $e) {
@@ -105,6 +115,13 @@ class PackingChecklistController extends Controller
                 $request->file('core_image')
             );
 
+            $workOrder = $this->resolveWorkOrder($data);
+            if ($workOrder) {
+                $this->notificationService->notifyWorkOrder($workOrder, $request->user(), 'checklist', [
+                    'checklist_type' => 'packing',
+                ]);
+            }
+
             return !empty($updated)
                 ? $this->success('Packing checklist updated successfully!', $updated)
                 : $this->error('Nothing to update.', 422);
@@ -130,5 +147,17 @@ class PackingChecklistController extends Controller
         } catch (Throwable $e) {
             return $this->error('Failed to delete packing checklist.', 500);
         }
+    }
+
+    protected function resolveWorkOrder(array $data): ?WorkOrder
+    {
+        $workOrderNo = $data['work_order_no'] ?? null;
+        if (!$workOrderNo) {
+            return null;
+        }
+
+        return WorkOrder::query()
+            ->where('work_order_no', $workOrderNo)
+            ->first();
     }
 }

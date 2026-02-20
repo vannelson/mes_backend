@@ -13,6 +13,7 @@ use App\Repositories\Contracts\WorkOrderRepositoryInterface;
 use App\Services\Contracts\WorkOrderServiceInterface;
 use App\Services\WorkOrderImportService;
 use App\Services\FirebaseRealtimeService;
+use App\Services\WorkOrderNotificationService;
 use Illuminate\Http\File;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\File as FileFacade;
@@ -33,7 +34,8 @@ class WorkOrderService implements WorkOrderServiceInterface
     public function __construct(
         protected WorkOrderRepositoryInterface $workOrderRepository,
         protected WorkOrderImportService $workOrderImportService,
-        protected FirebaseRealtimeService $firebaseRealtimeService
+        protected FirebaseRealtimeService $firebaseRealtimeService,
+        protected WorkOrderNotificationService $notificationService
     ) {
     }
 
@@ -340,8 +342,18 @@ class WorkOrderService implements WorkOrderServiceInterface
         ];
     }
 
-    public function update(int $id, array $data, array $evidenceImages = []): bool
+    public function update(int $id, array $data, array $evidenceImages = [], ?User $actor = null): bool
     {
+        $notificationContext = Arr::pull($data, 'notification_context');
+        $notificationMeta = Arr::pull($data, 'notification_meta', []);
+        if (is_string($notificationMeta)) {
+            $decoded = json_decode($notificationMeta, true);
+            $notificationMeta = is_array($decoded) ? $decoded : [];
+        }
+        if (!is_array($notificationMeta)) {
+            $notificationMeta = [];
+        }
+
         $this->syncCustomerSnapshot($data);
         $this->syncTemplateMetadata($data);
         $this->syncReleaseFlag($data);
@@ -373,6 +385,12 @@ class WorkOrderService implements WorkOrderServiceInterface
                     'template_route_id' => $order->template_route_id,
                     'action' => 'work_order_update',
                 ]);
+                $this->notificationService->notifyWorkOrder(
+                    $order,
+                    $actor,
+                    $notificationContext,
+                    $notificationMeta
+                );
             } catch (\Throwable) {
                 // Ignore realtime errors on update.
             }
@@ -548,6 +566,18 @@ class WorkOrderService implements WorkOrderServiceInterface
             ]);
         } catch (\Throwable) {
             // Firebase updates should not block time tracker writes.
+        }
+
+        try {
+            $this->notificationService->notifyWorkOrder($workOrder, $actor, 'progress', [
+                'step_key' => $route['route'] ?? $route['key'] ?? null,
+                'step_name' => $route['name'] ?? null,
+                'route_key' => $payload['route_key'] ?? $payload['routeKey'] ?? null,
+                'action' => $action,
+                'source' => $payload['source'] ?? 'manual',
+            ]);
+        } catch (\Throwable) {
+            // Notifications should not block time tracker writes.
         }
 
         return [

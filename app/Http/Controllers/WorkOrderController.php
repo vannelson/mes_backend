@@ -351,7 +351,12 @@ class WorkOrderController extends Controller
         }
 
         try {
-            $updated = $this->workOrderService->update($id, $request->validated(), $evidenceImages);
+            $updated = $this->workOrderService->update(
+                $id,
+                $request->validated(),
+                $evidenceImages,
+                $request->user()
+            );
 
             if (!$updated) {
                 return $this->error('Nothing to update.', 422);
