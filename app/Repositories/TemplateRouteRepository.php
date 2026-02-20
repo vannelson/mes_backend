@@ -43,8 +43,6 @@ class TemplateRouteRepository extends BaseRepository implements TemplateRouteRep
                 'template',
                 'batch_number',
                 'sheet',
-                'route_name_sequence_key',
-                'route_sequence_with_machines',
                 'metadata',
                 'created_at',
                 'updated_at',
