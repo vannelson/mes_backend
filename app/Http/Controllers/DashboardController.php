@@ -510,20 +510,20 @@ class DashboardController extends Controller
         }
 
         $map = [
-            'draft' => 'Draft',
-            'planned' => 'Draft',
-            'new' => 'Draft',
-            'released' => 'Released',
-            'release' => 'Released',
-            'ready' => 'Released',
+            'draft' => 'Backlog',
+            'planned' => 'Backlog',
+            'new' => 'Backlog',
+            'released' => 'In Progress',
+            'release' => 'In Progress',
+            'ready' => 'In Progress',
             'in_progress' => 'In Progress',
             'in-progress' => 'In Progress',
             'in progress' => 'In Progress',
             'active' => 'In Progress',
-            'hold' => 'On Hold',
-            'on hold' => 'On Hold',
-            'blocked' => 'On Hold',
-            'paused' => 'On Hold',
+            'hold' => 'Backlog',
+            'on hold' => 'Backlog',
+            'blocked' => 'Backlog',
+            'paused' => 'Backlog',
         ];
 
         if (isset($map[$raw])) {

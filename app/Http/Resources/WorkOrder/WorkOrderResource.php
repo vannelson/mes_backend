@@ -4,52 +4,179 @@ namespace App\Http\Resources\WorkOrder;
 
 use App\Http\Resources\Customer\CustomerResource;
 use App\Http\Resources\TemplateRoute\TemplateRouteResource;
+use App\Models\Packing;
+use Illuminate\Support\Arr;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 
 class WorkOrderResource extends JsonResource
 {
-    protected function normalizeStatus(mixed $status, bool $isCompleted): string
+    protected function normalizeRouteToken(mixed $value): ?string
     {
-        if ($isCompleted) {
-            return 'Completed';
+        if ($value === null) {
+            return null;
         }
-
-        $raw = strtolower(trim((string) $status));
+        $raw = strtolower(trim((string) $value));
         if ($raw === '') {
-            return 'In Progress';
+            return null;
+        }
+        $raw = str_replace(['_', '-'], ' ', $raw);
+        $raw = preg_replace('/\s+/', ' ', $raw) ?? $raw;
+        return $raw;
+    }
+
+    protected function extractRoutes(array $metadata): array
+    {
+        $routes = $metadata['routes'] ?? $metadata['data'] ?? $metadata['steps'] ?? [];
+        if (!is_array($routes)) {
+            return [];
         }
 
-        $map = [
-            'draft' => 'Draft',
-            'planned' => 'Draft',
-            'plan' => 'Draft',
-            'new' => 'Draft',
-            'released' => 'Released',
-            'release' => 'Released',
-            'ready' => 'Released',
-            'in_progress' => 'In Progress',
-            'in-progress' => 'In Progress',
-            'in progress' => 'In Progress',
-            'active' => 'In Progress',
-            'hold' => 'On Hold',
-            'on hold' => 'On Hold',
-            'blocked' => 'On Hold',
-            'paused' => 'On Hold',
+        $flattened = [];
+        foreach ($routes as $entry) {
+            if (!is_array($entry)) {
+                continue;
+            }
+            if (array_key_exists('routes', $entry) && is_array($entry['routes'])) {
+                foreach ($entry['routes'] as $route) {
+                    if (is_array($route)) {
+                        $flattened[] = $route;
+                    }
+                }
+                continue;
+            }
+            $flattened[] = $entry;
+        }
+
+        return $flattened;
+    }
+
+    protected function isRouteCompleted(array $route): bool
+    {
+        $status = strtolower(trim((string) (
+            Arr::get($route, 'status')
+            ?? Arr::get($route, 'state.status')
+            ?? Arr::get($route, 'progress.status')
+            ?? Arr::get($route, 'metadata.status')
+            ?? ''
+        )));
+        if ($status === '') {
+            $completedAt = $route['completed_at'] ?? $route['completedAt'] ?? null;
+            if ($completedAt) {
+                $status = 'completed';
+            }
+        }
+
+        return in_array($status, ['completed', 'complete', 'done'], true);
+    }
+
+    protected function resolveRouteCompletion(array $routes): array
+    {
+        $total = 0;
+        $completed = 0;
+        $rollingComplete = false;
+        $packingRouteComplete = false;
+        $sawRolling = false;
+        $sawPacking = false;
+        $hasAny = false;
+
+        foreach ($routes as $route) {
+            if (!is_array($route)) {
+                continue;
+            }
+            $label = $route['route'] ?? $route['name'] ?? $route['key'] ?? $route['label'] ?? null;
+            $token = $this->normalizeRouteToken($label);
+            if ($token) {
+                $hasAny = true;
+            }
+
+            $isCompleted = $this->isRouteCompleted($route);
+            if ($token === 'rolling prep') {
+                $sawRolling = true;
+                if ($isCompleted) {
+                    $rollingComplete = true;
+                }
+                continue;
+            }
+            if ($token === 'packing checklist') {
+                $sawPacking = true;
+                if ($isCompleted) {
+                    $packingRouteComplete = true;
+                }
+                continue;
+            }
+
+            if ($label !== null) {
+                $total++;
+                if ($isCompleted) {
+                    $completed++;
+                }
+            }
+        }
+
+        if (!$sawRolling || !$this->hasPackingSpecs()) {
+            $rollingComplete = true;
+        }
+        if (!$sawPacking || !$this->hasPackingChecklist()) {
+            $packingRouteComplete = true;
+        }
+
+        return [
+            'total' => $total,
+            'completed' => $completed,
+            'rolling_complete' => $rollingComplete,
+            'packing_route_complete' => $packingRouteComplete,
+            'has_any' => $hasAny,
         ];
+    }
 
-        if (isset($map[$raw])) {
-            return $map[$raw];
+    protected function hasPackingChecklist(): bool
+    {
+        if (isset($this->packing_checklist_count)) {
+            return (int) $this->packing_checklist_count > 0;
+        }
+        if (isset($this->packing_checklist_exists)) {
+            return (bool) $this->packing_checklist_exists;
+        }
+        if (!$this->work_order_no) {
+            return false;
         }
 
-        if (str_contains($raw, 'release')) {
-            return 'Released';
+        return \App\Models\PackingChecklist::query()
+            ->where('work_order_no', $this->work_order_no)
+            ->exists();
+    }
+
+    protected function hasPackingSpecs(): bool
+    {
+        if (isset($this->packing_spec_exists)) {
+            return (bool) $this->packing_spec_exists;
         }
-        if (str_contains($raw, 'hold') || str_contains($raw, 'block')) {
-            return 'On Hold';
+        if (!$this->customer_part_number) {
+            return false;
         }
 
-        return ucwords($raw);
+        return Packing::query()
+            ->where('wd_part_no', $this->customer_part_number)
+            ->exists();
+    }
+
+    protected function resolveIsReleased(string $statusRaw): bool
+    {
+        if ($statusRaw !== '') {
+            $normalized = str_replace(['-', '_'], ' ', $statusRaw);
+            $normalized = preg_replace('/\s+/', ' ', $normalized) ?? $normalized;
+
+            if (in_array($normalized, ['draft', 'backlog', 'new', 'planned', 'plan', 'hold', 'on hold', 'blocked', 'paused'], true)) {
+                return false;
+            }
+
+            if (in_array($normalized, ['released', 'in progress', 'active', 'completed', 'complete', 'done'], true)) {
+                return true;
+            }
+        }
+
+        return (bool) $this->is_released;
     }
 
     protected function resolveNormalizedStatus(): string
@@ -61,11 +188,40 @@ class WorkOrderResource extends JsonResource
                 $metadata = $decoded;
             }
         }
+        $metadata = is_array($metadata) ? $metadata : [];
         $state = is_array($metadata['state'] ?? null) ? $metadata['state'] : [];
-        $statusRaw = $state['status'] ?? ($metadata['status'] ?? ($this->status ?? null));
-        $isCompleted = $this->production_date_completed !== null;
+        $statusRaw = strtolower(trim((string) ($state['status'] ?? $metadata['status'] ?? ($this->status ?? ''))));
+        $isReleased = $this->resolveIsReleased($statusRaw);
 
-        return $this->normalizeStatus($statusRaw, $isCompleted);
+        $routes = $this->extractRoutes($metadata);
+        $routeStats = $this->resolveRouteCompletion($routes);
+
+        $hasRouteLink = !empty($this->template_route_id) || $routeStats['has_any'] || $routeStats['total'] > 0;
+        $allRoutesCompleted = $routeStats['total'] > 0 && $routeStats['completed'] >= $routeStats['total'];
+        $rollingComplete = $routeStats['rolling_complete'] || !$this->hasPackingSpecs();
+        $packingComplete = $routeStats['packing_route_complete'] || !$this->hasPackingChecklist();
+
+        if ($allRoutesCompleted && $rollingComplete && $packingComplete) {
+            return 'Completed';
+        }
+
+        $backlogRaw = in_array($statusRaw, [
+            'draft',
+            'planned',
+            'plan',
+            'new',
+            'backlog',
+            'hold',
+            'on hold',
+            'blocked',
+            'paused',
+        ], true);
+
+        if ($backlogRaw || !$hasRouteLink || !$isReleased) {
+            return 'Backlog';
+        }
+
+        return 'In Progress';
     }
     protected function resolveEvidenceUrl(?string $path): ?string
     {

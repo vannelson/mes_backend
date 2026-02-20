@@ -19,7 +19,9 @@ class WorkOrderRepository extends BaseRepository implements WorkOrderRepositoryI
 
     public function listing(array $filters = [], array $order = [], int $limit = 10, int $page = 1): LengthAwarePaginator
     {
-        $query = $this->model->newQuery()->with(['customer', 'templateRoute']);
+        $query = $this->model->newQuery()
+            ->with(['customer', 'templateRoute'])
+            ->withCount('packingChecklist');
 
         if ($workOrderNo = Arr::get($filters, 'work_order_no')) {
             $query->where('work_order_no', 'LIKE', "%{$workOrderNo}%");
@@ -151,27 +153,23 @@ class WorkOrderRepository extends BaseRepository implements WorkOrderRepositoryI
                         return;
                     }
 
-                    if (str_contains($normalized, 'release')) {
-                        $q->whereRaw("{$statusField} LIKE '%release%'")
-                            ->orWhereRaw("{$stateStatus} LIKE '%release%'")
-                            ->orWhereRaw("{$metaStatus} LIKE '%release%'");
-                        if (Schema::hasColumn('work_orders', 'is_released')) {
-                            $q->orWhere('is_released', true);
-                        }
-                        return;
-                    }
-
-                    if (str_contains($normalized, 'progress')) {
-                        $q->whereRaw("{$statusField} IN ('in progress','in_progress','in-progress','active')")
-                            ->orWhereRaw("{$stateStatus} IN ('in progress','in_progress','in-progress','active')")
-                            ->orWhereRaw("{$metaStatus} IN ('in progress','in_progress','in-progress','active')")
-                            ->orWhere(function ($inner) use ($statusField, $stateStatus, $metaStatus) {
-                                $inner
-                                    ->whereRaw("{$statusField} = ''")
-                                    ->whereRaw("{$stateStatus} = ''")
-                                    ->whereRaw("{$metaStatus} = ''")
-                                    ->whereNull('production_date_completed');
-                            });
+                    if (str_contains($normalized, 'release') || str_contains($normalized, 'progress')) {
+                        $q->where(function ($inner) use ($statusField, $stateStatus, $metaStatus) {
+                            $inner
+                                ->whereRaw("{$statusField} IN ('in progress','in_progress','in-progress','active')")
+                                ->orWhereRaw("{$stateStatus} IN ('in progress','in_progress','in-progress','active')")
+                                ->orWhereRaw("{$metaStatus} IN ('in progress','in_progress','in-progress','active')")
+                                ->orWhereRaw("{$statusField} LIKE '%release%'")
+                                ->orWhereRaw("{$stateStatus} LIKE '%release%'")
+                                ->orWhereRaw("{$metaStatus} LIKE '%release%'");
+                            if (Schema::hasColumn('work_orders', 'is_released')) {
+                                $inner->orWhere('is_released', true);
+                            }
+                        })
+                        ->whereNull('production_date_completed')
+                        ->whereRaw("{$statusField} NOT IN ('completed','complete','done')")
+                        ->whereRaw("{$stateStatus} NOT IN ('completed','complete','done')")
+                        ->whereRaw("{$metaStatus} NOT IN ('completed','complete','done')");
                         return;
                     }
 
@@ -180,9 +178,16 @@ class WorkOrderRepository extends BaseRepository implements WorkOrderRepositoryI
                         str_contains($normalized, 'draft') ||
                         str_contains($normalized, 'plan')
                     ) {
-                        $q->whereRaw("{$statusField} IN ('draft','planned','plan','new','backlog','on hold','hold','blocked','paused')")
-                            ->orWhereRaw("{$stateStatus} IN ('draft','planned','plan','new','backlog','on hold','hold','blocked','paused')")
-                            ->orWhereRaw("{$metaStatus} IN ('draft','planned','plan','new','backlog','on hold','hold','blocked','paused')");
+                        $q->where(function ($inner) use ($statusField, $stateStatus, $metaStatus) {
+                            $inner
+                                ->whereRaw("{$statusField} IN ('draft','planned','plan','new','backlog','on hold','hold','blocked','paused')")
+                                ->orWhereRaw("{$stateStatus} IN ('draft','planned','plan','new','backlog','on hold','hold','blocked','paused')")
+                                ->orWhereRaw("{$metaStatus} IN ('draft','planned','plan','new','backlog','on hold','hold','blocked','paused')")
+                                ->orWhereNull('template_route_id');
+                            if (Schema::hasColumn('work_orders', 'is_released')) {
+                                $inner->orWhere('is_released', false);
+                            }
+                        });
                         return;
                     }
 

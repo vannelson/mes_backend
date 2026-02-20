@@ -6,6 +6,7 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 
 class WorkOrder extends Model
 {
@@ -76,5 +77,10 @@ class WorkOrder extends Model
     public function userAssignments(): HasMany
     {
         return $this->hasMany(UserWorkOrder::class);
+    }
+
+    public function packingChecklist(): HasOne
+    {
+        return $this->hasOne(PackingChecklist::class, 'work_order_no', 'work_order_no');
     }
 }

@@ -5,6 +5,7 @@ namespace App\Services;
 use App\Http\Resources\WorkOrder\WorkOrderResource;
 use App\Models\Customer;
 use App\Models\PackingChecklist;
+use App\Models\Packing;
 use App\Models\TemplateRoute;
 use App\Models\User;
 use App\Models\UserWorkOrder;
@@ -23,6 +24,7 @@ use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
+use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Validation\ValidationException;
 use Throwable;
 
@@ -41,9 +43,73 @@ class WorkOrderService implements WorkOrderServiceInterface
 
     public function getList(array $filters = [], array $order = [], int $limit = 10, int $page = 1): array
     {
-        return WorkOrderResource::collection(
-            $this->workOrderRepository->listing($filters, $order, $limit, $page)
-        )->response()->getData(true);
+        $statusFilter = Arr::get($filters, 'status');
+        $normalizedStatus = strtolower(trim((string) $statusFilter));
+        $computedStatuses = ['backlog', 'in progress', 'completed'];
+
+        if (!in_array($normalizedStatus, $computedStatuses, true)) {
+            return WorkOrderResource::collection(
+                $this->workOrderRepository->listing($filters, $order, $limit, $page)
+            )->response()->getData(true);
+        }
+
+        $baseFilters = $filters;
+        unset($baseFilters['status']);
+
+        $allItems = collect();
+        $currentPage = 1;
+        $lastPage = 1;
+
+        do {
+            $paginator = $this->workOrderRepository->listing($baseFilters, $order, $limit, $currentPage);
+            $allItems = $allItems->merge($paginator->getCollection());
+            $lastPage = $paginator->lastPage();
+            $currentPage++;
+        } while ($currentPage <= $lastPage);
+
+        $workOrderNos = $allItems->pluck('work_order_no')->filter()->values();
+        $packingSet = $workOrderNos->isEmpty()
+            ? collect()
+            : PackingChecklist::query()
+                ->whereIn('work_order_no', $workOrderNos)
+                ->pluck('work_order_no')
+                ->flip();
+        $partNos = $allItems->pluck('customer_part_number')->filter()->values();
+        $packingSpecSet = $partNos->isEmpty()
+            ? collect()
+            : Packing::query()
+                ->whereIn('wd_part_no', $partNos)
+                ->pluck('wd_part_no')
+                ->flip();
+
+        $filtered = $allItems->filter(function (WorkOrder $order) use ($normalizedStatus, $packingSet, $packingSpecSet): bool {
+            $metadata = $this->normalizeMetadata($order->metadata);
+            $routes = $this->extractRoutes($metadata);
+            $hasPacking = $order->work_order_no
+                ? $packingSet->has($order->work_order_no)
+                : false;
+            $hasPackingSpecs = $order->customer_part_number
+                ? $packingSpecSet->has($order->customer_part_number)
+                : false;
+            $status = $this->resolveWorkflowStatus($order, $metadata, $routes, $hasPacking, $hasPackingSpecs);
+            return strtolower($status) === $normalizedStatus;
+        })->values();
+
+        $total = $filtered->count();
+        $lastPage = (int) max(1, (int) ceil($total / $limit));
+        $page = max(1, min($page, $lastPage));
+        $offset = ($page - 1) * $limit;
+        $paged = $filtered->slice($offset, $limit)->values();
+
+        $paginator = new LengthAwarePaginator(
+            $paged,
+            $total,
+            $limit,
+            $page,
+            ['path' => request()->url(), 'query' => request()->query()]
+        );
+
+        return WorkOrderResource::collection($paginator)->response()->getData(true);
     }
 
     public function getOptions(array $filters = [], array $order = [], int $limit = 10, int $page = 1): array
@@ -120,24 +186,42 @@ class WorkOrderService implements WorkOrderServiceInterface
                 ->whereIn('work_order_no', $workOrderNos)
                 ->pluck('work_order_no')
                 ->flip();
+        $partNos = $orders->pluck('customer_part_number')->filter()->values();
+        $packingSpecSet = $partNos->isEmpty()
+            ? collect()
+            : Packing::query()
+                ->whereIn('wd_part_no', $partNos)
+                ->pluck('wd_part_no')
+                ->flip();
+        $partNos = $orders->pluck('customer_part_number')->filter()->values();
+        $packingSpecSet = $partNos->isEmpty()
+            ? collect()
+            : Packing::query()
+                ->whereIn('wd_part_no', $partNos)
+                ->pluck('wd_part_no')
+                ->flip();
 
-        $items = $orders->map(function (WorkOrder $order) use ($packingSet): array {
+        $items = $orders->map(function (WorkOrder $order) use ($packingSet, $packingSpecSet): array {
             $metadata = $this->normalizeMetadata($order->metadata);
             $routes = $this->extractRoutes($metadata);
-            $routeStats = $this->resolveRouteStats($metadata, $routes);
+            $routeStats = $this->resolveRouteCompletionStats($routes);
             $statusRaw = strtolower(trim((string) Arr::get($metadata, 'state.status', '')));
-            $explicitCompleted = in_array($statusRaw, ['completed', 'complete', 'done'], true);
             $isReleased = $this->resolveIsReleased($order, $statusRaw);
             $hasPacking = $order->work_order_no
                 ? $packingSet->has($order->work_order_no)
                 : false;
-            $statusKey = $this->resolveWipStatusKey(
-                $isReleased,
-                $explicitCompleted,
-                $routeStats['completed'],
-                $routeStats['total'],
-                $hasPacking
-            );
+            $hasPackingSpecs = $order->customer_part_number
+                ? $packingSpecSet->has($order->customer_part_number)
+                : false;
+            $statusLabel = $this->resolveWorkflowStatus($order, $metadata, $routes, $hasPacking, $hasPackingSpecs);
+            $statusKey = match ($statusLabel) {
+                'Backlog' => 'backlog',
+                'Completed' => 'completed',
+                default => 'progress',
+            };
+            $hasRouteLink = !empty($order->template_route_id)
+                || $routeStats['has_any']
+                || $routeStats['total'] > 0;
 
             return [
                 'id' => $order->id,
@@ -146,7 +230,7 @@ class WorkOrderService implements WorkOrderServiceInterface
                 'customer_code' => $order->customer_code,
                 'customer_name' => $order->customer_name,
                 'is_released' => $isReleased,
-                'has_route_link' => !empty($order->template_route_id),
+                'has_route_link' => $hasRouteLink,
                 'routes_completed' => $routeStats['completed'],
                 'routes_total' => $routeStats['total'],
                 'has_packing' => $hasPacking,
@@ -358,12 +442,31 @@ class WorkOrderService implements WorkOrderServiceInterface
         $this->syncTemplateMetadata($data);
         $this->syncReleaseFlag($data);
 
+        $workOrder = null;
         $storedImages = [];
         if (!empty($evidenceImages)) {
             $workOrder = $this->workOrderRepository->findById($id);
             $existingImages = is_array($workOrder->evidence_images) ? $workOrder->evidence_images : [];
             $storedImages = $this->storeEvidenceImages($evidenceImages);
             $data['evidence_images'] = array_values(array_merge($existingImages, $storedImages));
+        }
+
+        if (array_key_exists('metadata', $data) && Schema::hasColumn('work_orders', 'status')) {
+            if (!$workOrder) {
+                $workOrder = $this->workOrderRepository->findById($id);
+            }
+            $metadata = $this->normalizeMetadata($data['metadata']);
+            $routes = $this->extractRoutes($metadata);
+            if (!empty($routes)) {
+                $hasPacking = $workOrder->work_order_no
+                    ? PackingChecklist::query()
+                        ->where('work_order_no', $workOrder->work_order_no)
+                        ->exists()
+                    : false;
+                $hasPackingSpecs = $this->hasPackingSpecs($workOrder);
+                $statusLabel = $this->resolveWorkflowStatus($workOrder, $metadata, $routes, $hasPacking, $hasPackingSpecs);
+                $data['status'] = $statusLabel === 'Completed' ? 'Completed' : 'In Progress';
+            }
         }
 
         $updated = (bool) $this->workOrderRepository->update($id, $data);
@@ -949,6 +1052,14 @@ class WorkOrderService implements WorkOrderServiceInterface
         $this->applyWorkOrderOrdering($query, $order);
 
         $orders = $query->get();
+
+        $workOrderNos = $orders->pluck('work_order_no')->filter()->values();
+        $packingSet = $workOrderNos->isEmpty()
+            ? collect()
+            : PackingChecklist::query()
+                ->whereIn('work_order_no', $workOrderNos)
+                ->pluck('work_order_no')
+                ->flip();
 
         $filtered = $orders->values();
 
@@ -1571,7 +1682,7 @@ class WorkOrderService implements WorkOrderServiceInterface
                 $order->template_route_id = $templateData['id'];
                 $order->metadata = $this->prepareTemplateMetadataForWorkOrder(
                     $templateData['metadata'] ?? null,
-                    'Released'
+                    'In Progress'
                 );
                 if ($hasIsReleased) {
                     $statusRaw = strtolower(trim((string) Arr::get($order->metadata, 'state.status', '')));
@@ -1691,6 +1802,14 @@ class WorkOrderService implements WorkOrderServiceInterface
         $scrapReasons = [];
         $throughputBuckets = $this->buildDateBuckets($throughputStart, $throughputDays);
 
+        $workOrderNos = $orders->pluck('work_order_no')->filter()->values();
+        $packingSet = $workOrderNos->isEmpty()
+            ? collect()
+            : PackingChecklist::query()
+                ->whereIn('work_order_no', $workOrderNos)
+                ->pluck('work_order_no')
+                ->flip();
+
         $onTimeEligible = 0;
         $onTimeHit = 0;
         $leadTimeSum = 0.0;
@@ -1701,7 +1820,6 @@ class WorkOrderService implements WorkOrderServiceInterface
 
             $metadata = $this->normalizeMetadata($order->metadata);
             $state = is_array($metadata['state'] ?? null) ? $metadata['state'] : [];
-            $statusRaw = $state['status'] ?? $metadata['status'] ?? null;
             $currentStep = $state['currentStep'] ?? null;
 
             $routes = $this->extractRoutes($metadata);
@@ -1710,7 +1828,13 @@ class WorkOrderService implements WorkOrderServiceInterface
             $completionDate = $this->resolveCompletionDate($order, $routes);
             $isCompleted = $completionDate !== null || $routesCompleted;
 
-            $status = $this->normalizeStatus($statusRaw, $isCompleted);
+            $hasPacking = $order->work_order_no
+                ? $packingSet->has($order->work_order_no)
+                : false;
+            $hasPackingSpecs = $order->customer_part_number
+                ? $packingSpecSet->has($order->customer_part_number)
+                : false;
+            $status = $this->resolveWorkflowStatus($order, $metadata, $routes, $hasPacking, $hasPackingSpecs);
 
             $planned = $this->numericValue($order->quantity_to_produce);
             if ($planned <= 0) {
@@ -1738,11 +1862,8 @@ class WorkOrderService implements WorkOrderServiceInterface
                 $totals['wip_units'] += $planned;
             }
 
-            if ($status === 'Released') {
+            if ($status === 'In Progress') {
                 $totals['released_orders']++;
-            }
-
-            if (!$isCompleted && $status !== 'Draft') {
                 $totals['wip_orders']++;
             }
 
@@ -1882,8 +2003,6 @@ class WorkOrderService implements WorkOrderServiceInterface
                     'backlog' => 0,
                     'in_progress' => 0,
                     'completed' => 0,
-                    'packing' => 0,
-                    'released' => 0,
                 ],
             ];
             $cursor->addDay();
@@ -1913,9 +2032,10 @@ class WorkOrderService implements WorkOrderServiceInterface
         if ($customerPartNumber = Arr::get($filters, 'customer_part_number')) {
             $query->where('customer_part_number', 'LIKE', "%{$customerPartNumber}%");
         }
-        if ($statusFilter = Arr::get($filters, 'status')) {
-            $query->where('status', $statusFilter);
-        }
+        $statusFilter = Arr::get($filters, 'status');
+        $normalizedStatusFilter = $statusFilter !== null
+            ? strtolower(trim((string) $statusFilter))
+            : '';
 
         $scheduleFrom = $start->toDateString();
         $scheduleTo = $end->toDateString();
@@ -1929,15 +2049,36 @@ class WorkOrderService implements WorkOrderServiceInterface
         });
 
         $orders = $query->get();
+        $workOrderNos = $orders->pluck('work_order_no')->filter()->values();
+        $packingSet = $workOrderNos->isEmpty()
+            ? collect()
+            : PackingChecklist::query()
+                ->whereIn('work_order_no', $workOrderNos)
+                ->pluck('work_order_no')
+                ->flip();
+        $partNos = $orders->pluck('customer_part_number')->filter()->values();
+        $packingSpecSet = $partNos->isEmpty()
+            ? collect()
+            : Packing::query()
+                ->whereIn('wd_part_no', $partNos)
+                ->pluck('wd_part_no')
+                ->flip();
 
         $dueCounts = array_fill_keys(array_keys($days), 0);
 
         foreach ($orders as $order) {
-            $metadata = is_array($order->metadata) ? $order->metadata : [];
-            $state = is_array($metadata['state'] ?? null) ? $metadata['state'] : [];
-            $statusRaw = $state['status'] ?? $metadata['status'] ?? $order->status ?? null;
-            $isCompleted = $order->production_date_completed !== null;
-            $status = $this->normalizeStatus($statusRaw, $isCompleted);
+            $metadata = $this->normalizeMetadata($order->metadata);
+            $routes = $this->extractRoutes($metadata);
+            $hasPacking = $order->work_order_no
+                ? $packingSet->has($order->work_order_no)
+                : false;
+            $hasPackingSpecs = $order->customer_part_number
+                ? $packingSpecSet->has($order->customer_part_number)
+                : false;
+            $status = $this->resolveWorkflowStatus($order, $metadata, $routes, $hasPacking, $hasPackingSpecs);
+            if ($normalizedStatusFilter !== '' && strtolower($status) !== $normalizedStatusFilter) {
+                continue;
+            }
             $bucket = $this->mapCalendarStatus($status);
 
             $orderDate = $this->resolveOrderDate($order);
@@ -2083,6 +2224,21 @@ class WorkOrderService implements WorkOrderServiceInterface
 
         $orders = $query->orderBy('production_due_date')->orderBy('order_date')->get();
 
+        $workOrderNos = $orders->pluck('work_order_no')->filter()->values();
+        $packingSet = $workOrderNos->isEmpty()
+            ? collect()
+            : PackingChecklist::query()
+                ->whereIn('work_order_no', $workOrderNos)
+                ->pluck('work_order_no')
+                ->flip();
+        $partNos = $orders->pluck('customer_part_number')->filter()->values();
+        $packingSpecSet = $partNos->isEmpty()
+            ? collect()
+            : Packing::query()
+                ->whereIn('wd_part_no', $partNos)
+                ->pluck('wd_part_no')
+                ->flip();
+
         $items = [];
         $counts = [
             'total' => 0,
@@ -2093,10 +2249,14 @@ class WorkOrderService implements WorkOrderServiceInterface
 
         foreach ($orders as $order) {
             $metadata = is_array($order->metadata) ? $order->metadata : [];
-            $state = is_array($metadata['state'] ?? null) ? $metadata['state'] : [];
-            $statusRaw = $state['status'] ?? $metadata['status'] ?? $order->status ?? null;
-            $isCompleted = $order->production_date_completed !== null;
-            $status = $this->normalizeStatus($statusRaw, $isCompleted);
+            $routes = $this->extractRoutes($metadata);
+            $hasPacking = $order->work_order_no
+                ? $packingSet->has($order->work_order_no)
+                : false;
+            $hasPackingSpecs = $order->customer_part_number
+                ? $packingSpecSet->has($order->customer_part_number)
+                : false;
+            $status = $this->resolveWorkflowStatus($order, $metadata, $routes, $hasPacking, $hasPackingSpecs);
 
             $orderDate = $this->resolveOrderDate($order);
             $dueDate = $this->resolveDueDate($order);
@@ -2182,11 +2342,9 @@ class WorkOrderService implements WorkOrderServiceInterface
             }
             $sortDir = $sortDir === 'desc' ? 'desc' : 'asc';
             $statusOrder = [
-                'Draft' => 1,
-                'Released' => 2,
-                'In Progress' => 3,
-                'On Hold' => 4,
-                'Completed' => 5,
+                'Backlog' => 1,
+                'In Progress' => 2,
+                'Completed' => 3,
             ];
             usort($items, static function ($a, $b) use ($sortBy, $sortDir, $statusOrder) {
                 if ($sortBy === 'route_link') {
@@ -2447,7 +2605,7 @@ class WorkOrderService implements WorkOrderServiceInterface
             // reuse template metadata so work orders stay in sync with the chosen template
             $data['metadata'] = $this->prepareTemplateMetadataForWorkOrder(
                 $templateRoute->metadata,
-                'Released'
+                'In Progress'
             );
         }
     }
@@ -2460,7 +2618,7 @@ class WorkOrderService implements WorkOrderServiceInterface
                 $data['completed_at'] = $data['production_date_completed'] ?? null;
             }
             if (Schema::hasColumn('work_orders', 'status')) {
-                $data['status'] = 'completed';
+                $data['status'] = 'in progress';
             }
             return;
         }
@@ -2479,7 +2637,7 @@ class WorkOrderService implements WorkOrderServiceInterface
         $normalized = str_replace(['-', '_'], ' ', $statusRaw);
         $normalized = preg_replace('/\s+/', ' ', $normalized) ?? $normalized;
 
-        if (in_array($normalized, ['draft', 'backlog', 'new', 'planned'], true)) {
+        if (in_array($normalized, ['draft', 'backlog', 'new', 'planned', 'plan', 'hold', 'on hold', 'blocked', 'paused'], true)) {
             $data['is_released'] = false;
             return;
         }
@@ -2953,7 +3111,13 @@ class WorkOrderService implements WorkOrderServiceInterface
                 continue;
             }
 
-            $status = strtolower(trim((string) ($route['status'] ?? '')));
+            $status = strtolower(trim((string) (
+                Arr::get($route, 'status')
+                ?? Arr::get($route, 'state.status')
+                ?? Arr::get($route, 'progress.status')
+                ?? Arr::get($route, 'metadata.status')
+                ?? ''
+            )));
             if ($status === '') {
                 $completedAt = $route['completed_at'] ?? $route['completedAt'] ?? null;
                 if ($completedAt) {
@@ -2977,6 +3141,132 @@ class WorkOrderService implements WorkOrderServiceInterface
             'total' => $total,
             'completed' => $completed,
         ];
+    }
+
+    protected function resolveRouteCompletionStats(array $routes): array
+    {
+        $total = 0;
+        $completed = 0;
+        $rollingComplete = false;
+        $packingRouteComplete = false;
+        $sawRolling = false;
+        $sawPacking = false;
+        $hasAny = false;
+
+        foreach ($routes as $route) {
+            if (!is_array($route)) {
+                continue;
+            }
+            $label = $route['route'] ?? $route['name'] ?? $route['key'] ?? $route['label'] ?? null;
+            $token = $this->normalizeRouteToken($label);
+            if ($token) {
+                $hasAny = true;
+            }
+
+            $status = strtolower(trim((string) (
+                Arr::get($route, 'status')
+                ?? Arr::get($route, 'state.status')
+                ?? Arr::get($route, 'progress.status')
+                ?? Arr::get($route, 'metadata.status')
+                ?? ''
+            )));
+            if ($status === '') {
+                $completedAt = $route['completed_at'] ?? $route['completedAt'] ?? null;
+                if ($completedAt) {
+                    $status = 'completed';
+                }
+            }
+            $isCompleted = in_array($status, ['completed', 'complete', 'done'], true);
+
+            if ($token === 'rolling prep') {
+                $sawRolling = true;
+                if ($isCompleted) {
+                    $rollingComplete = true;
+                }
+                continue;
+            }
+            if ($token === 'packing checklist') {
+                $sawPacking = true;
+                if ($isCompleted) {
+                    $packingRouteComplete = true;
+                }
+                continue;
+            }
+
+            if ($label !== null) {
+                $total++;
+                if ($isCompleted) {
+                    $completed++;
+                }
+            }
+        }
+
+        if (!$sawRolling) {
+            $rollingComplete = true;
+        }
+        if (!$sawPacking) {
+            $packingRouteComplete = true;
+        }
+
+        return [
+            'total' => $total,
+            'completed' => $completed,
+            'rolling_complete' => $rollingComplete,
+            'packing_route_complete' => $packingRouteComplete,
+            'has_any' => $hasAny,
+        ];
+    }
+
+    protected function hasPackingSpecs(WorkOrder $order): bool
+    {
+        if (!$order->customer_part_number) {
+            return false;
+        }
+
+        return Packing::query()
+            ->where('wd_part_no', $order->customer_part_number)
+            ->exists();
+    }
+
+    protected function resolveWorkflowStatus(
+        WorkOrder $order,
+        array $metadata,
+        array $routes,
+        bool $hasPacking,
+        ?bool $hasPackingSpecs = null
+    ): string {
+        $state = is_array($metadata['state'] ?? null) ? $metadata['state'] : [];
+        $statusRaw = strtolower(trim((string) ($state['status'] ?? $metadata['status'] ?? ($order->status ?? ''))));
+        $isReleased = $this->resolveIsReleased($order, $statusRaw);
+
+        $routeStats = $this->resolveRouteCompletionStats($routes);
+        $hasRouteLink = !empty($order->template_route_id) || $routeStats['has_any'] || $routeStats['total'] > 0;
+        $allRoutesCompleted = $routeStats['total'] > 0 && $routeStats['completed'] >= $routeStats['total'];
+        $resolvedPackingSpecs = $hasPackingSpecs ?? $this->hasPackingSpecs($order);
+        $rollingComplete = $routeStats['rolling_complete'] || !$resolvedPackingSpecs;
+        $packingComplete = $routeStats['packing_route_complete'] || !$hasPacking;
+
+        if ($allRoutesCompleted && $rollingComplete && $packingComplete) {
+            return 'Completed';
+        }
+
+        $backlogRaw = in_array($statusRaw, [
+            'draft',
+            'planned',
+            'plan',
+            'new',
+            'backlog',
+            'hold',
+            'on hold',
+            'blocked',
+            'paused',
+        ], true);
+
+        if ($backlogRaw || !$hasRouteLink || !$isReleased) {
+            return 'Backlog';
+        }
+
+        return 'In Progress';
     }
 
     protected function buildVirtualizationSummary($orders): array
@@ -3408,7 +3698,7 @@ class WorkOrderService implements WorkOrderServiceInterface
             'inprogress' => 'progress',
             'completed' => 'completed',
             'complete' => 'completed',
-            'packing' => 'packing',
+            'packing' => 'completed',
         ];
 
         return $map[$raw] ?? null;
@@ -3420,7 +3710,7 @@ class WorkOrderService implements WorkOrderServiceInterface
             $normalized = str_replace(['-', '_'], ' ', $statusRaw);
             $normalized = preg_replace('/\s+/', ' ', $normalized) ?? $normalized;
 
-            if (in_array($normalized, ['draft', 'backlog', 'new', 'planned'], true)) {
+            if (in_array($normalized, ['draft', 'backlog', 'new', 'planned', 'plan', 'hold', 'on hold', 'blocked', 'paused'], true)) {
                 return false;
             }
 
@@ -3444,10 +3734,6 @@ class WorkOrderService implements WorkOrderServiceInterface
         }
 
         $isCompleted = $explicitCompleted || ($totalRoutes > 0 && $completedRoutes >= $totalRoutes);
-        if ($isCompleted && $hasPacking) {
-            return 'packing';
-        }
-
         if ($isCompleted) {
             return 'completed';
         }
@@ -3459,9 +3745,8 @@ class WorkOrderService implements WorkOrderServiceInterface
     {
         return match ($statusKey) {
             'backlog' => 'Backlog',
-            'progress' => 'Progress',
+            'progress' => 'In Progress',
             'completed' => 'Complete',
-            'packing' => 'Packing',
             default => ucwords(str_replace('_', ' ', $statusKey)),
         };
     }
@@ -3621,20 +3906,22 @@ class WorkOrderService implements WorkOrderServiceInterface
         }
 
         $map = [
-            'draft' => 'Draft',
-            'planned' => 'Draft',
-            'new' => 'Draft',
-            'released' => 'Released',
-            'release' => 'Released',
-            'ready' => 'Released',
+            'draft' => 'Backlog',
+            'planned' => 'Backlog',
+            'plan' => 'Backlog',
+            'new' => 'Backlog',
+            'backlog' => 'Backlog',
+            'released' => 'In Progress',
+            'release' => 'In Progress',
+            'ready' => 'In Progress',
             'in_progress' => 'In Progress',
             'in-progress' => 'In Progress',
             'in progress' => 'In Progress',
             'active' => 'In Progress',
-            'hold' => 'On Hold',
-            'on hold' => 'On Hold',
-            'blocked' => 'On Hold',
-            'paused' => 'On Hold',
+            'hold' => 'Backlog',
+            'on hold' => 'Backlog',
+            'blocked' => 'Backlog',
+            'paused' => 'Backlog',
         ];
 
         if (isset($map[$raw])) {
@@ -3642,10 +3929,10 @@ class WorkOrderService implements WorkOrderServiceInterface
         }
 
         if (str_contains($raw, 'release')) {
-            return 'Released';
+            return 'In Progress';
         }
         if (str_contains($raw, 'hold') || str_contains($raw, 'block')) {
-            return 'On Hold';
+            return 'Backlog';
         }
 
         return ucwords($raw);
@@ -3660,14 +3947,11 @@ class WorkOrderService implements WorkOrderServiceInterface
         if (str_contains($raw, 'complete')) {
             return 'completed';
         }
-        if (str_contains($raw, 'pack')) {
-            return 'packing';
-        }
         if (str_contains($raw, 'progress')) {
             return 'in_progress';
         }
         if (str_contains($raw, 'release')) {
-            return 'released';
+            return 'in_progress';
         }
         if (str_contains($raw, 'draft') || str_contains($raw, 'plan')) {
             return 'backlog';
@@ -3793,7 +4077,7 @@ class WorkOrderService implements WorkOrderServiceInterface
 
     protected function buildStatusSeries(array $statusCounts): array
     {
-        $order = ['Completed', 'Released', 'In Progress', 'Draft', 'On Hold'];
+        $order = ['Backlog', 'In Progress', 'Completed'];
         $series = [];
 
         foreach ($order as $label) {
