@@ -35,6 +35,20 @@ class TemplateRouteImportService
             'part no.',
             'part no',
         ],
+        'wod_ref' => [
+            'wod ref',
+            'wod_ref',
+            'work order ref',
+            'work order reference',
+            'work order no.',
+            'work order no',
+            'work order number',
+            'work order',
+            'wo no.',
+            'wo no',
+            'wo number',
+            'wo#',
+        ],
         'work_order_line_no' => [
             'work order line no.',
             'work order line number',
@@ -60,6 +74,21 @@ class TemplateRouteImportService
         ],
         'machine_name' => [
             'machine name',
+        ],
+        'staff_code' => [
+            'staff code',
+            'staffcode',
+            'operator code',
+            'employee code',
+            'emp code',
+            'staff id',
+            'employee id',
+        ],
+        'staff_name' => [
+            'staff name',
+            'staffname',
+            'operator name',
+            'employee name',
         ],
         'process_no' => [
             'process no.',
@@ -272,11 +301,14 @@ class TemplateRouteImportService
                 $validRows[] = [
                     'row_number' => $rowRef,
                     'customer_part_number' => $partNumber,
+                    'wod_ref' => $this->sanitizeText($payload['wod_ref'] ?? null),
                     'work_order_line_no' => $workOrderLineNo,
                     'wo_journal_line_no' => $woJournalLineNo,
                     'machine_type' => $machineType,
                     'machine_code' => $machineCode !== '' ? $machineCode : $this->sanitizeText($payload['machine_code'] ?? null),
                     'machine_name' => $machineNameRaw !== '' ? $machineNameRaw : $this->sanitizeText($payload['machine_name'] ?? null),
+                    'staff_code' => $this->sanitizeText($payload['staff_code'] ?? null),
+                    'staff_name' => $this->sanitizeText($payload['staff_name'] ?? null),
                     'process_no' => $this->toNumber($payload['process_no'] ?? null),
                     'posted' => $this->toBoolean($payload['posted'] ?? null),
                     'no_of_press' => $this->sanitizeText($payload['no_of_press'] ?? null),
@@ -344,22 +376,22 @@ class TemplateRouteImportService
                     continue;
                 }
                 $seenTypes[$type] = true;
-            $steps[] = [
-                'index' => count($steps) + 1,
-                'type' => $type,
-                'machine_code' => $row['machine_code'],
-                'machine_name' => $row['machine_name'],
-                'woJournalLineNo' => $row['wo_journal_line_no'],
-                'processNo' => $row['process_no'],
-                'posted' => $row['posted'],
-                'no_of_press' => $row['no_of_press'] ?? null,
-                'no_of_ups' => $row['no_of_ups'] ?? null,
-                'printed_quantity' => $row['printed_quantity'] ?? null,
-                'qc_approved_quantity' => $row['qc_approved_quantity'] ?? null,
-                'date_completed' => $row['date_completed'] ?? null,
-                'remarks' => $row['remarks'] ?? null,
-            ];
-        }
+                $steps[] = [
+                    'index' => count($steps) + 1,
+                    'type' => $type,
+                    'machine_code' => $row['machine_code'],
+                    'machine_name' => $row['machine_name'],
+                    'woJournalLineNo' => $row['wo_journal_line_no'],
+                    'processNo' => $row['process_no'],
+                    'posted' => $row['posted'],
+                    'no_of_press' => $row['no_of_press'] ?? null,
+                    'no_of_ups' => $row['no_of_ups'] ?? null,
+                    'printed_quantity' => $row['printed_quantity'] ?? null,
+                    'qc_approved_quantity' => $row['qc_approved_quantity'] ?? null,
+                    'date_completed' => $row['date_completed'] ?? null,
+                    'remarks' => $row['remarks'] ?? null,
+                ];
+            }
 
             if (empty($steps)) {
                 continue;
@@ -382,6 +414,8 @@ class TemplateRouteImportService
                 'route_types' => $routeTypes,
                 'route_with_machines' => $routeWithMachines,
                 'steps' => $steps,
+                'wod_refs' => $this->collectWodRefs($partRows),
+                'historicaldata' => $this->buildHistoricalData($partNumber, $partRows),
             ];
         }
 
@@ -396,10 +430,24 @@ class TemplateRouteImportService
                     'sequence' => $sequence,
                     'parts' => [],
                     'lines' => [],
+                    'wod_refs' => [],
+                    'historicaldata' => [],
                 ];
             }
             $templatesMap[$sequence]['parts'][] = $part['customer_part_number'];
             $templatesMap[$sequence]['lines'][] = $part;
+            if (!empty($part['wod_refs'])) {
+                $templatesMap[$sequence]['wod_refs'] = array_merge(
+                    $templatesMap[$sequence]['wod_refs'],
+                    $part['wod_refs']
+                );
+            }
+            if (!empty($part['historicaldata'])) {
+                $templatesMap[$sequence]['historicaldata'] = array_merge(
+                    $templatesMap[$sequence]['historicaldata'],
+                    $part['historicaldata']
+                );
+            }
         }
 
         $templates = [];
@@ -411,6 +459,8 @@ class TemplateRouteImportService
             $canonicalSteps = $this->buildCanonicalSteps($lines);
             $stepCount = count($canonicalSteps);
             $routeSequenceWithMachines = $this->buildRouteWithMachines($canonicalSteps);
+            $wodRef = $this->formatWodRefs($data['wod_refs'] ?? []);
+            $historicalData = $this->normalizeHistoricalData($data['historicaldata'] ?? []);
 
             $templates[] = [
                 'template_name' => $sequence,
@@ -419,6 +469,7 @@ class TemplateRouteImportService
                 'route_sequence_with_machines' => $routeSequenceWithMachines,
                 'step_count' => $stepCount,
                 'parts_count' => count($customerParts),
+                'wod_ref' => $wodRef,
                 'customer_part_numbers' => $customerParts,
                 'lines' => $this->formatCanonicalLineForResponse($lines, $canonicalSteps),
             ];
@@ -429,7 +480,8 @@ class TemplateRouteImportService
                     'sequence' => $sequence,
                     'route_sequence_with_machines' => $routeSequenceWithMachines,
                     'customer_part_numbers' => $customerParts,
-                    'metadata' => $this->formatLinesForMetadata($lines, $canonicalSteps),
+                    'wod_ref' => $wodRef,
+                    'metadata' => $this->formatLinesForMetadata($lines, $canonicalSteps, $historicalData),
                 ];
             }
         }
@@ -524,7 +576,7 @@ class TemplateRouteImportService
         ]];
     }
 
-    private function formatLinesForMetadata(array $lines, array $canonicalSteps): array
+    private function formatLinesForMetadata(array $lines, array $canonicalSteps, array $historicalData): array
     {
         if (empty($canonicalSteps)) {
             return [];
@@ -535,11 +587,152 @@ class TemplateRouteImportService
             $routes[] = $this->buildRouteMetadata($step, $stepIndex);
         }
 
-        return [[
-            'workOrderLineNo' => $lines[0]['workOrderLineNo'] ?? null,
-            'order_seq' => 1,
-            'routes' => $routes,
-        ]];
+        $payload = [
+            'routes' => [[
+                'workOrderLineNo' => $lines[0]['workOrderLineNo'] ?? null,
+                'order_seq' => 1,
+                'routes' => $routes,
+            ]],
+        ];
+
+        if (!empty($historicalData)) {
+            $payload['historicaldata'] = $historicalData;
+        }
+
+        return $payload;
+    }
+
+    private function collectWodRefs(array $rows): array
+    {
+        $refs = [];
+        foreach ($rows as $row) {
+            $ref = $this->sanitizeText($row['wod_ref'] ?? null);
+            if ($ref === '') {
+                continue;
+            }
+            $refs[] = $ref;
+        }
+
+        $refs = array_values(array_unique($refs));
+        sort($refs, SORT_STRING);
+
+        return $refs;
+    }
+
+    private function formatWodRefs(array $refs): ?string
+    {
+        $filtered = [];
+        foreach ($refs as $ref) {
+            $ref = $this->sanitizeText($ref);
+            if ($ref !== '') {
+                $filtered[] = $ref;
+            }
+        }
+
+        $filtered = array_values(array_unique($filtered));
+        if (empty($filtered)) {
+            return null;
+        }
+
+        sort($filtered, SORT_STRING);
+
+        return implode(', ', $filtered);
+    }
+
+    private function normalizeHistoricalData(array $history): array
+    {
+        if (empty($history)) {
+            return [];
+        }
+
+        $clean = [];
+        foreach ($history as $entry) {
+            if (!is_array($entry)) {
+                continue;
+            }
+            $wodRef = $this->sanitizeText($entry['wod_ref'] ?? null);
+            if ($wodRef === '') {
+                continue;
+            }
+            $entry['wod_ref'] = $wodRef;
+            $clean[] = $entry;
+        }
+
+        usort($clean, static fn (array $a, array $b): int => strnatcasecmp($a['wod_ref'], $b['wod_ref']));
+
+        return $clean;
+    }
+
+    private function buildHistoricalData(string $partNumber, array $rows): array
+    {
+        $grouped = [];
+        foreach ($rows as $row) {
+            $wodRef = $this->sanitizeText($row['wod_ref'] ?? null);
+            if ($wodRef === '') {
+                continue;
+            }
+            $grouped[$wodRef][] = $row;
+        }
+
+        $history = [];
+        foreach ($grouped as $wodRef => $wodRows) {
+            usort($wodRows, function (array $a, array $b): int {
+                $aKey = $this->resolveHistoricalSortKey($a);
+                $bKey = $this->resolveHistoricalSortKey($b);
+                if ($aKey !== $bKey) {
+                    return $aKey <=> $bKey;
+                }
+                return strnatcasecmp((string) ($a['machine_type'] ?? ''), (string) ($b['machine_type'] ?? ''));
+            });
+
+            $sequenceSteps = [];
+            $routes = [];
+            $orderSeq = 1;
+
+            foreach ($wodRows as $row) {
+                $sequenceSteps[] = [
+                    'type' => $row['machine_type'],
+                    'machine_name' => $row['machine_name'] ?? null,
+                ];
+
+                $staffCode = $this->sanitizeText($row['staff_code'] ?? null);
+                $staffName = $this->sanitizeText($row['staff_name'] ?? null);
+
+                $routes[] = [
+                    'order_seq' => $orderSeq,
+                    'route' => sprintf('R%02d', $orderSeq),
+                    'name' => $row['machine_type'],
+                    'machine_code' => $row['machine_code'] ?? null,
+                    'machine_name' => $row['machine_name'] ?? null,
+                    'staff_code' => $staffCode !== '' ? $staffCode : null,
+                    'staff_name' => $staffName !== '' ? $staffName : null,
+                ];
+
+                $orderSeq++;
+            }
+
+            $history[] = [
+                'customer_part_number' => $partNumber,
+                'wod_ref' => $wodRef,
+                'route_sequence' => $this->buildRouteTypes($sequenceSteps),
+                'route_sequence_with_machines' => $this->buildRouteWithMachines($sequenceSteps),
+                'routes' => $routes,
+            ];
+        }
+
+        return $history;
+    }
+
+    private function resolveHistoricalSortKey(array $row): int
+    {
+        foreach (['process_no', 'wo_journal_line_no', 'work_order_line_no'] as $key) {
+            $value = $row[$key] ?? null;
+            if (is_numeric($value)) {
+                return (int) $value;
+            }
+        }
+
+        return PHP_INT_MAX;
     }
 
     private function buildRouteMetadata(array $step, int $stepIndex): array
@@ -750,7 +943,7 @@ class TemplateRouteImportService
                 TemplateRoute::create([
                     'uuid' => (string) Str::uuid(),
                     'template' => $record['sequence'],
-                    'wod_ref' => null,
+                    'wod_ref' => $record['wod_ref'] ?? null,
                     'customer_part_number_ref' => $customerPartNumberRef,
                     'batch_number' => $batchNumber,
                     'sheet' => $sheetLabel,
