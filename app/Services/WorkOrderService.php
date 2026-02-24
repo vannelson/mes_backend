@@ -1648,22 +1648,20 @@ class WorkOrderService implements WorkOrderServiceInterface
         $hasIsReleased = Schema::hasColumn('work_orders', 'is_released');
         $hasStatus = Schema::hasColumn('work_orders', 'status');
 
-        $eligibleOrdersQuery
-            ->orderBy('id')
-            ->chunkById(200, function ($orders) use (
-                $templatesById,
-                $useCustomerPartNumber,
-                $allowWorkOrderFallback,
-                $normalizeRefs,
-                $partNumberIndex,
-                $workOrderIndex,
-                $hasIsReleased,
-                $hasStatus,
-                &$linked,
-                &$skipped
-            ) {
-                DB::transaction(function () use (
-                    $orders,
+        $processChunk = function ($query) use (
+            $templatesById,
+            $useCustomerPartNumber,
+            $allowWorkOrderFallback,
+            $normalizeRefs,
+            $partNumberIndex,
+            $workOrderIndex,
+            $hasIsReleased,
+            $hasStatus,
+            &$linked,
+            &$skipped
+        ): void {
+            $query->orderBy('id')
+                ->chunkById(200, function ($orders) use (
                     $templatesById,
                     $useCustomerPartNumber,
                     $allowWorkOrderFallback,
@@ -1675,64 +1673,102 @@ class WorkOrderService implements WorkOrderServiceInterface
                     &$linked,
                     &$skipped
                 ) {
-                    foreach ($orders as $order) {
-                        $templateId = $order->template_route_id;
+                    DB::transaction(function () use (
+                        $orders,
+                        $templatesById,
+                        $useCustomerPartNumber,
+                        $allowWorkOrderFallback,
+                        $normalizeRefs,
+                        $partNumberIndex,
+                        $workOrderIndex,
+                        $hasIsReleased,
+                        $hasStatus,
+                        &$linked,
+                        &$skipped
+                    ) {
+                        foreach ($orders as $order) {
+                            $templateId = $order->template_route_id;
 
-                        // 1) Match by customer_part_number (supports multiple in one field)
-                        if (empty($templateId) && $useCustomerPartNumber) {
-                            $refs = $normalizeRefs($order->customer_part_number ?? '');
-                            foreach ($refs as $ref) {
-                                if (isset($partNumberIndex[$ref])) {
-                                    $templateId = $partNumberIndex[$ref];
-                                    break;
+                            // 1) Match by customer_part_number (supports multiple in one field)
+                            if (empty($templateId) && $useCustomerPartNumber) {
+                                $refs = $normalizeRefs($order->customer_part_number ?? '');
+                                foreach ($refs as $ref) {
+                                    if (isset($partNumberIndex[$ref])) {
+                                        $templateId = $partNumberIndex[$ref];
+                                        break;
+                                    }
                                 }
                             }
-                        }
 
-                        // 2) Fallback match by work_order_no via template.wod_ref
-                        if (!$templateId && $allowWorkOrderFallback) {
-                            $wo = strtoupper(trim((string) $order->work_order_no));
-                            if ($wo !== '' && isset($workOrderIndex[$wo])) {
-                                $templateId = $workOrderIndex[$wo];
+                            // 2) Fallback match by work_order_no via template.wod_ref
+                            if (!$templateId && $allowWorkOrderFallback) {
+                                $wo = strtoupper(trim((string) $order->work_order_no));
+                                if ($wo !== '' && isset($workOrderIndex[$wo])) {
+                                    $templateId = $workOrderIndex[$wo];
+                                }
                             }
+
+                            if (!$templateId) {
+                                $skipped++;
+                                continue;
+                            }
+
+                            $templateData = $templatesById->get($templateId);
+                            if (!$templateData) {
+                                $skipped++;
+                                continue;
+                            }
+
+                            $isCompleted = $this->isProductionCompleted(
+                                $order->production_date_completed ?? null,
+                                $order->production_qty_completed ?? null
+                            );
+                            $completedAt = $this->normalizeCompletionDate($order->production_date_completed ?? null);
+
+                            $order->template_route_id = $templateData['id'];
+                            $metadata = $this->prepareTemplateMetadataForWorkOrder(
+                                $templateData['metadata'] ?? null,
+                                $isCompleted ? 'Completed' : 'In Progress'
+                            );
+                            $order->metadata = $this->applyCompletionToMetadata($metadata, $isCompleted, $completedAt);
+                            if ($hasStatus) {
+                                $order->status = $isCompleted ? 'Completed' : 'In Progress';
+                            }
+                            if ($hasIsReleased) {
+                                $statusRaw = strtolower(trim((string) Arr::get($order->metadata, 'state.status', '')));
+                                $order->is_released = $this->resolveIsReleased($order, $statusRaw);
+                            }
+                            $order->save();
+
+                            $linked++;
                         }
-
-                        if (!$templateId) {
-                            $skipped++;
-                            continue;
-                        }
-
-                        $templateData = $templatesById->get($templateId);
-                        if (!$templateData) {
-                            $skipped++;
-                            continue;
-                        }
-
-                        $isCompleted = $this->isProductionCompleted(
-                            $order->production_date_completed ?? null,
-                            $order->production_qty_completed ?? null
-                        );
-                        $completedAt = $this->normalizeCompletionDate($order->production_date_completed ?? null);
-
-                        $order->template_route_id = $templateData['id'];
-                        $metadata = $this->prepareTemplateMetadataForWorkOrder(
-                            $templateData['metadata'] ?? null,
-                            $isCompleted ? 'Completed' : 'In Progress'
-                        );
-                $order->metadata = $this->applyCompletionToMetadata($metadata, $isCompleted, $completedAt);
-                if ($hasStatus) {
-                    $order->status = $isCompleted ? 'Completed' : 'In Progress';
-                }
-                        if ($hasIsReleased) {
-                            $statusRaw = strtolower(trim((string) Arr::get($order->metadata, 'state.status', '')));
-                            $order->is_released = $this->resolveIsReleased($order, $statusRaw);
-                        }
-                        $order->save();
-
-                        $linked++;
-                    }
+                    });
                 });
-            });
+        };
+
+        if ($batchNumber === null && $hasWorkOrderBatchNumber) {
+            $batchKeys = (clone $eligibleOrdersQuery)
+                ->select(['batch_number'])
+                ->distinct()
+                ->orderBy('batch_number')
+                ->pluck('batch_number')
+                ->all();
+
+            foreach ($batchKeys as $batchKey) {
+                $batchKey = is_string($batchKey) ? trim($batchKey) : $batchKey;
+                $batchQuery = clone $eligibleOrdersQuery;
+                if ($batchKey === null || $batchKey === '') {
+                    $batchQuery->whereNull('batch_number')
+                        ->orWhere('batch_number', '');
+                } else {
+                    $batchQuery->where('batch_number', $batchKey);
+                }
+
+                $processChunk($batchQuery);
+            }
+        } else {
+            $processChunk($eligibleOrdersQuery);
+        }
 
         $result = [
             'linked' => $linked,
@@ -2613,6 +2649,10 @@ class WorkOrderService implements WorkOrderServiceInterface
 
         if (!isset($normalized['state']) || !is_array($normalized['state'])) {
             $normalized['state'] = [];
+        }
+
+        if (array_key_exists('historicaldata', $normalized)) {
+            unset($normalized['historicaldata']);
         }
 
         if ($defaultStatus !== null) {
