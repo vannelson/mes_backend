@@ -1605,11 +1605,22 @@ class WorkOrderService implements WorkOrderServiceInterface
         }
 
         // --------- Eligible work orders ----------
+        $hasIsReleased = Schema::hasColumn('work_orders', 'is_released');
+        $hasStatus = Schema::hasColumn('work_orders', 'status');
+        $hasProductionDateCompleted = Schema::hasColumn('work_orders', 'production_date_completed');
+        $hasProductionQtyCompleted = Schema::hasColumn('work_orders', 'production_qty_completed');
+
         $orderSelect = ['id', 'work_order_no', 'metadata', 'template_route_id'];
         if ($hasWorkOrderPartNumber)
             $orderSelect[] = 'customer_part_number';
         if ($hasWorkOrderBatchNumber)
             $orderSelect[] = 'batch_number';
+        if ($hasStatus)
+            $orderSelect[] = 'status';
+        if ($hasProductionDateCompleted)
+            $orderSelect[] = 'production_date_completed';
+        if ($hasProductionQtyCompleted)
+            $orderSelect[] = 'production_qty_completed';
 
         $eligibleOrdersQuery = WorkOrder::query()
             ->select($orderSelect)
@@ -1645,8 +1656,6 @@ class WorkOrderService implements WorkOrderServiceInterface
 
         $linked = 0;
         $skipped = 0;
-        $hasIsReleased = Schema::hasColumn('work_orders', 'is_released');
-        $hasStatus = Schema::hasColumn('work_orders', 'status');
 
         $processChunk = function ($query) use (
             $templatesById,
@@ -1657,6 +1666,8 @@ class WorkOrderService implements WorkOrderServiceInterface
             $workOrderIndex,
             $hasIsReleased,
             $hasStatus,
+            $hasProductionDateCompleted,
+            $hasProductionQtyCompleted,
             &$linked,
             &$skipped
         ): void {
@@ -1670,6 +1681,8 @@ class WorkOrderService implements WorkOrderServiceInterface
                     $workOrderIndex,
                     $hasIsReleased,
                     $hasStatus,
+                    $hasProductionDateCompleted,
+                    $hasProductionQtyCompleted,
                     &$linked,
                     &$skipped
                 ) {
@@ -1683,6 +1696,8 @@ class WorkOrderService implements WorkOrderServiceInterface
                         $workOrderIndex,
                         $hasIsReleased,
                         $hasStatus,
+                        $hasProductionDateCompleted,
+                        $hasProductionQtyCompleted,
                         &$linked,
                         &$skipped
                     ) {
@@ -1719,20 +1734,41 @@ class WorkOrderService implements WorkOrderServiceInterface
                                 continue;
                             }
 
-                            $isCompleted = $this->isProductionCompleted(
-                                $order->production_date_completed ?? null,
-                                $order->production_qty_completed ?? null
-                            );
+                            $existingMetadata = $this->normalizeMetadata($order->metadata);
+                            $statusLabel = trim((string) Arr::get(
+                                $existingMetadata,
+                                'state.status',
+                                $order->status ?? ''
+                            ));
+                            $normalizedStatus = strtolower($statusLabel);
+                            $isCompleted = in_array($normalizedStatus, ['completed', 'complete', 'done'], true);
+
+                            if ($statusLabel === '') {
+                                if ($hasProductionDateCompleted && $hasProductionQtyCompleted) {
+                                    $isCompleted = $this->isProductionCompleted(
+                                        $order->production_date_completed ?? null,
+                                        $order->production_qty_completed ?? null
+                                    );
+                                } else {
+                                    $isCompleted = false;
+                                }
+                                $statusLabel = $isCompleted ? 'Completed' : 'In Progress';
+                            }
+
                             $completedAt = $this->normalizeCompletionDate($order->production_date_completed ?? null);
 
                             $order->template_route_id = $templateData['id'];
-                            $metadata = $this->prepareTemplateMetadataForWorkOrder(
-                                $templateData['metadata'] ?? null,
-                                $isCompleted ? 'Completed' : 'In Progress'
-                            );
-                            $order->metadata = $this->applyCompletionToMetadata($metadata, $isCompleted, $completedAt);
-                            if ($hasStatus) {
-                                $order->status = $isCompleted ? 'Completed' : 'In Progress';
+                            $metadata = $this->prepareTemplateMetadataForWorkOrder($templateData['metadata'] ?? null);
+                            if ($isCompleted) {
+                                $order->metadata = $this->applyCompletionToMetadata($metadata, true, $completedAt);
+                            } else {
+                                if ($statusLabel !== '') {
+                                    $metadata['state']['status'] = $statusLabel;
+                                }
+                                $order->metadata = $metadata;
+                            }
+                            if ($hasStatus && (empty($order->status) || trim((string) $order->status) === '')) {
+                                $order->status = $statusLabel;
                             }
                             if ($hasIsReleased) {
                                 $statusRaw = strtolower(trim((string) Arr::get($order->metadata, 'state.status', '')));
