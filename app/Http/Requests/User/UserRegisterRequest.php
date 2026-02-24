@@ -22,10 +22,10 @@ class UserRegisterRequest extends FormRequest
             'address' => ['required', 'string', 'max:500'],
             'user_type' => ['required', Rule::in(['manager', 'supervisor', 'qa', 'packers', 'operator'])],
             'finger_print' => ['nullable', 'string'],
+            'staff_code' => ['nullable', 'string', 'max:255'],
             'email' => ['required', 'email', 'max:255', Rule::unique('users', 'email')],
             'password' => ['required', 'string', 'min:8', 'confirmed'],
             'picture_data' => ['nullable', 'string'], // Base64 image data
         ];
     }
 }
-

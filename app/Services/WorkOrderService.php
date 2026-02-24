@@ -1642,6 +1642,7 @@ class WorkOrderService implements WorkOrderServiceInterface
         $linked = 0;
         $skipped = 0;
         $hasIsReleased = Schema::hasColumn('work_orders', 'is_released');
+        $hasStatus = Schema::hasColumn('work_orders', 'status');
 
         DB::transaction(function () use ($eligibleOrders, $templatesById, $useCustomerPartNumber, $allowWorkOrderFallback, $normalizeRefs, $partNumberIndex, $workOrderIndex, $hasIsReleased, &$linked, &$skipped) {
             foreach ($eligibleOrders as $order) {
@@ -1679,11 +1680,21 @@ class WorkOrderService implements WorkOrderServiceInterface
                     continue;
                 }
 
-                $order->template_route_id = $templateData['id'];
-                $order->metadata = $this->prepareTemplateMetadataForWorkOrder(
-                    $templateData['metadata'] ?? null,
-                    'In Progress'
+                $isCompleted = $this->isProductionCompleted(
+                    $order->production_date_completed ?? null,
+                    $order->production_qty_completed ?? null
                 );
+                $completedAt = $this->normalizeCompletionDate($order->production_date_completed ?? null);
+
+                $order->template_route_id = $templateData['id'];
+                $metadata = $this->prepareTemplateMetadataForWorkOrder(
+                    $templateData['metadata'] ?? null,
+                    $isCompleted ? 'Completed' : 'In Progress'
+                );
+                $order->metadata = $this->applyCompletionToMetadata($metadata, $isCompleted, $completedAt);
+                if ($hasStatus) {
+                    $order->status = $isCompleted ? 'Completed' : 'In Progress';
+                }
                 if ($hasIsReleased) {
                     $statusRaw = strtolower(trim((string) Arr::get($order->metadata, 'state.status', '')));
                     $order->is_released = $this->resolveIsReleased($order, $statusRaw);
@@ -2602,25 +2613,47 @@ class WorkOrderService implements WorkOrderServiceInterface
     {
         if (!empty($data['template_route_id'])) {
             $templateRoute = TemplateRoute::findOrFail($data['template_route_id']);
-            // reuse template metadata so work orders stay in sync with the chosen template
-            $data['metadata'] = $this->prepareTemplateMetadataForWorkOrder(
-                $templateRoute->metadata,
-                'In Progress'
+            $isCompleted = $this->isProductionCompleted(
+                $data['production_date_completed'] ?? null,
+                $data['production_qty_completed'] ?? null
             );
+            $completedAt = $this->normalizeCompletionDate($data['production_date_completed'] ?? null);
+            // reuse template metadata so work orders stay in sync with the chosen template
+            $metadata = $this->prepareTemplateMetadataForWorkOrder(
+                $templateRoute->metadata,
+                $isCompleted ? 'Completed' : 'In Progress'
+            );
+            $data['metadata'] = $this->applyCompletionToMetadata($metadata, $isCompleted, $completedAt);
         }
     }
 
     protected function syncReleaseFlag(array &$data): void
     {
-        if ($this->shouldReleaseByCompletion($data)) {
+        $isCompleted = $this->isProductionCompleted(
+            $data['production_date_completed'] ?? null,
+            $data['production_qty_completed'] ?? null
+        );
+        $shouldForceStatus = array_key_exists('production_date_completed', $data)
+            || array_key_exists('production_qty_completed', $data);
+        $completedAt = $this->normalizeCompletionDate($data['production_date_completed'] ?? null);
+
+        if ($isCompleted) {
             $data['is_released'] = true;
             if (Schema::hasColumn('work_orders', 'completed_at')) {
-                $data['completed_at'] = $data['production_date_completed'] ?? null;
+                $data['completed_at'] = $completedAt;
             }
             if (Schema::hasColumn('work_orders', 'status')) {
-                $data['status'] = 'in progress';
+                $data['status'] = 'Completed';
+            }
+            if (array_key_exists('metadata', $data)) {
+                $metadata = $this->normalizeMetadata($data['metadata']);
+                $data['metadata'] = $this->applyCompletionToMetadata($metadata, true, $completedAt);
             }
             return;
+        }
+
+        if ($shouldForceStatus && Schema::hasColumn('work_orders', 'status')) {
+            $data['status'] = 'In Progress';
         }
 
         if (array_key_exists('is_released', $data)) {
@@ -2649,28 +2682,107 @@ class WorkOrderService implements WorkOrderServiceInterface
 
     protected function shouldReleaseByCompletion(array $data): bool
     {
-        $dateRaw = $data['production_date_completed'] ?? null;
-        $qtyRaw = $data['production_qty_completed'] ?? null;
+        return $this->isProductionCompleted(
+            $data['production_date_completed'] ?? null,
+            $data['production_qty_completed'] ?? null
+        );
+    }
 
-        if (!is_string($dateRaw)) {
+    protected function isProductionCompleted(mixed $date, mixed $qty): bool
+    {
+        $completedAt = $this->normalizeCompletionDate($date);
+        if ($completedAt === null) {
             return false;
         }
 
-        $date = trim($dateRaw);
-        if ($date === '') {
-            return false;
+        return $this->numericValue($qty) > 0;
+    }
+
+    protected function normalizeCompletionDate(mixed $value): ?string
+    {
+        if ($value instanceof \DateTimeInterface) {
+            return $value->format('Y-m-d');
         }
 
-        $parsed = \DateTimeImmutable::createFromFormat('Y-m-d', $date);
-        if (!$parsed || $parsed->format('Y-m-d') !== $date) {
-            return false;
+        if (!is_string($value)) {
+            return null;
         }
 
-        if (!is_numeric($qtyRaw)) {
-            return false;
+        $trimmed = trim($value);
+        if ($trimmed === '') {
+            return null;
         }
 
-        return (float) $qtyRaw > 0;
+        $parsed = \DateTimeImmutable::createFromFormat('Y-m-d', $trimmed);
+        if ($parsed && $parsed->format('Y-m-d') === $trimmed) {
+            return $trimmed;
+        }
+
+        try {
+            return (new \DateTimeImmutable($trimmed))->format('Y-m-d');
+        } catch (\Throwable) {
+            return null;
+        }
+    }
+
+    protected function applyCompletionToMetadata(array $metadata, bool $isCompleted, ?string $completedAt): array
+    {
+        if ($this->isListArray($metadata)) {
+            $metadata = ['routes' => $metadata];
+        }
+
+        if (!isset($metadata['state']) || !is_array($metadata['state'])) {
+            $metadata['state'] = [];
+        }
+
+        $metadata['state']['status'] = $isCompleted ? 'Completed' : 'In Progress';
+
+        if ($isCompleted) {
+            $metadata = $this->markMetadataRoutesCompleted($metadata, $completedAt);
+        }
+
+        return $metadata;
+    }
+
+    protected function markMetadataRoutesCompleted(array $metadata, ?string $completedAt): array
+    {
+        $routes = $metadata['routes'] ?? null;
+        if (!is_array($routes)) {
+            return $metadata;
+        }
+
+        foreach ($routes as $index => $entry) {
+            if (!is_array($entry)) {
+                continue;
+            }
+
+            if (array_key_exists('routes', $entry) && is_array($entry['routes'])) {
+                foreach ($entry['routes'] as $routeIndex => $route) {
+                    if (!is_array($route)) {
+                        continue;
+                    }
+                    $entry['routes'][$routeIndex] = $this->markRouteCompleted($route, $completedAt);
+                }
+                $routes[$index] = $entry;
+                continue;
+            }
+
+            $routes[$index] = $this->markRouteCompleted($entry, $completedAt);
+        }
+
+        $metadata['routes'] = $routes;
+
+        return $metadata;
+    }
+
+    protected function markRouteCompleted(array $route, ?string $completedAt): array
+    {
+        $route['status'] = 'completed';
+        if ($completedAt !== null && $completedAt !== '') {
+            $route['completed_at'] = $completedAt;
+        }
+
+        return $route;
     }
 
     protected function syncCustomerSnapshot(array &$data): void

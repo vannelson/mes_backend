@@ -29,6 +29,7 @@ class User extends Authenticatable
         'picture_url',
         'user_type',
         'finger_print',
+        'staff_code',
         'email',
         'password',
     ];

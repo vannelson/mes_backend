@@ -24,10 +24,10 @@ class UserUpdateRequest extends FormRequest
             'address' => ['sometimes', 'required', 'string', 'max:500'],
             'user_type' => ['sometimes', 'required', Rule::in(['manager', 'supervisor', 'qa', 'packers', 'operator'])],
             'finger_print' => ['nullable', 'string'],
+            'staff_code' => ['nullable', 'string', 'max:255'],
             'email' => ['sometimes', 'required', 'email', 'max:255', Rule::unique('users', 'email')->ignore($userId)],
             'password' => ['sometimes', 'nullable', 'string', 'min:8', 'confirmed'],
             'picture_data' => ['nullable', 'string'], // Base64 image data
         ];
     }
 }
-

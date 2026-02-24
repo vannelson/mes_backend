@@ -35,6 +35,7 @@ class UserFactory extends Factory
             'position' => fake()->jobTitle(),
             'user_type' => fake()->randomElement(['manager', 'supervisor', 'qa', 'packers', 'operator']),
             'finger_print' => fake()->realText(50),
+            'staff_code' => fake()->unique()->bothify('SC###'),
             'email' => fake()->unique()->safeEmail(),
             'email_verified_at' => now(),
             'password' => static::$password ??= Hash::make('password'),

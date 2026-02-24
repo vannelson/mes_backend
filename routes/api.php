@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\AuthController;
+use App\Http\Controllers\AiLabsController;
 use App\Http\Controllers\BatchLogController;
 use App\Http\Controllers\BomController;
 use App\Http\Controllers\CustomerController;
@@ -137,6 +138,8 @@ Route::prefix('v1')->group(function () {
         Route::delete('packing-checklists/{id}', [PackingChecklistController::class, 'destroy']);
 
         Route::get('dashboard/overview', [DashboardController::class, 'overview']);
+
+        Route::get('ai-labs/context', [AiLabsController::class, 'context']);
 
         // Virtual Screens
         Route::get('virtual-screens', [VirtualScreenController::class, 'index']);
