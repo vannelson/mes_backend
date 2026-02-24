@@ -1461,6 +1461,11 @@ class WorkOrderService implements WorkOrderServiceInterface
         ?string $templateBatchNumber = null
     ): array
     {
+        if (function_exists('set_time_limit')) {
+            @set_time_limit(600);
+        }
+        @ini_set('max_execution_time', '600');
+        DB::disableQueryLog();
         $referenceMode = strtolower(trim((string) $reference));
         if (in_array($referenceMode, ['customer_part_number_ref', 'customer_part_number', 'customer_part_no'], true)) {
             $referenceMode = 'customer_part_number';
@@ -1622,9 +1627,8 @@ class WorkOrderService implements WorkOrderServiceInterface
             $eligibleOrdersQuery->where('batch_number', $batchNumber);
         }
 
-        $eligibleOrders = $eligibleOrdersQuery->get();
-
-        if ($eligibleOrders->isEmpty()) {
+        $eligibleCount = (clone $eligibleOrdersQuery)->count();
+        if ($eligibleCount === 0) {
             $result = [
                 'linked' => 0,
                 'skipped' => 0,
@@ -1644,72 +1648,96 @@ class WorkOrderService implements WorkOrderServiceInterface
         $hasIsReleased = Schema::hasColumn('work_orders', 'is_released');
         $hasStatus = Schema::hasColumn('work_orders', 'status');
 
-        DB::transaction(function () use ($eligibleOrders, $templatesById, $useCustomerPartNumber, $allowWorkOrderFallback, $normalizeRefs, $partNumberIndex, $workOrderIndex, $hasIsReleased, $hasStatus, &$linked, &$skipped) {
-            foreach ($eligibleOrders as $order) {
-                $templateId = $order->template_route_id;
-                $matchedByPartNumber = false;
+        $eligibleOrdersQuery
+            ->orderBy('id')
+            ->chunkById(200, function ($orders) use (
+                $templatesById,
+                $useCustomerPartNumber,
+                $allowWorkOrderFallback,
+                $normalizeRefs,
+                $partNumberIndex,
+                $workOrderIndex,
+                $hasIsReleased,
+                $hasStatus,
+                &$linked,
+                &$skipped
+            ) {
+                DB::transaction(function () use (
+                    $orders,
+                    $templatesById,
+                    $useCustomerPartNumber,
+                    $allowWorkOrderFallback,
+                    $normalizeRefs,
+                    $partNumberIndex,
+                    $workOrderIndex,
+                    $hasIsReleased,
+                    $hasStatus,
+                    &$linked,
+                    &$skipped
+                ) {
+                    foreach ($orders as $order) {
+                        $templateId = $order->template_route_id;
 
-                // 1) Match by customer_part_number (supports multiple in one field)
-                if (empty($templateId) && $useCustomerPartNumber) {
-                    $refs = $normalizeRefs($order->customer_part_number ?? '');
-                    foreach ($refs as $ref) {
-                        if (isset($partNumberIndex[$ref])) {
-                            $templateId = $partNumberIndex[$ref];
-                            $matchedByPartNumber = true;
-                            break;
+                        // 1) Match by customer_part_number (supports multiple in one field)
+                        if (empty($templateId) && $useCustomerPartNumber) {
+                            $refs = $normalizeRefs($order->customer_part_number ?? '');
+                            foreach ($refs as $ref) {
+                                if (isset($partNumberIndex[$ref])) {
+                                    $templateId = $partNumberIndex[$ref];
+                                    break;
+                                }
+                            }
                         }
-                    }
-                }
 
-                // 2) Fallback match by work_order_no via template.wod_ref
-                if (!$templateId && $allowWorkOrderFallback) {
-                    $wo = strtoupper(trim((string) $order->work_order_no));
-                    if ($wo !== '' && isset($workOrderIndex[$wo])) {
-                        $templateId = $workOrderIndex[$wo];
-                    }
-                }
+                        // 2) Fallback match by work_order_no via template.wod_ref
+                        if (!$templateId && $allowWorkOrderFallback) {
+                            $wo = strtoupper(trim((string) $order->work_order_no));
+                            if ($wo !== '' && isset($workOrderIndex[$wo])) {
+                                $templateId = $workOrderIndex[$wo];
+                            }
+                        }
 
-                if (!$templateId) {
-                    $skipped++;
-                    continue;
-                }
+                        if (!$templateId) {
+                            $skipped++;
+                            continue;
+                        }
 
-                $templateData = $templatesById->get($templateId);
-                if (!$templateData) {
-                    $skipped++;
-                    continue;
-                }
+                        $templateData = $templatesById->get($templateId);
+                        if (!$templateData) {
+                            $skipped++;
+                            continue;
+                        }
 
-                $isCompleted = $this->isProductionCompleted(
-                    $order->production_date_completed ?? null,
-                    $order->production_qty_completed ?? null
-                );
-                $completedAt = $this->normalizeCompletionDate($order->production_date_completed ?? null);
+                        $isCompleted = $this->isProductionCompleted(
+                            $order->production_date_completed ?? null,
+                            $order->production_qty_completed ?? null
+                        );
+                        $completedAt = $this->normalizeCompletionDate($order->production_date_completed ?? null);
 
-                $order->template_route_id = $templateData['id'];
-                $metadata = $this->prepareTemplateMetadataForWorkOrder(
-                    $templateData['metadata'] ?? null,
-                    $isCompleted ? 'Completed' : 'In Progress'
-                );
-                $metadata = $this->applyCompletionToMetadata($metadata, $isCompleted, $completedAt);
-                $order->metadata = $this->applyHistoricalStaffToMetadata($metadata, $order->work_order_no);
+                        $order->template_route_id = $templateData['id'];
+                        $metadata = $this->prepareTemplateMetadataForWorkOrder(
+                            $templateData['metadata'] ?? null,
+                            $isCompleted ? 'Completed' : 'In Progress'
+                        );
+                $order->metadata = $this->applyCompletionToMetadata($metadata, $isCompleted, $completedAt);
                 if ($hasStatus) {
                     $order->status = $isCompleted ? 'Completed' : 'In Progress';
                 }
-                if ($hasIsReleased) {
-                    $statusRaw = strtolower(trim((string) Arr::get($order->metadata, 'state.status', '')));
-                    $order->is_released = $this->resolveIsReleased($order, $statusRaw);
-                }
-                $order->save();
+                        if ($hasIsReleased) {
+                            $statusRaw = strtolower(trim((string) Arr::get($order->metadata, 'state.status', '')));
+                            $order->is_released = $this->resolveIsReleased($order, $statusRaw);
+                        }
+                        $order->save();
 
-                $linked++;
-            }
-        });
+                        $linked++;
+                    }
+                });
+            });
 
         $result = [
             'linked' => $linked,
             'skipped' => $skipped,
-            'eligible' => $eligibleOrders->count(),
+            'eligible' => $eligibleCount,
             'template_routes' => $templates->count(),
             'reference' => $referenceMode,
         ];
@@ -2624,11 +2652,7 @@ class WorkOrderService implements WorkOrderServiceInterface
                 $templateRoute->metadata,
                 $isCompleted ? 'Completed' : 'In Progress'
             );
-            $metadata = $this->applyCompletionToMetadata($metadata, $isCompleted, $completedAt);
-            $data['metadata'] = $this->applyHistoricalStaffToMetadata(
-                $metadata,
-                $data['work_order_no'] ?? null
-            );
+            $data['metadata'] = $this->applyCompletionToMetadata($metadata, $isCompleted, $completedAt);
         }
     }
 
@@ -2790,293 +2814,6 @@ class WorkOrderService implements WorkOrderServiceInterface
         return $route;
     }
 
-    protected function applyHistoricalStaffToMetadata(array $metadata, ?string $workOrderRef): array
-    {
-        $reference = trim((string) $workOrderRef);
-        if ($reference === '') {
-            return $metadata;
-        }
-
-        $history = $metadata['historicaldata'] ?? null;
-        if (!is_array($history) || empty($history)) {
-            return $metadata;
-        }
-
-        $match = null;
-        foreach ($history as $entry) {
-            if (!is_array($entry)) {
-                continue;
-            }
-            $wodRef = trim((string) ($entry['wod_ref'] ?? ''));
-            if ($wodRef === '') {
-                continue;
-            }
-            if (strcasecmp($wodRef, $reference) === 0) {
-                $match = $entry;
-                break;
-            }
-        }
-
-        if (!$match) {
-            return $metadata;
-        }
-
-        $routes = $match['routes'] ?? null;
-        if (!is_array($routes) || empty($routes)) {
-            return $metadata;
-        }
-
-        $staffCodes = [];
-        foreach ($routes as $route) {
-            if (!is_array($route)) {
-                continue;
-            }
-            $code = $this->normalizeStaffToken($route['staff_code'] ?? null);
-            if ($code !== '') {
-                $staffCodes[] = $code;
-            }
-        }
-
-        $usersByCode = $this->loadUsersByStaffCode($staffCodes);
-        $staffBySeq = [];
-        $staffByRoute = [];
-        $staffByName = [];
-
-        foreach ($routes as $route) {
-            if (!is_array($route)) {
-                continue;
-            }
-
-            $info = $this->resolveStaffInfo(
-                $this->normalizeStaffToken($route['staff_code'] ?? null),
-                $this->normalizeStaffToken($route['staff_name'] ?? null),
-                $usersByCode
-            );
-
-            if ($info === null) {
-                continue;
-            }
-
-            $seq = $route['order_seq'] ?? $route['orderSeq'] ?? null;
-            if (is_numeric($seq)) {
-                $staffBySeq[(int) $seq] = $info;
-            }
-
-            $routeKey = $this->normalizeRouteKey($route['route'] ?? null);
-            if ($routeKey !== '') {
-                $staffByRoute[$routeKey] = $info;
-            }
-
-            $nameKey = $this->normalizeRouteKey($route['name'] ?? $route['label'] ?? $route['key'] ?? null);
-            if ($nameKey !== '') {
-                $staffByName[$nameKey] = $info;
-            }
-        }
-
-        if (empty($staffBySeq) && empty($staffByRoute) && empty($staffByName)) {
-            return $metadata;
-        }
-
-        return $this->applyStaffInfoToMetadataRoutes($metadata, $staffBySeq, $staffByRoute, $staffByName);
-    }
-
-    protected function applyStaffInfoToMetadataRoutes(
-        array $metadata,
-        array $staffBySeq,
-        array $staffByRoute,
-        array $staffByName
-    ): array {
-        if ($this->isListArray($metadata)) {
-            $metadata = ['routes' => $metadata];
-        }
-
-        $routes = $metadata['routes'] ?? null;
-        if (!is_array($routes)) {
-            return $metadata;
-        }
-
-        foreach ($routes as $index => $entry) {
-            if (!is_array($entry)) {
-                continue;
-            }
-
-            if (array_key_exists('routes', $entry) && is_array($entry['routes'])) {
-                foreach ($entry['routes'] as $routeIndex => $route) {
-                    if (!is_array($route)) {
-                        continue;
-                    }
-                    $entry['routes'][$routeIndex] = $this->applyStaffInfoToRoute(
-                        $route,
-                        $staffBySeq,
-                        $staffByRoute,
-                        $staffByName
-                    );
-                }
-                $routes[$index] = $entry;
-                continue;
-            }
-
-            $routes[$index] = $this->applyStaffInfoToRoute(
-                $entry,
-                $staffBySeq,
-                $staffByRoute,
-                $staffByName
-            );
-        }
-
-        $metadata['routes'] = $routes;
-
-        return $metadata;
-    }
-
-    protected function applyStaffInfoToRoute(
-        array $route,
-        array $staffBySeq,
-        array $staffByRoute,
-        array $staffByName
-    ): array {
-        $info = $this->matchStaffInfo($route, $staffBySeq, $staffByRoute, $staffByName);
-        if ($info === null) {
-            return $route;
-        }
-
-        $route['staff_code'] = $info['staff_code'];
-        $route['staff_name'] = $info['staff_name'];
-
-        if (isset($route['metadata']) && is_array($route['metadata'])) {
-            $route['metadata']['staff_code'] = $info['staff_code'];
-            $route['metadata']['staff_name'] = $info['staff_name'];
-        }
-
-        return $route;
-    }
-
-    protected function matchStaffInfo(
-        array $route,
-        array $staffBySeq,
-        array $staffByRoute,
-        array $staffByName
-    ): ?array {
-        $seq = $route['order_seq'] ?? $route['orderSeq'] ?? null;
-        if (is_numeric($seq) && isset($staffBySeq[(int) $seq])) {
-            return $staffBySeq[(int) $seq];
-        }
-
-        $routeKey = $this->normalizeRouteKey($route['route'] ?? null);
-        if ($routeKey !== '' && isset($staffByRoute[$routeKey])) {
-            return $staffByRoute[$routeKey];
-        }
-
-        $nameKey = $this->normalizeRouteKey($route['name'] ?? $route['label'] ?? $route['key'] ?? null);
-        if ($nameKey !== '' && isset($staffByName[$nameKey])) {
-            return $staffByName[$nameKey];
-        }
-
-        return null;
-    }
-
-    protected function resolveStaffInfo(?string $code, ?string $name, array $usersByCode): ?array
-    {
-        $code = $code !== null ? trim($code) : '';
-        $name = $name !== null ? trim($name) : '';
-
-        if ($code === '' && $name === '') {
-            return null;
-        }
-
-        if ($code !== '' && $name === '') {
-            $lookup = strtolower($code);
-            if (isset($usersByCode[$lookup])) {
-                $name = $usersByCode[$lookup];
-            }
-        }
-
-        return [
-            'staff_code' => $code !== '' ? $code : null,
-            'staff_name' => $name !== '' ? $name : null,
-        ];
-    }
-
-    protected function loadUsersByStaffCode(array $codes): array
-    {
-        static $cache = [];
-
-        $cleaned = [];
-        foreach ($codes as $code) {
-            $code = trim((string) $code);
-            if ($code !== '') {
-                $cleaned[] = $code;
-            }
-        }
-
-        $cleaned = array_values(array_unique($cleaned));
-        if (empty($cleaned)) {
-            return [];
-        }
-
-        $missing = [];
-        foreach ($cleaned as $code) {
-            $key = strtolower($code);
-            if (!array_key_exists($key, $cache)) {
-                $missing[] = $code;
-            }
-        }
-
-        if (!empty($missing)) {
-            $users = User::query()
-                ->select(['staff_code', 'firstname', 'middlename', 'lastname', 'email'])
-                ->whereIn('staff_code', $missing)
-                ->get();
-
-            foreach ($users as $user) {
-                $code = trim((string) $user->staff_code);
-                if ($code === '') {
-                    continue;
-                }
-                $name = trim(sprintf('%s %s %s', $user->firstname, $user->middlename, $user->lastname));
-                if ($name === '') {
-                    $name = $user->email ?? $code;
-                }
-                $cache[strtolower($code)] = $name;
-            }
-
-            foreach ($missing as $code) {
-                $key = strtolower($code);
-                $cache[$key] ??= null;
-            }
-        }
-
-        $result = [];
-        foreach ($cleaned as $code) {
-            $key = strtolower($code);
-            if (array_key_exists($key, $cache) && $cache[$key] !== null) {
-                $result[$key] = $cache[$key];
-            }
-        }
-
-        return $result;
-    }
-
-    protected function normalizeStaffToken(mixed $value): string
-    {
-        if ($value === null) {
-            return '';
-        }
-
-        $text = trim((string) $value);
-
-        return $text;
-    }
-
-    protected function normalizeRouteKey(mixed $value): string
-    {
-        $text = trim((string) $value);
-        if ($text === '') {
-            return '';
-        }
-
-        return strtolower($text);
-    }
 
     protected function syncCustomerSnapshot(array &$data): void
     {
