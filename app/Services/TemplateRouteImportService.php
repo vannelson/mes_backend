@@ -587,19 +587,11 @@ class TemplateRouteImportService
             $routes[] = $this->buildRouteMetadata($step, $stepIndex);
         }
 
-        $payload = [
-            'routes' => [[
-                'workOrderLineNo' => $lines[0]['workOrderLineNo'] ?? null,
-                'order_seq' => 1,
-                'routes' => $routes,
-            ]],
-        ];
-
-        if (!empty($historicalData)) {
-            $payload['historicaldata'] = $historicalData;
-        }
-
-        return $payload;
+        return [[
+            'workOrderLineNo' => $lines[0]['workOrderLineNo'] ?? null,
+            'order_seq' => 1,
+            'routes' => $routes,
+        ]];
     }
 
     private function collectWodRefs(array $rows): array
