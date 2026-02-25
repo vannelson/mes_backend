@@ -5,6 +5,8 @@ namespace App\Services;
 use Carbon\Carbon;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
+use App\Models\Machine;
+use App\Models\User;
 use PhpOffice\PhpSpreadsheet\Cell\Cell;
 use PhpOffice\PhpSpreadsheet\IOFactory;
 use PhpOffice\PhpSpreadsheet\Reader\IReader;
@@ -98,6 +100,9 @@ class HistoricalWorkOrderImportService
         'time_completed',
     ];
 
+    private ?array $machineIndex = null;
+    private ?array $staffIndex = null;
+
     public function __construct()
     {
         $this->headerMap = $this->buildHeaderMap();
@@ -108,21 +113,62 @@ class HistoricalWorkOrderImportService
         $this->extendExecutionLimits();
 
         $spreadsheet = $this->loadSpreadsheet($file);
-        $worksheet = $this->resolveWorksheet($spreadsheet, $sheetIdentifier);
-
-        $header = $this->detectHeaderRow($worksheet);
-        if (empty($header['map'])) {
-            throw new RuntimeException('Unable to locate the completed work order header row.');
-        }
-
-        $columnMap = $header['map'];
-        $headerRowNumber = $header['row_number'];
-        $highestRow = $worksheet->getHighestRow();
+        [$worksheets, $sheetLabel] = $this->resolveWorksheets($spreadsheet, $sheetIdentifier);
 
         $rowsTotal = 0;
         $rowsInserted = 0;
-        $batch = [];
+        $sheetNames = [];
+        $columns = [];
         $now = now();
+
+        foreach ($worksheets as $worksheet) {
+            $header = $this->detectHeaderRow($worksheet);
+            if (empty($header['map'])) {
+                continue;
+            }
+
+            $sheetNames[] = $worksheet->getTitle() ?: 'Sheet';
+            $columns = array_merge($columns, array_values($header['map']));
+            $result = $this->ingestWorksheet(
+                $worksheet,
+                $header['map'],
+                $header['row_number'],
+                $now
+            );
+            $rowsTotal += $result['rows_total'];
+            $rowsInserted += $result['rows_inserted'];
+        }
+
+        if (empty($sheetNames)) {
+            throw new RuntimeException('Unable to locate the completed work order header row.');
+        }
+
+        return [
+            'summary' => [
+                'rows_total' => $rowsTotal,
+                'rows_inserted' => $rowsInserted,
+                'sheet' => [
+                    'name' => $sheetLabel ?? ($sheetNames[0] ?? null),
+                    'count' => count($sheetNames),
+                    'names' => $sheetNames,
+                    'total' => $spreadsheet->getSheetCount(),
+                ],
+            ],
+            'columns' => array_values(array_unique($columns)),
+        ];
+    }
+
+    private function ingestWorksheet(
+        Worksheet $worksheet,
+        array $columnMap,
+        ?int $headerRowNumber,
+        Carbon $now
+    ): array {
+        $headerRowNumber = $headerRowNumber ?? 1;
+        $highestRow = $worksheet->getHighestRow();
+        $rowsTotal = 0;
+        $rowsInserted = 0;
+        $batch = [];
 
         for ($rowNumber = $headerRowNumber + 1; $rowNumber <= $highestRow; $rowNumber++) {
             $payload = [];
@@ -139,6 +185,33 @@ class HistoricalWorkOrderImportService
 
             if (!$hasValue) {
                 continue;
+            }
+
+            $payload['machine_name'] = $payload['machine_name'] ?? null;
+            $payload['machine_type'] = $payload['machine_type'] ?? null;
+            $payload['add_user'] = $payload['add_user'] ?? null;
+
+            $machineCode = $this->normalizeMachineCode($payload['machine_code'] ?? null);
+            if ($machineCode !== '' && ($payload['machine_name'] === null || $payload['machine_type'] === null)) {
+                $this->machineIndex ??= $this->loadMachineIndex();
+                $machine = $this->machineIndex[$machineCode] ?? null;
+                if ($machine) {
+                    if ($payload['machine_name'] === null || $payload['machine_name'] === '') {
+                        $payload['machine_name'] = $machine['machine_name'] ?? null;
+                    }
+                    if ($payload['machine_type'] === null || $payload['machine_type'] === '') {
+                        $payload['machine_type'] = $machine['machine_type'] ?? null;
+                    }
+                }
+            }
+
+            $staffCode = $this->normalizeStaffCode($payload['staff_code'] ?? null);
+            if ($staffCode !== '') {
+                $this->staffIndex ??= $this->loadStaffIndex();
+                $staffName = $this->staffIndex[$staffCode] ?? null;
+                if ($staffName) {
+                    $payload['add_user'] = $staffName;
+                }
             }
 
             $payload['created_at'] = $now;
@@ -159,16 +232,8 @@ class HistoricalWorkOrderImportService
         }
 
         return [
-            'summary' => [
-                'rows_total' => $rowsTotal,
-                'rows_inserted' => $rowsInserted,
-                'sheet' => [
-                    'name' => $worksheet->getTitle(),
-                    'index' => $spreadsheet->getIndex($worksheet),
-                    'total' => $spreadsheet->getSheetCount(),
-                ],
-            ],
-            'columns' => array_values(array_unique($columnMap)),
+            'rows_total' => $rowsTotal,
+            'rows_inserted' => $rowsInserted,
         ];
     }
 
@@ -395,5 +460,230 @@ class HistoricalWorkOrderImportService
         }
 
         return $worksheet;
+    }
+
+    private function resolveWorksheets(Spreadsheet $spreadsheet, ?string $sheetIdentifier): array
+    {
+        if ($this->isAllMonthSheetName($sheetIdentifier)) {
+            $month = $this->parseAllMonthSheetName($sheetIdentifier);
+            $matched = [];
+            foreach ($spreadsheet->getWorksheetIterator() as $sheet) {
+                $parts = $this->extractDayMonParts($sheet->getTitle());
+                if (!$parts) {
+                    continue;
+                }
+                if ($parts['month'] === $month) {
+                    $matched[] = $sheet;
+                }
+            }
+
+            if (empty($matched)) {
+                throw new RuntimeException("No day-Mon sheets found for {$sheetIdentifier}.");
+            }
+
+            return [$matched, $sheetIdentifier];
+        }
+
+        $worksheet = $this->resolveWorksheet($spreadsheet, $sheetIdentifier);
+        $label = $worksheet->getTitle() ?: $sheetIdentifier;
+
+        return [[$worksheet], $label];
+    }
+
+    private function extractDayMonParts(?string $sheetLabel): ?array
+    {
+        if ($sheetLabel === null) {
+            return null;
+        }
+
+        $label = trim($sheetLabel);
+        if ($label === '') {
+            return null;
+        }
+
+        if (!preg_match('/^(\d{1,2})-([A-Za-z]{3})$/', $label, $matches)) {
+            return null;
+        }
+
+        $day = (int) $matches[1];
+        if ($day < 1 || $day > 31) {
+            return null;
+        }
+
+        $month = $this->normalizeMonthToken($matches[2]);
+        if ($month === null) {
+            return null;
+        }
+
+        return [
+            'day' => $day,
+            'month' => $month,
+        ];
+    }
+
+    private function isAllMonthSheetName(?string $sheetLabel): bool
+    {
+        return $this->parseAllMonthSheetName($sheetLabel) !== null;
+    }
+
+    private function parseAllMonthSheetName(?string $sheetLabel): ?string
+    {
+        if ($sheetLabel === null) {
+            return null;
+        }
+
+        $label = trim($sheetLabel);
+        if ($label === '') {
+            return null;
+        }
+
+        if (!preg_match('/^All\s+([A-Za-z]+)$/i', $label, $matches)) {
+            return null;
+        }
+
+        return $this->normalizeMonthToken($matches[1]);
+    }
+
+    private function normalizeMonthToken(string $token): ?string
+    {
+        $key = ucfirst(strtolower(trim($token)));
+        $map = [
+            'Jan' => 'Jan',
+            'January' => 'Jan',
+            'Feb' => 'Feb',
+            'February' => 'Feb',
+            'Mar' => 'Mar',
+            'March' => 'Mar',
+            'Apr' => 'Apr',
+            'April' => 'Apr',
+            'May' => 'May',
+            'Jun' => 'Jun',
+            'June' => 'Jun',
+            'Jul' => 'Jul',
+            'July' => 'Jul',
+            'Aug' => 'Aug',
+            'August' => 'Aug',
+            'Sep' => 'Sep',
+            'Sept' => 'Sep',
+            'September' => 'Sep',
+            'Oct' => 'Oct',
+            'October' => 'Oct',
+            'Nov' => 'Nov',
+            'November' => 'Nov',
+            'Dec' => 'Dec',
+            'December' => 'Dec',
+        ];
+
+        return $map[$key] ?? null;
+    }
+
+    private function loadMachineIndex(): array
+    {
+        $index = [];
+        $machines = Machine::query()
+            ->select(['machine_no', 'machine_name', 'machine_type'])
+            ->whereNotNull('machine_no')
+            ->get();
+
+        foreach ($machines as $machine) {
+            $raw = $this->sanitizeText($machine->machine_no);
+            if ($raw === '') {
+                continue;
+            }
+
+            $normalized = $this->normalizeMachineCode($raw);
+            $payload = [
+                'machine_name' => $machine->machine_name,
+                'machine_type' => $machine->machine_type,
+            ];
+
+            $index[$normalized] = $payload;
+            $index[$raw] = $payload;
+            $index[strtoupper($raw)] = $payload;
+        }
+
+        return $index;
+    }
+
+    private function loadStaffIndex(): array
+    {
+        $index = [];
+        $users = User::query()
+            ->select(['staff_code', 'firstname', 'middlename', 'lastname'])
+            ->whereNotNull('staff_code')
+            ->get();
+
+        foreach ($users as $user) {
+            $code = $this->sanitizeText($user->staff_code);
+            if ($code === '') {
+                continue;
+            }
+            $name = trim(sprintf('%s %s %s', $user->firstname, $user->middlename, $user->lastname));
+            $name = trim(preg_replace('/\s+/', ' ', $name ?? ''));
+            if ($name === '') {
+                continue;
+            }
+            $normalized = $this->normalizeStaffCode($code);
+            $index[$code] = $name;
+            $index[strtoupper($code)] = $name;
+            if ($normalized !== '') {
+                $index[$normalized] = $name;
+            }
+        }
+
+        return $index;
+    }
+
+    private function normalizeStaffCode(mixed $value): string
+    {
+        $text = $this->sanitizeText($value);
+        if ($text === '') {
+            return '';
+        }
+
+        $clean = str_replace([',', ' '], '', $text);
+        if ($clean === '') {
+            return '';
+        }
+
+        if (is_numeric($clean)) {
+            return (string) ((int) round((float) $clean));
+        }
+
+        return strtoupper($text);
+    }
+
+    private function normalizeMachineCode(mixed $value): string
+    {
+        $text = $this->sanitizeText($value);
+        if ($text === '') {
+            return '';
+        }
+
+        $clean = str_replace([',', ' '], '', $text);
+        if ($clean === '') {
+            return '';
+        }
+
+        if (is_numeric($clean)) {
+            return (string) ((int) round((float) $clean));
+        }
+
+        return strtoupper($text);
+    }
+
+    private function sanitizeText(mixed $value): string
+    {
+        if ($value === null) {
+            return '';
+        }
+        if (is_numeric($value)) {
+            return trim((string) $value);
+        }
+        if (is_string($value)) {
+            $trimmed = trim($value);
+            return $trimmed === '-' ? '' : $trimmed;
+        }
+        return '';
     }
 }
