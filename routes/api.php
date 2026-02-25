@@ -8,6 +8,7 @@ use App\Http\Controllers\CustomerController;
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\DiecutController;
 use App\Http\Controllers\DiecutTypeController;
+use App\Http\Controllers\HistoricalWorkOrderController;
 use App\Http\Controllers\MachineController;
 use App\Http\Controllers\ImageController;
 use App\Http\Controllers\PackingChecklistController;
@@ -75,6 +76,10 @@ Route::prefix('v1')->group(function () {
         Route::post('work-orders/batch', [WorkOrderController::class, 'batchStore']);
         Route::post('work-orders/batch/replace', [WorkOrderController::class, 'replaceBatch']);
         Route::post('work-orders/import', [WorkOrderController::class, 'import']);
+        Route::get('historical-work-orders', [HistoricalWorkOrderController::class, 'index']);
+        Route::get('historical-work-orders/summary', [HistoricalWorkOrderController::class, 'summary']);
+        Route::get('historical-work-orders/filter-options', [HistoricalWorkOrderController::class, 'filterOptions']);
+        Route::post('historical-work-orders/import', [HistoricalWorkOrderController::class, 'import']);
         Route::post('work-orders/link-template-routes', [WorkOrderController::class, 'linkTemplateRoutes']);
         Route::get('work-orders/detail', [WorkOrderController::class, 'detailBy']);
         Route::get('work-orders/options', [WorkOrderController::class, 'options']);
