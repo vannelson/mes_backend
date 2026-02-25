@@ -37,6 +37,7 @@ class HistoricalWorkOrderController extends Controller
                 'staff_name',
                 'customer_part_number',
                 'customer_code',
+                'completed_month',
                 'date_completed_from',
                 'date_completed_to',
                 'no_of_press_min',
@@ -82,6 +83,7 @@ class HistoricalWorkOrderController extends Controller
                 'staff_name',
                 'customer_part_number',
                 'customer_code',
+                'completed_month',
                 'date_completed_from',
                 'date_completed_to',
                 'no_of_press_min',
@@ -121,6 +123,7 @@ class HistoricalWorkOrderController extends Controller
             'staff_name',
             'customer_part_number',
             'customer_code',
+            'completed_month',
         ];
 
         if ($column === '' || !in_array($column, $allowed, true)) {
@@ -141,6 +144,7 @@ class HistoricalWorkOrderController extends Controller
                 'staff_name',
                 'customer_part_number',
                 'customer_code',
+                'completed_month',
                 'date_completed_from',
                 'date_completed_to',
                 'no_of_press_min',

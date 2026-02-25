@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Http\Resources\HistoricalWorkOrder\HistoricalWorkOrderResource;
 use App\Models\HistoricalWorkOrder;
+use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\DB;
@@ -182,10 +183,20 @@ class HistoricalWorkOrderService
         $expression = $expressions[$column];
         $valueExpression = "NULLIF(TRIM({$expression}), '')";
 
-        return $this->applyFilters($this->baseFilterQuery(), $filters)
-            ->selectRaw("DISTINCT {$valueExpression} AS value")
-            ->whereRaw("{$valueExpression} IS NOT NULL")
-            ->orderBy('value')
+        $query = $this->applyFilters($this->baseFilterQuery(), $filters)
+            ->selectRaw("{$valueExpression} AS value")
+            ->whereRaw("{$valueExpression} IS NOT NULL");
+
+        if ($column === 'completed_month') {
+            $sortExpression = $this->monthSortExpression();
+            $query->selectRaw("{$sortExpression} AS sort_value")
+                ->groupBy('value', 'sort_value')
+                ->orderBy('sort_value', 'desc');
+        } else {
+            $query->distinct()->orderBy('value');
+        }
+
+        return $query
             ->pluck('value')
             ->filter(static fn ($value) => $value !== null && $value !== '')
             ->values()
@@ -245,6 +256,19 @@ class HistoricalWorkOrderService
         }
         if ($dateTo = Arr::get($filters, 'date_completed_to')) {
             $query->whereRaw('DATE(' . $this->qualifyColumn('date_completed') . ') <= ?', [$dateTo]);
+        }
+        if ($completedMonth = Arr::get($filters, 'completed_month')) {
+            $parsed = $this->parseCompletedMonthFilter($completedMonth);
+            if ($parsed) {
+                $column = $this->qualifyColumn('date_completed');
+                $query->whereRaw(
+                    "YEAR({$column}) = ? AND MONTH({$column}) = ?",
+                    [$parsed['year'], $parsed['month']]
+                );
+            } else {
+                $expression = $this->monthYearExpression();
+                $query->whereRaw("{$expression} = ?", [trim((string) $completedMonth)]);
+            }
         }
 
         $this->applyNumericFilter($query, $filters, 'no_of_press');
@@ -308,12 +332,59 @@ class HistoricalWorkOrderService
             'staff_name' => $this->staffNameExpression(),
             'customer_part_number' => $this->qualifyColumn('customer_part_number'),
             'customer_code' => $this->qualifyColumn('customer_code'),
+            'completed_month' => $this->monthYearExpression(),
         ];
     }
 
     private function staffNameExpression(): string
     {
         return "TRIM(COALESCE(NULLIF(CONCAT_WS(' ', users.firstname, users.middlename, users.lastname), ''), NULLIF({$this->qualifyColumn('add_user')}, ''), ''))";
+    }
+
+    private function monthYearExpression(): string
+    {
+        $column = $this->qualifyColumn('date_completed');
+        return "DATE_FORMAT({$column}, '%M-%Y')";
+    }
+
+    private function monthSortExpression(): string
+    {
+        $column = $this->qualifyColumn('date_completed');
+        return "DATE_FORMAT({$column}, '%Y-%m')";
+    }
+
+    private function parseCompletedMonthFilter(mixed $value): ?array
+    {
+        $raw = trim((string) $value);
+        if ($raw === '') {
+            return null;
+        }
+
+        if (preg_match('/^(\\d{4})[-\\/](\\d{1,2})$/', $raw, $matches)) {
+            $year = (int) $matches[1];
+            $month = (int) $matches[2];
+            if ($year > 0 && $month >= 1 && $month <= 12) {
+                return ['year' => $year, 'month' => $month];
+            }
+        }
+
+        $normalized = preg_replace('/\\s+/', '-', $raw) ?? $raw;
+        foreach (['F-Y', 'M-Y'] as $format) {
+            try {
+                $date = Carbon::createFromFormat($format, $normalized);
+            } catch (\Throwable) {
+                $date = null;
+            }
+
+            if ($date) {
+                return [
+                    'year' => (int) $date->format('Y'),
+                    'month' => (int) $date->format('n'),
+                ];
+            }
+        }
+
+        return null;
     }
 
     private function numericExpression(string $column): string
