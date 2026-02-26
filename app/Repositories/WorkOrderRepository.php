@@ -96,17 +96,29 @@ class WorkOrderRepository extends BaseRepository implements WorkOrderRepositoryI
         $scheduleFrom = Arr::get($filters, 'schedule_from');
         $scheduleTo = Arr::get($filters, 'schedule_to');
         if ($scheduleFrom || $scheduleTo) {
-            $query->where(function ($range) use ($scheduleFrom, $scheduleTo) {
-                if ($scheduleTo) {
-                    $range->whereDate('order_date', '<=', $scheduleTo);
-                }
-                if ($scheduleFrom) {
-                    $range->where(function ($overlap) use ($scheduleFrom) {
-                        $overlap->whereDate('production_due_date', '>=', $scheduleFrom)
-                            ->orWhereDate('order_date', '>=', $scheduleFrom);
-                    });
-                }
-            });
+            $normalizedStatus = strtolower(trim((string) Arr::get($filters, 'status')));
+            if ($normalizedStatus !== '' && str_contains($normalizedStatus, 'complete')) {
+                $query->where(function ($range) use ($scheduleFrom, $scheduleTo) {
+                    if ($scheduleFrom) {
+                        $range->whereDate('production_date_completed', '>=', $scheduleFrom);
+                    }
+                    if ($scheduleTo) {
+                        $range->whereDate('production_date_completed', '<=', $scheduleTo);
+                    }
+                });
+            } else {
+                $query->where(function ($range) use ($scheduleFrom, $scheduleTo) {
+                    if ($scheduleTo) {
+                        $range->whereDate('order_date', '<=', $scheduleTo);
+                    }
+                    if ($scheduleFrom) {
+                        $range->where(function ($overlap) use ($scheduleFrom) {
+                            $overlap->whereDate('production_due_date', '>=', $scheduleFrom)
+                                ->orWhereDate('order_date', '>=', $scheduleFrom);
+                        });
+                    }
+                });
+            }
         }
 
         if ($orderDays = Arr::get($filters, 'order_date_days')) {
@@ -141,60 +153,7 @@ class WorkOrderRepository extends BaseRepository implements WorkOrderRepositoryI
             $normalized = strtolower(trim((string) $status));
             if ($normalized !== '') {
                 $statusField = "LOWER(TRIM(COALESCE(status, '')))";
-                $stateStatus = "LOWER(TRIM(COALESCE(JSON_UNQUOTE(JSON_EXTRACT(metadata, '$.state.status')), '')))";
-                $metaStatus = "LOWER(TRIM(COALESCE(JSON_UNQUOTE(JSON_EXTRACT(metadata, '$.status')), '')))";
-
-                $query->where(function ($q) use ($normalized, $statusField, $stateStatus, $metaStatus) {
-                    if (str_contains($normalized, 'complete')) {
-                        $q->whereNotNull('production_date_completed')
-                            ->orWhereRaw("{$statusField} IN ('completed','complete','done')")
-                            ->orWhereRaw("{$stateStatus} IN ('completed','complete','done')")
-                            ->orWhereRaw("{$metaStatus} IN ('completed','complete','done')");
-                        return;
-                    }
-
-                    if (str_contains($normalized, 'release') || str_contains($normalized, 'progress')) {
-                        $q->where(function ($inner) use ($statusField, $stateStatus, $metaStatus) {
-                            $inner
-                                ->whereRaw("{$statusField} IN ('in progress','in_progress','in-progress','active')")
-                                ->orWhereRaw("{$stateStatus} IN ('in progress','in_progress','in-progress','active')")
-                                ->orWhereRaw("{$metaStatus} IN ('in progress','in_progress','in-progress','active')")
-                                ->orWhereRaw("{$statusField} LIKE '%release%'")
-                                ->orWhereRaw("{$stateStatus} LIKE '%release%'")
-                                ->orWhereRaw("{$metaStatus} LIKE '%release%'");
-                            if (Schema::hasColumn('work_orders', 'is_released')) {
-                                $inner->orWhere('is_released', true);
-                            }
-                        })
-                        ->whereNull('production_date_completed')
-                        ->whereRaw("{$statusField} NOT IN ('completed','complete','done')")
-                        ->whereRaw("{$stateStatus} NOT IN ('completed','complete','done')")
-                        ->whereRaw("{$metaStatus} NOT IN ('completed','complete','done')");
-                        return;
-                    }
-
-                    if (
-                        str_contains($normalized, 'backlog') ||
-                        str_contains($normalized, 'draft') ||
-                        str_contains($normalized, 'plan')
-                    ) {
-                        $q->where(function ($inner) use ($statusField, $stateStatus, $metaStatus) {
-                            $inner
-                                ->whereRaw("{$statusField} IN ('draft','planned','plan','new','backlog','on hold','hold','blocked','paused')")
-                                ->orWhereRaw("{$stateStatus} IN ('draft','planned','plan','new','backlog','on hold','hold','blocked','paused')")
-                                ->orWhereRaw("{$metaStatus} IN ('draft','planned','plan','new','backlog','on hold','hold','blocked','paused')")
-                                ->orWhereNull('template_route_id');
-                            if (Schema::hasColumn('work_orders', 'is_released')) {
-                                $inner->orWhere('is_released', false);
-                            }
-                        });
-                        return;
-                    }
-
-                    $q->whereRaw("{$statusField} = ?", [$normalized])
-                        ->orWhereRaw("{$stateStatus} = ?", [$normalized])
-                        ->orWhereRaw("{$metaStatus} = ?", [$normalized]);
-                });
+                $query->whereRaw("{$statusField} = ?", [$normalized]);
             }
         }
 

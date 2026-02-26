@@ -4,8 +4,6 @@ namespace App\Http\Resources\WorkOrder;
 
 use App\Http\Resources\Customer\CustomerResource;
 use App\Http\Resources\TemplateRoute\TemplateRouteResource;
-use App\Models\Packing;
-use Illuminate\Support\Arr;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 
@@ -53,13 +51,7 @@ class WorkOrderResource extends JsonResource
 
     protected function isRouteCompleted(array $route): bool
     {
-        $status = strtolower(trim((string) (
-            Arr::get($route, 'status')
-            ?? Arr::get($route, 'state.status')
-            ?? Arr::get($route, 'progress.status')
-            ?? Arr::get($route, 'metadata.status')
-            ?? ''
-        )));
+        $status = strtolower(trim((string) ($route['status'] ?? '')));
         if ($status === '') {
             $completedAt = $route['completed_at'] ?? $route['completedAt'] ?? null;
             if ($completedAt) {
@@ -76,8 +68,6 @@ class WorkOrderResource extends JsonResource
         $completed = 0;
         $rollingComplete = false;
         $packingRouteComplete = false;
-        $sawRolling = false;
-        $sawPacking = false;
         $hasAny = false;
 
         foreach ($routes as $route) {
@@ -92,14 +82,12 @@ class WorkOrderResource extends JsonResource
 
             $isCompleted = $this->isRouteCompleted($route);
             if ($token === 'rolling prep') {
-                $sawRolling = true;
                 if ($isCompleted) {
                     $rollingComplete = true;
                 }
                 continue;
             }
             if ($token === 'packing checklist') {
-                $sawPacking = true;
                 if ($isCompleted) {
                     $packingRouteComplete = true;
                 }
@@ -112,13 +100,6 @@ class WorkOrderResource extends JsonResource
                     $completed++;
                 }
             }
-        }
-
-        if (!$sawRolling || !$this->hasPackingSpecs()) {
-            $rollingComplete = true;
-        }
-        if (!$sawPacking || !$this->hasPackingChecklist()) {
-            $packingRouteComplete = true;
         }
 
         return [
@@ -147,20 +128,6 @@ class WorkOrderResource extends JsonResource
             ->exists();
     }
 
-    protected function hasPackingSpecs(): bool
-    {
-        if (isset($this->packing_spec_exists)) {
-            return (bool) $this->packing_spec_exists;
-        }
-        if (!$this->customer_part_number) {
-            return false;
-        }
-
-        return Packing::query()
-            ->where('wd_part_no', $this->customer_part_number)
-            ->exists();
-    }
-
     protected function resolveIsReleased(string $statusRaw): bool
     {
         if ($statusRaw !== '') {
@@ -181,6 +148,11 @@ class WorkOrderResource extends JsonResource
 
     protected function resolveNormalizedStatus(): string
     {
+        $columnStatus = trim((string) ($this->status ?? ''));
+        if ($columnStatus !== '') {
+            return $columnStatus;
+        }
+
         $metadata = $this->metadata;
         if (is_string($metadata)) {
             $decoded = json_decode($metadata, true);
@@ -198,8 +170,8 @@ class WorkOrderResource extends JsonResource
 
         $hasRouteLink = !empty($this->template_route_id) || $routeStats['has_any'] || $routeStats['total'] > 0;
         $allRoutesCompleted = $routeStats['total'] > 0 && $routeStats['completed'] >= $routeStats['total'];
-        $rollingComplete = $routeStats['rolling_complete'] || !$this->hasPackingSpecs();
-        $packingComplete = $routeStats['packing_route_complete'] || !$this->hasPackingChecklist();
+        $rollingComplete = $routeStats['rolling_complete'];
+        $packingComplete = $routeStats['packing_route_complete'] || $this->hasPackingChecklist();
 
         if ($allRoutesCompleted && $rollingComplete && $packingComplete) {
             return 'Completed';
