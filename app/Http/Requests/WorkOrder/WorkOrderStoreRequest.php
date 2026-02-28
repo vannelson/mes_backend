@@ -37,11 +37,14 @@ class WorkOrderStoreRequest extends FormRequest
             'no_of_colours' => ['nullable', 'string', 'max:100'],
             'sales_person_code' => ['nullable', 'string', 'max:100'],
             'order_date' => ['nullable', 'date'],
+            'production_start_date' => ['nullable', 'date'],
             'production_date_completed' => ['nullable', 'date'],
             'production_qty_completed' => ['nullable', 'string', 'max:100'],
             'qr_code' => ['nullable', 'string', 'max:255'],
             'sheet' => ['nullable', 'string', 'max:255'],
             'is_released' => ['nullable', 'boolean'],
+            'priority' => ['nullable', 'string', 'in:LOW,MEDIUM,URGENT,VERY_URGENT,ASAP'],
+            'is_starred' => ['nullable', 'boolean'],
             'metadata' => ['nullable', 'array'],
         ];
     }

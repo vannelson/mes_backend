@@ -358,6 +358,7 @@ class WorkOrderService implements WorkOrderServiceInterface
         $this->syncCustomerSnapshot($data);
         $this->syncTemplateMetadata($data);
         $this->syncReleaseFlag($data);
+        $this->applyProductionStartDate($id, $data);
 
         $workOrder = null;
         $storedImages = [];
@@ -1189,13 +1190,14 @@ class WorkOrderService implements WorkOrderServiceInterface
         $scheduleTo = Arr::get($filters, 'schedule_to');
         if ($scheduleFrom || $scheduleTo) {
             $query->where(function ($range) use ($scheduleFrom, $scheduleTo) {
+                $startField = DB::raw("COALESCE(production_start_date, production_due_date)");
                 if ($scheduleTo) {
-                    $range->whereDate('order_date', '<=', $scheduleTo);
+                    $range->whereDate($startField, '<=', $scheduleTo);
                 }
                 if ($scheduleFrom) {
-                    $range->where(function ($overlap) use ($scheduleFrom) {
+                    $range->where(function ($overlap) use ($scheduleFrom, $startField) {
                         $overlap->whereDate('production_due_date', '>=', $scheduleFrom)
-                            ->orWhereDate('order_date', '>=', $scheduleFrom);
+                            ->orWhereDate($startField, '>=', $scheduleFrom);
                     });
                 }
             });
@@ -1228,18 +1230,49 @@ class WorkOrderService implements WorkOrderServiceInterface
                 $q->where('batch_number', $templateRouteBatch);
             });
         }
+
+        if ($priority = Arr::get($filters, 'priority')) {
+            $normalized = strtoupper(trim((string) $priority));
+            if ($normalized !== '') {
+                $normalized = str_replace([' ', '-'], '_', $normalized);
+                $query->whereRaw(
+                    "REPLACE(REPLACE(UPPER(TRIM(COALESCE(priority, priority_type, ''))), ' ', '_'), '-', '_') = ?",
+                    [$normalized]
+                );
+            }
+        }
+
+        if (($isStarred = Arr::get($filters, 'is_starred')) !== null) {
+            $query->where('is_starred', filter_var($isStarred, FILTER_VALIDATE_BOOLEAN, ['flags' => FILTER_NULL_ON_FAILURE]) ?? (bool) $isStarred);
+        }
     }
 
     protected function applyWorkOrderOrdering($query, array $order): void
     {
         [$orderBy, $direction] = !empty($order) ? $order : ['id', 'desc'];
         $direction = strtolower($direction) === 'asc' ? 'asc' : 'desc';
+        $priorityCase = "CASE REPLACE(REPLACE(UPPER(TRIM(COALESCE(priority, priority_type, ''))), ' ', '_'), '-', '_') " .
+            "WHEN 'ASAP' THEN 1 " .
+            "WHEN 'VERY_URGENT' THEN 2 " .
+            "WHEN 'URGENT' THEN 3 " .
+            "WHEN 'MEDIUM' THEN 4 " .
+            "WHEN 'LOW' THEN 5 " .
+            "ELSE 99 END";
 
         switch ($orderBy) {
             case 'route_link':
                 $query
                     ->orderByRaw("template_route_id IS NULL " . ($direction === 'asc' ? 'ASC' : 'DESC'))
                     ->orderBy('template_route_id', $direction)
+                    ->orderBy('id', $direction);
+                break;
+            case 'starred_priority':
+                $query->orderBy('is_starred', 'desc')
+                    ->orderByRaw($priorityCase)
+                    ->orderBy('id', $direction);
+                break;
+            case 'priority':
+                $query->orderByRaw($priorityCase)
                     ->orderBy('id', $direction);
                 break;
             case 'production_due_date':
@@ -1771,13 +1804,15 @@ class WorkOrderService implements WorkOrderServiceInterface
         $onTimeDays = max(1, (int) ($options['on_time_days'] ?? 30));
         $throughputDays = max(1, (int) ($options['throughput_days'] ?? 7));
         $dueSoonDays = max(1, (int) ($options['due_soon_days'] ?? 7));
+        $rangeFromRaw = $options['range_from'] ?? null;
+        $rangeToRaw = $options['range_to'] ?? null;
 
         $asOf = now()->startOfDay();
         $onTimeStart = (clone $asOf)->subDays($onTimeDays - 1);
         $throughputStart = (clone $asOf)->subDays($throughputDays - 1);
         $dueSoonEnd = (clone $asOf)->addDays($dueSoonDays);
 
-        $orders = WorkOrder::query()
+        $query = WorkOrder::query()
             ->select([
                 'id',
                 'work_order_no',
@@ -1791,8 +1826,25 @@ class WorkOrderService implements WorkOrderServiceInterface
                 'metadata',
                 'created_at',
                 'updated_at',
-            ])
-            ->get();
+            ]);
+
+        if ($rangeFromRaw || $rangeToRaw) {
+            $rangeStart = $rangeFromRaw
+                ? \Illuminate\Support\Carbon::parse($rangeFromRaw)->startOfDay()
+                : null;
+            $rangeEnd = $rangeToRaw
+                ? \Illuminate\Support\Carbon::parse($rangeToRaw)->endOfDay()
+                : null;
+            $dateColumn = DB::raw("COALESCE(production_due_date, order_date, created_at)");
+            if ($rangeStart) {
+                $query->whereDate($dateColumn, '>=', $rangeStart->toDateString());
+            }
+            if ($rangeEnd) {
+                $query->whereDate($dateColumn, '<=', $rangeEnd->toDateString());
+            }
+        }
+
+        $orders = $query->get();
 
         $totals = [
             'total_orders' => 0,
@@ -2023,10 +2075,13 @@ class WorkOrderService implements WorkOrderServiceInterface
             'id',
             'work_order_no',
             'order_date',
+            'production_start_date',
             'production_due_date',
             'requested_delivery_date',
             'production_date_completed',
             'status',
+            'priority',
+            'is_starred',
             'metadata',
             'created_at',
         ]);
@@ -2051,11 +2106,12 @@ class WorkOrderService implements WorkOrderServiceInterface
         $scheduleFrom = $start->toDateString();
         $scheduleTo = $end->toDateString();
         $query->where(function ($range) use ($scheduleFrom, $scheduleTo) {
-            $range->whereDate('order_date', '<=', $scheduleTo);
-            $range->where(function ($overlap) use ($scheduleFrom) {
+            $startField = DB::raw("COALESCE(production_start_date, production_due_date)");
+            $range->whereDate($startField, '<=', $scheduleTo);
+            $range->where(function ($overlap) use ($scheduleFrom, $startField) {
                 $overlap->whereDate('production_due_date', '>=', $scheduleFrom)
                     ->orWhereDate('requested_delivery_date', '>=', $scheduleFrom)
-                    ->orWhereDate('order_date', '>=', $scheduleFrom);
+                    ->orWhereDate($startField, '>=', $scheduleFrom);
             });
         });
 
@@ -2075,9 +2131,10 @@ class WorkOrderService implements WorkOrderServiceInterface
             if ($normalizedStatusFilter !== '' && strtolower($status) !== $normalizedStatusFilter) {
                 continue;
             }
-            $bucket = $this->mapCalendarStatus($status);
+            $displayStatus = $this->resolveDisplayStatus($order);
+            $bucket = $this->mapCalendarStatus($displayStatus);
 
-            $orderDate = $this->resolveOrderDate($order);
+            $orderDate = $this->resolveScheduleStartDate($order);
             $dueDate = $this->resolveDueDate($order);
             if (!$dueDate && $orderDate) {
                 $dueDate = $orderDate->copy();
@@ -2185,10 +2242,13 @@ class WorkOrderService implements WorkOrderServiceInterface
             'customer_name',
             'customer_part_number',
             'order_date',
+            'production_start_date',
             'production_due_date',
             'requested_delivery_date',
             'production_date_completed',
             'status',
+            'priority',
+            'is_starred',
             'metadata',
         ]);
 
@@ -2209,7 +2269,8 @@ class WorkOrderService implements WorkOrderServiceInterface
         }
         $dayKey = $day->toDateString();
         $query->where(function ($range) use ($dayKey) {
-            $range->whereDate('order_date', '<=', $dayKey);
+            $startField = DB::raw("COALESCE(production_start_date, production_due_date)");
+            $range->whereDate($startField, '<=', $dayKey);
             $range->where(function ($overlap) use ($dayKey) {
                 $overlap->whereDate('production_due_date', '>=', $dayKey)
                     ->orWhereDate('requested_delivery_date', '>=', $dayKey)
@@ -2218,7 +2279,9 @@ class WorkOrderService implements WorkOrderServiceInterface
             });
         });
 
-        $orders = $query->orderBy('production_due_date')->orderBy('order_date')->get();
+        $orders = $query->orderBy('production_due_date')
+            ->orderByRaw("COALESCE(production_start_date, production_due_date)")
+            ->get();
 
         $workOrderNos = $orders->pluck('work_order_no')->filter()->values();
         $packingSet = $workOrderNos->isEmpty()
@@ -2247,8 +2310,9 @@ class WorkOrderService implements WorkOrderServiceInterface
             $metadata = is_array($order->metadata) ? $order->metadata : [];
             $routes = $this->extractRoutes($metadata);
             $status = (string) ($order->status ?? '');
+            $displayStatus = $this->resolveDisplayStatus($order);
 
-            $orderDate = $this->resolveOrderDate($order);
+            $orderDate = $this->resolveScheduleStartDate($order);
             $dueDate = $this->resolveDueDate($order);
             if (!$dueDate && $orderDate) {
                 $dueDate = $orderDate->copy();
@@ -2290,9 +2354,13 @@ class WorkOrderService implements WorkOrderServiceInterface
                 'template_route_id' => $order->template_route_id,
                 'template' => $order->templateRoute?->template,
                 'order_date' => $orderDate->toDateString(),
+                'production_start_date' => $order->production_start_date,
                 'production_due_date' => $dueDate->toDateString(),
                 'requested_delivery_date' => $order->requested_delivery_date,
                 'status' => $status,
+                'display_status' => $displayStatus,
+                'priority' => $order->priority,
+                'is_starred' => (bool) ($order->is_starred ?? false),
                 'bucket' => $bucket,
                 'has_route_link' => $hasRouteLink,
                 'route_link' => $hasRouteLink ? 1 : 0,
@@ -2660,6 +2728,50 @@ class WorkOrderService implements WorkOrderServiceInterface
 
         if (in_array($normalized, ['released', 'in progress', 'active', 'completed', 'complete', 'done'], true)) {
             $data['is_released'] = true;
+        }
+    }
+
+    protected function applyProductionStartDate(int $id, array &$data): void
+    {
+        if (!Schema::hasColumn('work_orders', 'production_start_date')) {
+            return;
+        }
+
+        $explicitStart = $data['production_start_date'] ?? null;
+        if ($explicitStart) {
+            return;
+        }
+
+        $statusRaw = strtolower(trim((string) ($data['status'] ?? '')));
+        $metadata = $this->normalizeMetadata($data['metadata'] ?? null);
+        $metaStatus = strtolower(trim((string) Arr::get($metadata, 'state.status', '')));
+        $statusCandidate = $statusRaw !== '' ? $statusRaw : $metaStatus;
+        $isReleaseStatus = $statusCandidate !== '' && str_contains($statusCandidate, 'release');
+        $releaseFlag = array_key_exists('is_released', $data) ? (bool) $data['is_released'] : null;
+
+        if (!$isReleaseStatus && $releaseFlag !== true) {
+            return;
+        }
+
+        $order = $this->workOrderRepository->findById($id);
+        if (!$order) {
+            return;
+        }
+        if (!empty($order->production_start_date)) {
+            return;
+        }
+
+        $wasReleased = (bool) ($order->is_released ?? false);
+        $wasStatus = strtolower(trim((string) ($order->status ?? '')));
+        $statusChangedToReleased = $isReleaseStatus && !str_contains($wasStatus, 'release');
+
+        if ($releaseFlag === true && !$wasReleased) {
+            $data['production_start_date'] = now()->toDateString();
+            return;
+        }
+
+        if ($statusChangedToReleased) {
+            $data['production_start_date'] = now()->toDateString();
         }
     }
 
@@ -3967,6 +4079,23 @@ class WorkOrderService implements WorkOrderServiceInterface
         return $date instanceof \Illuminate\Support\Carbon ? $date->copy()->startOfDay() : \Illuminate\Support\Carbon::parse($date)->startOfDay();
     }
 
+    protected function resolveScheduleStartDate(WorkOrder $order): ?\Illuminate\Support\Carbon
+    {
+        $date = $order->production_start_date ?? null;
+        if ($date) {
+            return $date instanceof \Illuminate\Support\Carbon
+                ? $date->copy()->startOfDay()
+                : \Illuminate\Support\Carbon::parse($date)->startOfDay();
+        }
+
+        $due = $this->resolveDueDate($order);
+        if ($due) {
+            return $due->copy()->startOfDay();
+        }
+
+        return null;
+    }
+
     protected function resolveOrderDate(WorkOrder $order): ?\Illuminate\Support\Carbon
     {
         $date = $order->order_date ?? $order->created_at ?? null;
@@ -3975,6 +4104,20 @@ class WorkOrderService implements WorkOrderServiceInterface
         }
 
         return $date instanceof \Illuminate\Support\Carbon ? $date->copy()->startOfDay() : \Illuminate\Support\Carbon::parse($date)->startOfDay();
+    }
+
+    protected function resolveDisplayStatus(WorkOrder $order): string
+    {
+        $status = trim((string) ($order->status ?? ''));
+        $normalized = strtolower($status);
+        $isTerminal = $normalized !== '' &&
+            (str_contains($normalized, 'complete') || str_contains($normalized, 'cancel'));
+        if ($isTerminal && $status !== '') {
+            return $status;
+        }
+
+        $isReleased = (bool) ($order->is_released ?? false);
+        return $isReleased ? 'In Progress' : 'Backlog';
     }
 
     protected function normalizeStatus(mixed $status, bool $isCompleted): string

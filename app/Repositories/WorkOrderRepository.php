@@ -108,13 +108,14 @@ class WorkOrderRepository extends BaseRepository implements WorkOrderRepositoryI
                 });
             } else {
                 $query->where(function ($range) use ($scheduleFrom, $scheduleTo) {
+                    $startField = "COALESCE(production_start_date, production_due_date)";
                     if ($scheduleTo) {
-                        $range->whereDate('order_date', '<=', $scheduleTo);
+                        $range->whereDate(DB::raw($startField), '<=', $scheduleTo);
                     }
                     if ($scheduleFrom) {
                         $range->where(function ($overlap) use ($scheduleFrom) {
                             $overlap->whereDate('production_due_date', '>=', $scheduleFrom)
-                                ->orWhereDate('order_date', '>=', $scheduleFrom);
+                                ->orWhereDate(DB::raw("COALESCE(production_start_date, production_due_date)"), '>=', $scheduleFrom);
                         });
                     }
                 });
@@ -149,6 +150,21 @@ class WorkOrderRepository extends BaseRepository implements WorkOrderRepositoryI
             });
         }
 
+        if ($priority = Arr::get($filters, 'priority')) {
+            $normalized = strtoupper(trim((string) $priority));
+            if ($normalized !== '') {
+                $normalized = str_replace([' ', '-'], '_', $normalized);
+                $query->whereRaw(
+                    "REPLACE(REPLACE(UPPER(TRIM(COALESCE(priority, priority_type, ''))), ' ', '_'), '-', '_') = ?",
+                    [$normalized]
+                );
+            }
+        }
+
+        if (($isStarred = Arr::get($filters, 'is_starred')) !== null) {
+            $query->where('is_starred', filter_var($isStarred, FILTER_VALIDATE_BOOLEAN, ['flags' => FILTER_NULL_ON_FAILURE]) ?? (bool) $isStarred);
+        }
+
         if ($status = Arr::get($filters, 'status')) {
             $normalized = strtolower(trim((string) $status));
             if ($normalized !== '') {
@@ -159,6 +175,13 @@ class WorkOrderRepository extends BaseRepository implements WorkOrderRepositoryI
 
         [$orderBy, $direction] = !empty($order) ? $order : ['id', 'desc'];
         $direction = strtolower($direction) === 'asc' ? 'asc' : 'desc';
+        $priorityCase = "CASE REPLACE(REPLACE(UPPER(TRIM(COALESCE(priority, priority_type, ''))), ' ', '_'), '-', '_') " .
+            "WHEN 'ASAP' THEN 1 " .
+            "WHEN 'VERY_URGENT' THEN 2 " .
+            "WHEN 'URGENT' THEN 3 " .
+            "WHEN 'MEDIUM' THEN 4 " .
+            "WHEN 'LOW' THEN 5 " .
+            "ELSE 99 END";
 
         switch ($orderBy) {
             case 'route_link':
@@ -166,6 +189,15 @@ class WorkOrderRepository extends BaseRepository implements WorkOrderRepositoryI
                 $query
                     ->orderByRaw("template_route_id IS NULL " . ($direction === 'asc' ? 'ASC' : 'DESC'))
                     ->orderBy('template_route_id', $direction)
+                    ->orderBy('id', $direction);
+                break;
+            case 'starred_priority':
+                $query->orderBy('is_starred', 'desc')
+                    ->orderByRaw($priorityCase)
+                    ->orderBy('id', $direction);
+                break;
+            case 'priority':
+                $query->orderByRaw($priorityCase)
                     ->orderBy('id', $direction);
                 break;
             case 'production_due_date':

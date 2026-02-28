@@ -195,6 +195,20 @@ class WorkOrderResource extends JsonResource
 
         return 'In Progress';
     }
+
+    protected function resolveDisplayStatus(): string
+    {
+        $status = trim((string) ($this->status ?? ''));
+        $normalized = strtolower($status);
+        $isTerminal = $normalized !== '' &&
+            (str_contains($normalized, 'complete') || str_contains($normalized, 'cancel'));
+        if ($isTerminal && $status !== '') {
+            return $status;
+        }
+
+        $isReleased = (bool) ($this->is_released ?? false);
+        return $isReleased ? 'In Progress' : 'Backlog';
+    }
     protected function resolveEvidenceUrl(?string $path): ?string
     {
         if (! $path) {
@@ -228,6 +242,7 @@ class WorkOrderResource extends JsonResource
             'material_4_code' => $this->material_4_code,
             'customer_part_number' => $this->customer_part_number,
             'production_due_date' => $this->production_due_date,
+            'production_start_date' => $this->production_start_date,
             'quantity_to_produce' => $this->quantity_to_produce,
             'quantity_produced' => $this->quantity_produced,
             'forecast_quantity' => $this->forecast_quantity,
@@ -240,6 +255,9 @@ class WorkOrderResource extends JsonResource
             'production_date_completed' => $this->production_date_completed,
             'production_qty_completed' => $this->production_qty_completed,
             'status' => $this->resolveNormalizedStatus(),
+            'display_status' => $this->resolveDisplayStatus(),
+            'priority' => $this->priority ?? $this->priority_type,
+            'is_starred' => (bool) ($this->is_starred ?? false),
             'qr_code' => $this->qr_code,
             'sheet' => $this->sheet,
             'is_released' => $this->is_released,

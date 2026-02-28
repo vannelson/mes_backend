@@ -34,15 +34,19 @@ class DashboardController extends Controller
         $performanceLimit = max(1, (int) $request->get('performance_limit', 3));
         $templateLimit = max(1, (int) $request->get('template_limit', 5));
         $customerLimit = max(1, (int) $request->get('customer_limit', 5));
+        $rangeFrom = $request->get('range_from');
+        $rangeTo = $request->get('range_to');
 
         try {
             $workOrderSummary = $this->workOrderService->summary([
                 'on_time_days' => $onTimeDays,
                 'throughput_days' => $throughputDays,
                 'due_soon_days' => $dueSoonDays,
+                'range_from' => $rangeFrom,
+                'range_to' => $rangeTo,
             ]);
 
-            $recentOrders = $this->fetchRecentWorkOrders($recentLimit);
+            $recentOrders = $this->fetchRecentWorkOrders($recentLimit, $rangeFrom, $rangeTo);
             $recentOverview = $this->formatWorkOrderOverview($recentOrders);
             $machinePerformance = $this->formatMachinePerformance(
                 $recentOrders->slice(0, $performanceLimit)->values()
@@ -76,9 +80,9 @@ class DashboardController extends Controller
         }
     }
 
-    protected function fetchRecentWorkOrders(int $limit)
+    protected function fetchRecentWorkOrders(int $limit, ?string $rangeFrom = null, ?string $rangeTo = null)
     {
-        return WorkOrder::query()
+        $query = WorkOrder::query()
             ->select([
                 'id',
                 'work_order_no',
@@ -94,7 +98,21 @@ class DashboardController extends Controller
                 'metadata',
                 'created_at',
                 'production_date_completed',
-            ])
+            ]);
+
+        if ($rangeFrom || $rangeTo) {
+            $from = $rangeFrom ? Carbon::parse($rangeFrom)->startOfDay() : null;
+            $to = $rangeTo ? Carbon::parse($rangeTo)->endOfDay() : null;
+            $dateColumn = DB::raw("COALESCE(production_due_date, order_date, created_at)");
+            if ($from) {
+                $query->whereDate($dateColumn, '>=', $from->toDateString());
+            }
+            if ($to) {
+                $query->whereDate($dateColumn, '<=', $to->toDateString());
+            }
+        }
+
+        return $query
             ->orderByDesc('created_at')
             ->limit($limit)
             ->get();
