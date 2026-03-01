@@ -1,9 +1,13 @@
 const functions = require("firebase-functions");
+const { defineString } = require("firebase-functions/params");
 const admin = require("firebase-admin");
 
 admin.initializeApp();
 
 const rtdb = admin.database();
+
+const mesApiBaseUrl = defineString("MES_API_BASE_URL");
+const mesTriggerKey = defineString("MES_TRIGGER_KEY");
 
 const toNumber = (value) => (value === null || value === "" ? 0 : Number(value));
 const normalize = (value) => `${value ?? ""}`.toLowerCase();
@@ -283,10 +287,8 @@ exports.onTriggerExecutionQueued = functions.database
       started_at: new Date().toISOString(),
     });
 
-    const apiBase =
-      process.env.MES_API_BASE_URL || functions.config()?.mes?.api_base_url;
-    const triggerKey =
-      process.env.MES_TRIGGER_KEY || functions.config()?.mes?.trigger_key;
+    const apiBase = mesApiBaseUrl.value();
+    const triggerKey = mesTriggerKey.value();
 
     if (!apiBase || !triggerKey) {
       await snapshot.ref.update({
