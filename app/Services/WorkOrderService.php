@@ -23,6 +23,7 @@ use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
 use Illuminate\Pagination\LengthAwarePaginator;
@@ -415,18 +416,19 @@ class WorkOrderService implements WorkOrderServiceInterface
         }
 
         if ($updated) {
+            $order = $this->workOrderRepository->findById($id);
+            $changedFields = array_keys($data);
+            $metadataSnapshot = $this->withProgressPct($this->normalizeMetadata($order->metadata));
+            $afterSnapshot = [
+                'status' => $order->status,
+                'priority' => $order->priority,
+                'is_released' => $order->is_released,
+                'metadata' => $metadataSnapshot,
+                'updated_at' => $order->updated_at?->toIso8601String(),
+                'completed_at' => $order->completed_at?->toIso8601String(),
+            ];
+
             try {
-                $order = $this->workOrderRepository->findById($id);
-                $changedFields = array_keys($data);
-                $metadataSnapshot = $this->withProgressPct($this->normalizeMetadata($order->metadata));
-                $afterSnapshot = [
-                    'status' => $order->status,
-                    'priority' => $order->priority,
-                    'is_released' => $order->is_released,
-                    'metadata' => $metadataSnapshot,
-                    'updated_at' => $order->updated_at?->toIso8601String(),
-                    'completed_at' => $order->completed_at?->toIso8601String(),
-                ];
                 $this->firebaseRealtimeService->publishVirtualizationUpdate([
                     'work_order_id' => $order->id,
                     'work_order_no' => $order->work_order_no,
@@ -443,13 +445,28 @@ class WorkOrderService implements WorkOrderServiceInterface
                     'before_snapshot' => $beforeSnapshot,
                     'snapshot' => $afterSnapshot,
                 ]);
+            } catch (\Throwable $e) {
+                Log::warning('Failed to publish work order realtime event.', [
+                    'work_order_id' => $order->id,
+                    'message' => $e->getMessage(),
+                ]);
+            }
+
+            try {
                 $this->notificationService->notifyWorkOrder(
                     $order,
                     $actor,
                     $notificationContext,
                     $notificationMeta
                 );
+            } catch (\Throwable $e) {
+                Log::warning('Failed to send work order notification.', [
+                    'work_order_id' => $order->id,
+                    'message' => $e->getMessage(),
+                ]);
+            }
 
+            try {
                 $eventType = in_array('status', $changedFields, true)
                     ? 'work_order.status_changed'
                     : 'work_order.updated';
@@ -460,8 +477,11 @@ class WorkOrderService implements WorkOrderServiceInterface
                     $afterSnapshot,
                     $actor?->id
                 );
-            } catch (\Throwable) {
-                // Ignore realtime errors on update.
+            } catch (\Throwable $e) {
+                Log::warning('Failed to execute operation triggers for update.', [
+                    'work_order_id' => $order->id,
+                    'message' => $e->getMessage(),
+                ]);
             }
         }
 
@@ -664,7 +684,14 @@ class WorkOrderService implements WorkOrderServiceInterface
                     'completed_at' => $workOrder->completed_at?->toIso8601String(),
                 ],
             ]);
+        } catch (\Throwable $e) {
+            Log::warning('Failed to publish work order progress event.', [
+                'work_order_id' => $workOrder->id,
+                'message' => $e->getMessage(),
+            ]);
+        }
 
+        try {
             $this->triggerService->executeForWorkOrderEvent(
                 'work_order.progress',
                 $workOrder,
@@ -686,8 +713,11 @@ class WorkOrderService implements WorkOrderServiceInterface
                 ],
                 $actor->id
             );
-        } catch (\Throwable) {
-            // Ignore realtime errors for progress events.
+        } catch (\Throwable $e) {
+            Log::warning('Failed to execute operation triggers for progress.', [
+                'work_order_id' => $workOrder->id,
+                'message' => $e->getMessage(),
+            ]);
         }
 
         try {
