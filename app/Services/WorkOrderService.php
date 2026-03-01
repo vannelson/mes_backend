@@ -366,6 +366,16 @@ class WorkOrderService implements WorkOrderServiceInterface
 
     public function update(int $id, array $data, array $evidenceImages = [], ?User $actor = null): bool
     {
+        $beforeOrder = $this->workOrderRepository->findById($id);
+        $beforeSnapshot = [
+            'status' => $beforeOrder->status,
+            'priority' => $beforeOrder->priority,
+            'is_released' => $beforeOrder->is_released,
+            'metadata' => $beforeOrder->metadata,
+            'updated_at' => $beforeOrder->updated_at?->toIso8601String(),
+            'completed_at' => $beforeOrder->completed_at?->toIso8601String(),
+        ];
+
         $notificationContext = Arr::pull($data, 'notification_context');
         $notificationMeta = Arr::pull($data, 'notification_meta', []);
         if (is_string($notificationMeta)) {
@@ -384,7 +394,7 @@ class WorkOrderService implements WorkOrderServiceInterface
         $workOrder = null;
         $storedImages = [];
         if (!empty($evidenceImages)) {
-            $workOrder = $this->workOrderRepository->findById($id);
+            $workOrder = $beforeOrder;
             $existingImages = is_array($workOrder->evidence_images) ? $workOrder->evidence_images : [];
             $storedImages = $this->storeEvidenceImages($evidenceImages);
             $data['evidence_images'] = array_values(array_merge($existingImages, $storedImages));
@@ -417,6 +427,7 @@ class WorkOrderService implements WorkOrderServiceInterface
                     'changed_fields' => $changedFields,
                     'actor_id' => $actor?->id,
                     'occurred_at' => now()->toIso8601String(),
+                    'before_snapshot' => $beforeSnapshot,
                     'snapshot' => [
                         'status' => $order->status,
                         'priority' => $order->priority,

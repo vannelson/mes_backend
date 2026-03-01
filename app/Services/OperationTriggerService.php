@@ -78,6 +78,7 @@ class OperationTriggerService implements OperationTriggerServiceInterface
         $this->appendAudit($trigger, $actorId, 'Created trigger');
         $trigger->save();
 
+        $this->syncTriggerDefinition($trigger);
         $this->publishRealtimeUpdate($trigger, 'created');
 
         return $trigger->toArray();
@@ -93,6 +94,7 @@ class OperationTriggerService implements OperationTriggerServiceInterface
         $this->appendAudit($trigger, $actorId, 'Updated trigger');
         $trigger->save();
 
+        $this->syncTriggerDefinition($trigger);
         $this->publishRealtimeUpdate($trigger, 'updated');
 
         return $trigger->toArray();
@@ -110,6 +112,7 @@ class OperationTriggerService implements OperationTriggerServiceInterface
         $this->appendAudit($trigger, $actorId, 'Published trigger');
         $trigger->save();
 
+        $this->syncTriggerDefinition($trigger);
         $this->publishRealtimeUpdate($trigger, 'published');
 
         return $trigger->toArray();
@@ -125,6 +128,7 @@ class OperationTriggerService implements OperationTriggerServiceInterface
         $this->appendAudit($trigger, $actorId, 'Disabled trigger');
         $trigger->save();
 
+        $this->syncTriggerDefinition($trigger);
         $this->publishRealtimeUpdate($trigger, 'disabled');
 
         return $trigger->toArray();
@@ -226,6 +230,29 @@ class OperationTriggerService implements OperationTriggerServiceInterface
         }
     }
 
+    protected function syncTriggerDefinition(OperationTrigger $trigger): void
+    {
+        try {
+            $this->firebaseRealtimeService->publishTriggerDefinition([
+                'id' => $trigger->id,
+                'tenant_id' => $trigger->tenant_id ?? 'default',
+                'name' => $trigger->name,
+                'description' => $trigger->description,
+                'status' => $trigger->status,
+                'is_active' => (bool) $trigger->is_active,
+                'rule' => $trigger->rule ?? [],
+                'schedule' => $trigger->schedule ?? [],
+                'actions' => $trigger->actions ?? [],
+                'cooldown' => $trigger->cooldown ?? [],
+                'debounce' => $trigger->debounce ?? [],
+                'version' => $trigger->version ?? 1,
+                'updated_at' => $trigger->updated_at?->toIso8601String(),
+            ]);
+        } catch (\Throwable) {
+            // Ignore realtime failures for definition sync.
+        }
+    }
+
     protected function normalizeOrder(array $order): array
     {
         $column = $order[0] ?? 'updated_at';
@@ -275,11 +302,15 @@ class OperationTriggerService implements OperationTriggerServiceInterface
         $expected = Arr::get($condition, 'value');
         $expectedTo = Arr::get($condition, 'valueTo');
         $changes = Arr::get($context, 'changes', []);
-        $current = $path ? data_get($context['work_order'] ?? [], $path) : null;
+        $workOrder = $context['work_order'] ?? [];
+        $pathExists = $path ? Arr::has($workOrder, $path) : false;
+        $current = $path ? data_get($workOrder, $path) : null;
 
         $matched = false;
         $reason = null;
 
+        $before = null;
+        $after = null;
         if (in_array($operator, ['changed', 'changed_to', 'changed_from'], true)) {
             $changeKey = $fieldKey ?? $path;
             $change = $changes[$changeKey] ?? null;
@@ -298,6 +329,11 @@ class OperationTriggerService implements OperationTriggerServiceInterface
             }
         } else {
             $matched = $this->evaluateOperator($operator, $current, $expected, $expectedTo);
+            if (! $pathExists) {
+                $reason = 'Field not found in work order snapshot';
+            } elseif ($operator === 'between' && ($expected === null || $expectedTo === null)) {
+                $reason = 'Between operator requires both values';
+            }
         }
 
         return [
@@ -307,8 +343,11 @@ class OperationTriggerService implements OperationTriggerServiceInterface
             'expected' => $expected,
             'expected_to' => $expectedTo,
             'actual' => $current,
+            'before' => $before,
+            'after' => $after,
             'matched' => $matched,
             'reason' => $reason,
+            'path_exists' => $pathExists,
         ];
     }
 
