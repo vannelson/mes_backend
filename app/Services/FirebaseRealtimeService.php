@@ -29,6 +29,11 @@ class FirebaseRealtimeService
         return $this->publishUpdate('mes/notifications/last_update', $payload);
     }
 
+    public function publishMessageUpdate(array $payload): bool
+    {
+        return $this->publishUpdate('mes/messages/last_update', $payload);
+    }
+
     protected function publishUpdate(string $path, array $payload): bool
     {
         $databaseUrl = config('services.firebase.database_url');
