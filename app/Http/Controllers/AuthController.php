@@ -41,5 +41,26 @@ class AuthController extends Controller
         //     return $this->error('Login failed.', 500);
         // }
     }
-}
 
+    public function confirmPassword(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'password' => 'required',
+        ]);
+
+        $user = $request->user();
+        if (!$user) {
+            return $this->error('Unauthorized.', 401);
+        }
+
+        if (!$this->authService->confirmPassword($user, $validated['password'])) {
+            return $this->error('Invalid password.', 422, [
+                'password' => ['Invalid password.'],
+            ]);
+        }
+
+        return $this->success('Password confirmed.', [
+            'confirmed' => true,
+        ]);
+    }
+}

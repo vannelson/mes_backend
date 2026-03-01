@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Models\User;
 use App\Repositories\Contracts\UserRepositoryInterface;
 use App\Services\Contracts\AuthServiceInterface;
 use Illuminate\Support\Facades\Hash;
@@ -34,5 +35,10 @@ class AuthService implements AuthServiceInterface
             'user' => $user->toArray(),
             'token' => $user->createToken('authToken')->plainTextToken,
         ];
+    }
+
+    public function confirmPassword(User $user, string $password): bool
+    {
+        return Hash::check($password, $user->password);
     }
 }

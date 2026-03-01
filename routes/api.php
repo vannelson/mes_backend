@@ -33,6 +33,7 @@ Route::prefix('v1')->group(function () {
     Route::get('images/{path}', [ImageController::class, 'show'])->where('path', '.*');
 
     Route::middleware('auth:sanctum')->group(function () {
+        Route::post('auth/confirm-password', [AuthController::class, 'confirmPassword']);
         Route::get('users', [UserController::class, 'index']);
         Route::post('users', [UserController::class, 'store']);
         Route::get('users/{id}', [UserController::class, 'show']);
