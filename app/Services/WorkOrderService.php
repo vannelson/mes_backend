@@ -14,6 +14,7 @@ use App\Repositories\Contracts\WorkOrderRepositoryInterface;
 use App\Services\Contracts\WorkOrderServiceInterface;
 use App\Services\WorkOrderImportService;
 use App\Services\FirebaseRealtimeService;
+use App\Services\Contracts\OperationTriggerServiceInterface;
 use App\Services\WorkOrderNotificationService;
 use Illuminate\Http\File;
 use Illuminate\Http\UploadedFile;
@@ -37,7 +38,8 @@ class WorkOrderService implements WorkOrderServiceInterface
         protected WorkOrderRepositoryInterface $workOrderRepository,
         protected WorkOrderImportService $workOrderImportService,
         protected FirebaseRealtimeService $firebaseRealtimeService,
-        protected WorkOrderNotificationService $notificationService
+        protected WorkOrderNotificationService $notificationService,
+        protected OperationTriggerServiceInterface $triggerService
     ) {
     }
 
@@ -417,6 +419,14 @@ class WorkOrderService implements WorkOrderServiceInterface
                 $order = $this->workOrderRepository->findById($id);
                 $changedFields = array_keys($data);
                 $metadataSnapshot = $this->withProgressPct($this->normalizeMetadata($order->metadata));
+                $afterSnapshot = [
+                    'status' => $order->status,
+                    'priority' => $order->priority,
+                    'is_released' => $order->is_released,
+                    'metadata' => $metadataSnapshot,
+                    'updated_at' => $order->updated_at?->toIso8601String(),
+                    'completed_at' => $order->completed_at?->toIso8601String(),
+                ];
                 $this->firebaseRealtimeService->publishVirtualizationUpdate([
                     'work_order_id' => $order->id,
                     'work_order_no' => $order->work_order_no,
@@ -431,20 +441,24 @@ class WorkOrderService implements WorkOrderServiceInterface
                     'actor_id' => $actor?->id,
                     'occurred_at' => now()->toIso8601String(),
                     'before_snapshot' => $beforeSnapshot,
-                    'snapshot' => [
-                        'status' => $order->status,
-                        'priority' => $order->priority,
-                        'is_released' => $order->is_released,
-                        'metadata' => $metadataSnapshot,
-                        'updated_at' => $order->updated_at?->toIso8601String(),
-                        'completed_at' => $order->completed_at?->toIso8601String(),
-                    ],
+                    'snapshot' => $afterSnapshot,
                 ]);
                 $this->notificationService->notifyWorkOrder(
                     $order,
                     $actor,
                     $notificationContext,
                     $notificationMeta
+                );
+
+                $eventType = in_array('status', $changedFields, true)
+                    ? 'work_order.status_changed'
+                    : 'work_order.updated';
+                $this->triggerService->executeForWorkOrderEvent(
+                    $eventType,
+                    $order,
+                    $beforeSnapshot,
+                    $afterSnapshot,
+                    $actor?->id
                 );
             } catch (\Throwable) {
                 // Ignore realtime errors on update.
@@ -650,6 +664,28 @@ class WorkOrderService implements WorkOrderServiceInterface
                     'completed_at' => $workOrder->completed_at?->toIso8601String(),
                 ],
             ]);
+
+            $this->triggerService->executeForWorkOrderEvent(
+                'work_order.progress',
+                $workOrder,
+                [
+                    'status' => $workOrder->status,
+                    'priority' => $workOrder->priority,
+                    'is_released' => $workOrder->is_released,
+                    'metadata' => $beforeMetadata,
+                    'updated_at' => $workOrder->updated_at?->toIso8601String(),
+                    'completed_at' => $workOrder->completed_at?->toIso8601String(),
+                ],
+                [
+                    'status' => $workOrder->status,
+                    'priority' => $workOrder->priority,
+                    'is_released' => $workOrder->is_released,
+                    'metadata' => $afterMetadata,
+                    'updated_at' => now()->toIso8601String(),
+                    'completed_at' => $workOrder->completed_at?->toIso8601String(),
+                ],
+                $actor->id
+            );
         } catch (\Throwable) {
             // Ignore realtime errors for progress events.
         }

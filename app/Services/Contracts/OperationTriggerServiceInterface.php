@@ -3,6 +3,7 @@
 namespace App\Services\Contracts;
 
 use Illuminate\Pagination\LengthAwarePaginator;
+use App\Models\WorkOrder;
 
 interface OperationTriggerServiceInterface
 {
@@ -21,4 +22,13 @@ interface OperationTriggerServiceInterface
     public function simulate(int $id, array $payload = []): array;
 
     public function execute(int $id, array $payload = [], ?int $actorId = null): array;
+
+    public function executeForWorkOrderEvent(
+        string $event,
+        WorkOrder $workOrder,
+        array $beforeSnapshot,
+        array $afterSnapshot,
+        ?int $actorId = null,
+        ?string $eventId = null
+    ): array;
 }

@@ -211,89 +211,69 @@ class OperationTriggerService implements OperationTriggerServiceInterface
             'changes' => Arr::get($payload, 'changes', []),
         ];
 
-        $rule = is_array($trigger->rule) ? $trigger->rule : [];
-        $evaluation = $this->evaluateGroup($rule, $context);
+        return $this->executeForTrigger(
+            $trigger,
+            $workOrder,
+            $context,
+            $actorId,
+            Arr::get($payload, 'event_id'),
+            $executionId
+        );
+    }
 
-        if (! ($evaluation['matched'] ?? false)) {
-            $this->appendExecution($trigger, [
-                'id' => $executionId ?? Str::uuid()->toString(),
-                'work_order_id' => $workOrder->id,
-                'work_order_no' => $workOrder->work_order_no,
-                'status' => 'skipped',
-                'at' => now()->toIso8601String(),
-                'summary' => $evaluation,
-            ]);
+    public function executeForWorkOrderEvent(
+        string $event,
+        WorkOrder $workOrder,
+        array $beforeSnapshot,
+        array $afterSnapshot,
+        ?int $actorId = null,
+        ?string $eventId = null
+    ): array {
+        $triggers = OperationTrigger::query()
+            ->where('status', 'published')
+            ->where('is_active', true)
+            ->get();
 
+        if ($triggers->isEmpty()) {
             return [
-                'trigger_id' => $trigger->id,
-                'status' => 'skipped',
-                'matched' => false,
-                'summary' => $evaluation,
+                'count' => 0,
+                'results' => [],
             ];
         }
 
-        $variables = $this->buildTemplateVariables($contextWorkOrder, $payload);
-        $actions = is_array($trigger->actions) ? $trigger->actions : [];
-        $actionResults = [];
-        $startedAt = microtime(true);
+        $workOrderContext = $this->buildWorkOrderContextFromSnapshot($workOrder, $afterSnapshot);
+        $changes = $this->buildChangeMap($beforeSnapshot, $afterSnapshot);
+        $context = [
+            'work_order' => $workOrderContext,
+            'changes' => $changes,
+        ];
 
-        foreach ($actions as $action) {
-            if (! Arr::get($action, 'enabled', true)) {
-                $actionResults[] = [
-                    'type' => $action['type'] ?? 'unknown',
+        $results = [];
+        foreach ($triggers as $trigger) {
+            if (! $this->shouldTriggerForEvent($trigger, $event)) {
+                continue;
+            }
+            if ($this->shouldSkipForCooldown($trigger)) {
+                $results[] = [
+                    'trigger_id' => $trigger->id,
                     'status' => 'skipped',
-                    'reason' => 'Action disabled.',
+                    'reason' => 'Cooldown/debounce window active.',
                 ];
                 continue;
             }
 
-            $type = $action['type'] ?? 'unknown';
-            $result = match ($type) {
-                'in_app' => $this->executeInAppAction($action, $workOrder, $variables, $actorId),
-                'push' => $this->executeNotificationAction($action, $workOrder, $variables, $actorId),
-                'virtual_screen' => $this->executeVirtualScreenAction($action, $workOrder, $variables),
-                'webhook' => $this->executeWebhookAction($action, $variables),
-                default => [
-                    'type' => $type,
-                    'status' => 'skipped',
-                    'reason' => 'Unsupported action type.',
-                ],
-            };
-
-            $actionResults[] = $result;
+            $results[] = $this->executeForTrigger(
+                $trigger,
+                $workOrder,
+                $context,
+                $actorId,
+                $eventId
+            );
         }
 
-        $durationMs = (int) round((microtime(true) - $startedAt) * 1000);
-        $hasFailure = collect($actionResults)->contains(
-            static fn($result): bool => ($result['status'] ?? '') === 'failed'
-        );
-
-        $status = $hasFailure ? 'failed' : 'success';
-
-        $this->appendExecution($trigger, [
-            'id' => $executionId ?? Str::uuid()->toString(),
-            'work_order_id' => $workOrder->id,
-            'work_order_no' => $workOrder->work_order_no,
-            'status' => $status,
-            'duration_ms' => $durationMs,
-            'at' => now()->toIso8601String(),
-            'summary' => $evaluation,
-            'actions' => $actionResults,
-        ]);
-
-        $this->firebaseRealtimeService->publishTriggerExecution([
-            'trigger_id' => $trigger->id,
-            'work_order_id' => $workOrder->id,
-            'status' => $status,
-            'duration_ms' => $durationMs,
-        ]);
-
         return [
-            'trigger_id' => $trigger->id,
-            'status' => $status,
-            'matched' => true,
-            'actions' => $actionResults,
-            'duration_ms' => $durationMs,
+            'count' => count($results),
+            'results' => $results,
         ];
     }
 
@@ -363,6 +343,209 @@ class OperationTriggerService implements OperationTriggerServiceInterface
             $trigger->last_fired_at = now();
         }
         $trigger->save();
+    }
+
+    protected function executeForTrigger(
+        OperationTrigger $trigger,
+        WorkOrder $workOrder,
+        array $context,
+        ?int $actorId = null,
+        ?string $eventId = null,
+        ?string $executionId = null
+    ): array {
+        $rule = is_array($trigger->rule) ? $trigger->rule : [];
+        $evaluation = $this->evaluateGroup($rule, $context);
+
+        if (! ($evaluation['matched'] ?? false)) {
+            $this->appendExecution($trigger, [
+                'id' => $executionId ?? Str::uuid()->toString(),
+                'work_order_id' => $workOrder->id,
+                'work_order_no' => $workOrder->work_order_no,
+                'status' => 'skipped',
+                'at' => now()->toIso8601String(),
+                'summary' => $evaluation,
+            ]);
+
+            return [
+                'trigger_id' => $trigger->id,
+                'status' => 'skipped',
+                'matched' => false,
+                'summary' => $evaluation,
+            ];
+        }
+
+        $variables = $this->buildTemplateVariables(
+            $context['work_order'] ?? $workOrder->toArray(),
+            ['event_id' => $eventId]
+        );
+        $actions = is_array($trigger->actions) ? $trigger->actions : [];
+        $actionResults = [];
+        $startedAt = microtime(true);
+
+        foreach ($actions as $action) {
+            if (! Arr::get($action, 'enabled', true)) {
+                $actionResults[] = [
+                    'type' => $action['type'] ?? 'unknown',
+                    'status' => 'skipped',
+                    'reason' => 'Action disabled.',
+                ];
+                continue;
+            }
+
+            $type = $action['type'] ?? 'unknown';
+            $result = match ($type) {
+                'in_app' => $this->executeInAppAction($action, $workOrder, $variables, $actorId),
+                'push' => $this->executeNotificationAction($action, $workOrder, $variables, $actorId),
+                'virtual_screen' => $this->executeVirtualScreenAction($action, $workOrder, $variables),
+                'webhook' => $this->executeWebhookAction($action, $variables),
+                default => [
+                    'type' => $type,
+                    'status' => 'skipped',
+                    'reason' => 'Unsupported action type.',
+                ],
+            };
+
+            $actionResults[] = $result;
+        }
+
+        $durationMs = (int) round((microtime(true) - $startedAt) * 1000);
+        $hasFailure = collect($actionResults)->contains(
+            static fn($result): bool => ($result['status'] ?? '') === 'failed'
+        );
+
+        $status = $hasFailure ? 'failed' : 'success';
+
+        $this->appendExecution($trigger, [
+            'id' => $executionId ?? Str::uuid()->toString(),
+            'work_order_id' => $workOrder->id,
+            'work_order_no' => $workOrder->work_order_no,
+            'status' => $status,
+            'duration_ms' => $durationMs,
+            'at' => now()->toIso8601String(),
+            'summary' => $evaluation,
+            'actions' => $actionResults,
+        ]);
+
+        $this->firebaseRealtimeService->publishTriggerExecution([
+            'trigger_id' => $trigger->id,
+            'work_order_id' => $workOrder->id,
+            'status' => $status,
+            'duration_ms' => $durationMs,
+        ]);
+
+        return [
+            'trigger_id' => $trigger->id,
+            'status' => $status,
+            'matched' => true,
+            'actions' => $actionResults,
+            'duration_ms' => $durationMs,
+        ];
+    }
+
+    protected function buildWorkOrderContextFromSnapshot(
+        WorkOrder $workOrder,
+        array $snapshot
+    ): array {
+        $context = $workOrder->toArray();
+        foreach (['status', 'priority', 'is_released', 'metadata'] as $key) {
+            if (array_key_exists($key, $snapshot)) {
+                $context[$key] = $snapshot[$key];
+            }
+        }
+
+        return $this->hydrateWorkOrderContext($context);
+    }
+
+    protected function buildChangeMap(array $beforeSnapshot, array $afterSnapshot): array
+    {
+        $changes = [];
+        foreach ($this->fieldMap as $fieldKey => $path) {
+            $before = data_get($beforeSnapshot, $path);
+            $after = data_get($afterSnapshot, $path);
+            if (! $this->compare($before, $after)) {
+                $changes[$fieldKey] = [
+                    'before' => $before,
+                    'after' => $after,
+                ];
+            }
+        }
+
+        foreach (['status', 'priority', 'is_released'] as $fieldKey) {
+            $before = $beforeSnapshot[$fieldKey] ?? null;
+            $after = $afterSnapshot[$fieldKey] ?? null;
+            if (! $this->compare($before, $after)) {
+                $changes[$fieldKey] = [
+                    'before' => $before,
+                    'after' => $after,
+                ];
+            }
+        }
+
+        return $changes;
+    }
+
+    protected function shouldTriggerForEvent(OperationTrigger $trigger, string $event): bool
+    {
+        $schedule = is_array($trigger->schedule) ? $trigger->schedule : [];
+        $mode = strtolower((string) ($schedule['mode'] ?? 'event'));
+        if ($mode !== 'event') {
+            return false;
+        }
+
+        $scheduleEvent = $schedule['event'] ?? null;
+        if (! $scheduleEvent) {
+            return true;
+        }
+
+        if ($scheduleEvent === $event) {
+            return true;
+        }
+
+        if ($scheduleEvent === 'work_order.updated') {
+            return in_array($event, [
+                'work_order.status_changed',
+                'work_order.progress',
+                'work_order.checklist',
+                'work_order.validation',
+            ], true);
+        }
+
+        return false;
+    }
+
+    protected function shouldSkipForCooldown(OperationTrigger $trigger): bool
+    {
+        $lastFired = $trigger->last_fired_at;
+        if (! $lastFired) {
+            return false;
+        }
+
+        $cooldown = is_array($trigger->cooldown) ? $trigger->cooldown : [];
+        $debounce = is_array($trigger->debounce) ? $trigger->debounce : [];
+
+        $cooldownMinutes = $this->normalizeWindowMinutes($cooldown);
+        $debounceMinutes = $this->normalizeWindowMinutes($debounce);
+
+        $windowMinutes = max($cooldownMinutes, $debounceMinutes);
+        if ($windowMinutes <= 0) {
+            return false;
+        }
+
+        return $lastFired->gt(now()->subMinutes($windowMinutes));
+    }
+
+    protected function normalizeWindowMinutes(array $window): int
+    {
+        $value = (int) ($window['value'] ?? 0);
+        if ($value <= 0) {
+            return 0;
+        }
+        $unit = strtolower((string) ($window['unit'] ?? 'minutes'));
+        return match ($unit) {
+            'hours' => $value * 60,
+            'days' => $value * 1440,
+            default => $value,
+        };
     }
 
     protected function buildTemplateVariables(array $workOrder, array $payload = []): array
