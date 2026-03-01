@@ -152,7 +152,7 @@ class OperationTriggerService implements OperationTriggerServiceInterface
         }
 
         $context = [
-            'work_order' => $workOrder->toArray(),
+            'work_order' => $this->hydrateWorkOrderContext($workOrder->toArray()),
             'changes' => Arr::get($payload, 'changes', []),
         ];
 
@@ -308,6 +308,16 @@ class OperationTriggerService implements OperationTriggerServiceInterface
 
         $matched = false;
         $reason = null;
+
+        if (! $pathExists && $fieldKey === 'progress_pct') {
+            $computed = $this->computeProgressPctFromMetadata(
+                Arr::get($workOrder, 'metadata', [])
+            );
+            if ($computed !== null) {
+                $current = $computed;
+                $pathExists = true;
+            }
+        }
 
         $before = null;
         $after = null;
@@ -494,5 +504,165 @@ class OperationTriggerService implements OperationTriggerServiceInterface
         } catch (\Throwable) {
             return false;
         }
+    }
+
+    protected function hydrateWorkOrderContext(array $workOrder): array
+    {
+        $metadata = Arr::get($workOrder, 'metadata', []);
+        if (is_string($metadata)) {
+            $decoded = json_decode($metadata, true);
+            $metadata = is_array($decoded) ? $decoded : [];
+        }
+        if (!is_array($metadata)) {
+            $metadata = [];
+        }
+
+        $progressPct = $this->computeProgressPctFromMetadata($metadata);
+        if ($progressPct !== null) {
+            $state = is_array($metadata['state'] ?? null) ? $metadata['state'] : [];
+            $state['progressPct'] = $progressPct;
+            $metadata['state'] = $state;
+        }
+
+        $workOrder['metadata'] = $metadata;
+        return $workOrder;
+    }
+
+    protected function computeProgressPctFromMetadata(array $metadata): ?float
+    {
+        $routes = $this->extractRoutesFromMetadata($metadata);
+        if (empty($routes)) {
+            return null;
+        }
+
+        $best = null;
+        foreach ($routes as $route) {
+            if (!is_array($route)) {
+                continue;
+            }
+
+            $timeTracker = $this->resolveRouteTimeTracker($route);
+            $entries = is_array($timeTracker['entries'] ?? null) ? $timeTracker['entries'] : [];
+
+            foreach ($entries as $entry) {
+                if (!is_array($entry)) {
+                    continue;
+                }
+                $value = $entry['route_progress_pct']
+                    ?? $entry['routeProgressPct']
+                    ?? $entry['operator_progress_pct']
+                    ?? $entry['operatorProgressPct']
+                    ?? null;
+                if ($value === null) {
+                    continue;
+                }
+                $numeric = $this->toNumber($value);
+                if ($best === null || $numeric > $best) {
+                    $best = $numeric;
+                }
+            }
+
+            if ($best === null && !empty($entries)) {
+                $produced = $this->resolvePrintedQty($entries);
+                $target = $this->resolveTargetPrintedQty($entries, $metadata);
+                if ($produced !== null && $target !== null && $target > 0) {
+                    $ratio = min(1, $produced / $target);
+                    $candidate = max(0, $ratio * 100);
+                    if ($best === null || $candidate > $best) {
+                        $best = $candidate;
+                    }
+                }
+            }
+        }
+
+        return $best;
+    }
+
+    protected function extractRoutesFromMetadata(array $metadata): array
+    {
+        $routes = $metadata['routes'] ?? $metadata['data'] ?? $metadata['steps'] ?? [];
+        if (!is_array($routes)) {
+            return [];
+        }
+
+        $flattened = [];
+        foreach ($routes as $entry) {
+            if (!is_array($entry)) {
+                continue;
+            }
+
+            if (array_key_exists('routes', $entry) && is_array($entry['routes'])) {
+                foreach ($entry['routes'] as $route) {
+                    if (is_array($route)) {
+                        $flattened[] = $route;
+                    }
+                }
+                continue;
+            }
+
+            $flattened[] = $entry;
+        }
+
+        return $flattened;
+    }
+
+    protected function resolveRouteTimeTracker(array $route): array
+    {
+        $metadata = is_array($route['metadata'] ?? null) ? $route['metadata'] : [];
+        $timeTracker = $metadata['timeTracker'] ?? $metadata['time_tracker'] ?? $route['timeTracker'] ?? $route['time_tracker'] ?? [];
+        return is_array($timeTracker) ? $timeTracker : [];
+    }
+
+    protected function resolvePrintedQty(array $entries): ?float
+    {
+        $max = null;
+        foreach ($entries as $entry) {
+            if (!is_array($entry)) {
+                continue;
+            }
+            $value = $entry['total_printed_qty']
+                ?? $entry['totalPrintedQty']
+                ?? $entry['printed_qty']
+                ?? $entry['printedQty']
+                ?? null;
+            if ($value === null) {
+                continue;
+            }
+            $numeric = $this->toNumber($value);
+            if ($max === null || $numeric > $max) {
+                $max = $numeric;
+            }
+        }
+
+        return $max;
+    }
+
+    protected function resolveTargetPrintedQty(array $entries, array $metadata): ?float
+    {
+        $max = null;
+        foreach ($entries as $entry) {
+            if (!is_array($entry)) {
+                continue;
+            }
+            $value = $entry['target_printed_qty'] ?? $entry['targetPrintedQty'] ?? null;
+            if ($value === null) {
+                continue;
+            }
+            $numeric = $this->toNumber($value);
+            if ($max === null || $numeric > $max) {
+                $max = $numeric;
+            }
+        }
+
+        if ($max !== null) {
+            return $max;
+        }
+
+        $qty = Arr::get($metadata, 'state.qty');
+        if ($qty === null || $qty === '') {
+            return null;
+        }
+
+        return $this->toNumber($qty);
     }
 }

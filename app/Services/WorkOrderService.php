@@ -223,6 +223,7 @@ class WorkOrderService implements WorkOrderServiceInterface
         }
 
         try {
+            $metadataSnapshot = $this->withProgressPct($this->normalizeMetadata($workOrder->metadata));
             $this->firebaseRealtimeService->publishWorkOrderEvent([
                 'event' => 'work_order.created',
                 'work_order_id' => $workOrder->id,
@@ -233,7 +234,7 @@ class WorkOrderService implements WorkOrderServiceInterface
                     'status' => $workOrder->status,
                     'priority' => $workOrder->priority,
                     'is_released' => $workOrder->is_released,
-                    'metadata' => $workOrder->metadata,
+                    'metadata' => $metadataSnapshot,
                     'updated_at' => $workOrder->updated_at?->toIso8601String(),
                     'completed_at' => $workOrder->completed_at?->toIso8601String(),
                 ],
@@ -367,11 +368,12 @@ class WorkOrderService implements WorkOrderServiceInterface
     public function update(int $id, array $data, array $evidenceImages = [], ?User $actor = null): bool
     {
         $beforeOrder = $this->workOrderRepository->findById($id);
+        $beforeMetadata = $this->withProgressPct($this->normalizeMetadata($beforeOrder->metadata));
         $beforeSnapshot = [
             'status' => $beforeOrder->status,
             'priority' => $beforeOrder->priority,
             'is_released' => $beforeOrder->is_released,
-            'metadata' => $beforeOrder->metadata,
+            'metadata' => $beforeMetadata,
             'updated_at' => $beforeOrder->updated_at?->toIso8601String(),
             'completed_at' => $beforeOrder->completed_at?->toIso8601String(),
         ];
@@ -414,6 +416,7 @@ class WorkOrderService implements WorkOrderServiceInterface
             try {
                 $order = $this->workOrderRepository->findById($id);
                 $changedFields = array_keys($data);
+                $metadataSnapshot = $this->withProgressPct($this->normalizeMetadata($order->metadata));
                 $this->firebaseRealtimeService->publishVirtualizationUpdate([
                     'work_order_id' => $order->id,
                     'work_order_no' => $order->work_order_no,
@@ -432,7 +435,7 @@ class WorkOrderService implements WorkOrderServiceInterface
                         'status' => $order->status,
                         'priority' => $order->priority,
                         'is_released' => $order->is_released,
-                        'metadata' => $order->metadata,
+                        'metadata' => $metadataSnapshot,
                         'updated_at' => $order->updated_at?->toIso8601String(),
                         'completed_at' => $order->completed_at?->toIso8601String(),
                     ],
@@ -3637,6 +3640,70 @@ class WorkOrderService implements WorkOrderServiceInterface
         }
 
         return [];
+    }
+
+    protected function withProgressPct(array $metadata): array
+    {
+        $progressPct = $this->computeWorkOrderProgressPct($metadata);
+        if ($progressPct === null) {
+            return $metadata;
+        }
+
+        $state = is_array($metadata['state'] ?? null) ? $metadata['state'] : [];
+        $state['progressPct'] = $progressPct;
+        $metadata['state'] = $state;
+
+        return $metadata;
+    }
+
+    protected function computeWorkOrderProgressPct(array $metadata): ?float
+    {
+        $routes = $this->extractRoutes($metadata);
+        if (empty($routes)) {
+            return null;
+        }
+
+        $best = null;
+        foreach ($routes as $route) {
+            if (!is_array($route)) {
+                continue;
+            }
+
+            $timeTracker = $this->resolveRouteTimeTracker($route);
+            $entries = $this->normalizeTimeTrackerEntries($timeTracker['entries'] ?? []);
+
+            foreach ($entries as $entry) {
+                if (!is_array($entry)) {
+                    continue;
+                }
+                $value = $entry['route_progress_pct']
+                    ?? $entry['routeProgressPct']
+                    ?? $entry['operator_progress_pct']
+                    ?? $entry['operatorProgressPct']
+                    ?? null;
+                if ($value === null) {
+                    continue;
+                }
+                $numeric = $this->numericValue($value);
+                if ($best === null || $numeric > $best) {
+                    $best = $numeric;
+                }
+            }
+
+            if ($best === null && !empty($entries)) {
+                $produced = $this->resolvePrintedQty($entries);
+                $target = $this->resolveTargetPrintedQty($entries, $metadata);
+                if ($produced !== null && $target !== null && $target > 0) {
+                    $ratio = min(1, $produced / $target);
+                    $candidate = max(0, $ratio * 100);
+                    if ($best === null || $candidate > $best) {
+                        $best = $candidate;
+                    }
+                }
+            }
+        }
+
+        return $best;
     }
 
     protected function normalizeTimeTrackerEntries(mixed $entries): array

@@ -85,6 +85,87 @@ const evaluateOperator = (operator, actual, expected, expectedTo) => {
   }
 };
 
+const extractRoutesFromMetadata = (metadata = {}) => {
+  const routes = metadata?.routes ?? metadata?.data ?? metadata?.steps ?? [];
+  if (!Array.isArray(routes)) return [];
+  const flattened = [];
+  routes.forEach((entry) => {
+    if (!entry || typeof entry !== "object") return;
+    if (Array.isArray(entry.routes)) {
+      entry.routes.forEach((route) => {
+        if (route && typeof route === "object") flattened.push(route);
+      });
+      return;
+    }
+    flattened.push(entry);
+  });
+  return flattened;
+};
+
+const resolveRouteTimeTracker = (route = {}) => {
+  const metadata = route?.metadata && typeof route.metadata === "object" ? route.metadata : {};
+  const tracker =
+    metadata?.timeTracker ||
+    metadata?.time_tracker ||
+    route?.timeTracker ||
+    route?.time_tracker ||
+    {};
+  return tracker && typeof tracker === "object" ? tracker : {};
+};
+
+const computeProgressPctFromMetadata = (metadata = {}) => {
+  const routes = extractRoutesFromMetadata(metadata);
+  if (!routes.length) return null;
+  let best = null;
+
+  routes.forEach((route) => {
+    if (!route || typeof route !== "object") return;
+    const tracker = resolveRouteTimeTracker(route);
+    const entries = Array.isArray(tracker.entries) ? tracker.entries : [];
+    entries.forEach((entry) => {
+      if (!entry || typeof entry !== "object") return;
+      const value =
+        entry.route_progress_pct ??
+        entry.routeProgressPct ??
+        entry.operator_progress_pct ??
+        entry.operatorProgressPct ??
+        null;
+      if (value === null || value === undefined) return;
+      const numeric = toNumber(value);
+      if (best === null || numeric > best) best = numeric;
+    });
+
+    if (best === null && entries.length) {
+      const produced = entries.reduce((max, entry) => {
+        if (!entry || typeof entry !== "object") return max;
+        const value =
+          entry.total_printed_qty ??
+          entry.totalPrintedQty ??
+          entry.printed_qty ??
+          entry.printedQty ??
+          null;
+        if (value === null || value === undefined) return max;
+        const numeric = toNumber(value);
+        return max === null || numeric > max ? numeric : max;
+      }, null);
+      const target = entries.reduce((max, entry) => {
+        if (!entry || typeof entry !== "object") return max;
+        const value = entry.target_printed_qty ?? entry.targetPrintedQty ?? null;
+        if (value === null || value === undefined) return max;
+        const numeric = toNumber(value);
+        return max === null || numeric > max ? numeric : max;
+      }, null);
+      const fallbackTarget = target ?? toNumber(metadata?.state?.qty ?? 0);
+      if (produced !== null && fallbackTarget) {
+        const candidate = Math.max(0, Math.min(1, produced / fallbackTarget) * 100);
+        if (best === null || candidate > best) best = candidate;
+      }
+    }
+  });
+
+  return best;
+};
+
 const FIELD_MAP = {
   status: "status",
   priority: "priority",
@@ -107,8 +188,15 @@ const evaluateCondition = (condition, snapshot, changeList, beforeSnapshot) => {
   const operator = condition.operator || "eq";
   const expected = condition.value;
   const expectedTo = condition.valueTo;
-  const current = getValueByPath(snapshot, fieldPath);
+  let current = getValueByPath(snapshot, fieldPath);
   const previous = beforeSnapshot ? getValueByPath(beforeSnapshot, fieldPath) : null;
+
+  if (current === null && fieldKey === "progress_pct") {
+    const computed = computeProgressPctFromMetadata(snapshot?.metadata || {});
+    if (computed !== null) {
+      current = computed;
+    }
+  }
 
   if (["changed", "changed_to", "changed_from"].includes(operator)) {
     const changed = beforeSnapshot
