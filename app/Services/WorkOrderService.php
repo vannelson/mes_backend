@@ -499,6 +499,7 @@ class WorkOrderService implements WorkOrderServiceInterface
     {
         $workOrder = $this->workOrderRepository->findById($id);
         $metadata = $this->normalizeMetadata($workOrder->metadata);
+        $beforeMetadata = $this->withProgressPct($metadata);
         $routesKey = $this->resolveRoutesKey($metadata);
 
         if (!isset($metadata[$routesKey]) || !is_array($metadata[$routesKey])) {
@@ -607,6 +608,7 @@ class WorkOrderService implements WorkOrderServiceInterface
         $route['metadata'] = $routeMetadata;
 
         $this->workOrderRepository->update($id, ['metadata' => $metadata]);
+        $afterMetadata = $this->withProgressPct($metadata);
 
         try {
             $this->firebaseRealtimeService->publishVirtualizationUpdate([
@@ -621,6 +623,35 @@ class WorkOrderService implements WorkOrderServiceInterface
             ]);
         } catch (\Throwable) {
             // Firebase updates should not block time tracker writes.
+        }
+
+        try {
+            $this->firebaseRealtimeService->publishWorkOrderEvent([
+                'event' => 'work_order.progress',
+                'work_order_id' => $workOrder->id,
+                'work_order_no' => $workOrder->work_order_no,
+                'changed_fields' => ['metadata', 'metadata.state.progressPct'],
+                'actor_id' => $actor->id,
+                'occurred_at' => now()->toIso8601String(),
+                'before_snapshot' => [
+                    'status' => $workOrder->status,
+                    'priority' => $workOrder->priority,
+                    'is_released' => $workOrder->is_released,
+                    'metadata' => $beforeMetadata,
+                    'updated_at' => $workOrder->updated_at?->toIso8601String(),
+                    'completed_at' => $workOrder->completed_at?->toIso8601String(),
+                ],
+                'snapshot' => [
+                    'status' => $workOrder->status,
+                    'priority' => $workOrder->priority,
+                    'is_released' => $workOrder->is_released,
+                    'metadata' => $afterMetadata,
+                    'updated_at' => now()->toIso8601String(),
+                    'completed_at' => $workOrder->completed_at?->toIso8601String(),
+                ],
+            ]);
+        } catch (\Throwable) {
+            // Ignore realtime errors for progress events.
         }
 
         try {
