@@ -222,6 +222,26 @@ class WorkOrderService implements WorkOrderServiceInterface
             $this->syncAssignmentsFromMetadata($workOrder->id, $data['metadata']);
         }
 
+        try {
+            $this->firebaseRealtimeService->publishWorkOrderEvent([
+                'event' => 'work_order.created',
+                'work_order_id' => $workOrder->id,
+                'work_order_no' => $workOrder->work_order_no,
+                'actor_id' => null,
+                'occurred_at' => now()->toIso8601String(),
+                'snapshot' => [
+                    'status' => $workOrder->status,
+                    'priority' => $workOrder->priority,
+                    'is_released' => $workOrder->is_released,
+                    'metadata' => $workOrder->metadata,
+                    'updated_at' => $workOrder->updated_at?->toIso8601String(),
+                    'completed_at' => $workOrder->completed_at?->toIso8601String(),
+                ],
+            ]);
+        } catch (\Throwable) {
+            // Ignore realtime errors on create.
+        }
+
         return (new WorkOrderResource($workOrder))->response()->getData(true);
     }
 
@@ -383,11 +403,28 @@ class WorkOrderService implements WorkOrderServiceInterface
         if ($updated) {
             try {
                 $order = $this->workOrderRepository->findById($id);
+                $changedFields = array_keys($data);
                 $this->firebaseRealtimeService->publishVirtualizationUpdate([
                     'work_order_id' => $order->id,
                     'work_order_no' => $order->work_order_no,
                     'template_route_id' => $order->template_route_id,
                     'action' => 'work_order_update',
+                ]);
+                $this->firebaseRealtimeService->publishWorkOrderEvent([
+                    'event' => 'work_order.updated',
+                    'work_order_id' => $order->id,
+                    'work_order_no' => $order->work_order_no,
+                    'changed_fields' => $changedFields,
+                    'actor_id' => $actor?->id,
+                    'occurred_at' => now()->toIso8601String(),
+                    'snapshot' => [
+                        'status' => $order->status,
+                        'priority' => $order->priority,
+                        'is_released' => $order->is_released,
+                        'metadata' => $order->metadata,
+                        'updated_at' => $order->updated_at?->toIso8601String(),
+                        'completed_at' => $order->completed_at?->toIso8601String(),
+                    ],
                 ]);
                 $this->notificationService->notifyWorkOrder(
                     $order,

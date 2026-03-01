@@ -34,6 +34,24 @@ class FirebaseRealtimeService
         return $this->publishUpdate('mes/messages/last_update', $payload);
     }
 
+    public function publishTriggerUpdate(array $payload): bool
+    {
+        return $this->publishUpdate('mes/triggers/last_update', $payload);
+    }
+
+    public function publishTriggerExecution(array $payload): bool
+    {
+        return $this->publishUpdate('mes/triggers/executions/last_update', $payload);
+    }
+
+    public function publishWorkOrderEvent(array $payload): bool
+    {
+        $eventId = $payload['event_id'] ?? (string) Str::uuid();
+        $payload['event_id'] = $eventId;
+
+        return $this->publishUpdate("mes/workorders/events/{$eventId}", $payload);
+    }
+
     protected function publishUpdate(string $path, array $payload): bool
     {
         $databaseUrl = config('services.firebase.database_url');

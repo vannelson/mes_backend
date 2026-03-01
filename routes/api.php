@@ -12,6 +12,7 @@ use App\Http\Controllers\HistoricalWorkOrderController;
 use App\Http\Controllers\MachineController;
 use App\Http\Controllers\ImageController;
 use App\Http\Controllers\MessageController;
+use App\Http\Controllers\OperationTriggerController;
 use App\Http\Controllers\PackingChecklistController;
 use App\Http\Controllers\PackingController;
 use App\Http\Controllers\PlaylistItemController;
@@ -98,6 +99,14 @@ Route::prefix('v1')->group(function () {
         Route::post('work-orders/{id}/assignments', [WorkOrderController::class, 'syncAssignments']);
         Route::post('work-orders/{id}/time-tracker', [WorkOrderController::class, 'recordTimeTracker']);
         Route::delete('work-orders/{id}', [WorkOrderController::class, 'destroy']);
+
+        Route::get('operation-triggers', [OperationTriggerController::class, 'index']);
+        Route::post('operation-triggers', [OperationTriggerController::class, 'store']);
+        Route::get('operation-triggers/{id}', [OperationTriggerController::class, 'show'])->whereNumber('id');
+        Route::put('operation-triggers/{id}', [OperationTriggerController::class, 'update'])->whereNumber('id');
+        Route::post('operation-triggers/{id}/publish', [OperationTriggerController::class, 'publish'])->whereNumber('id');
+        Route::post('operation-triggers/{id}/disable', [OperationTriggerController::class, 'disable'])->whereNumber('id');
+        Route::post('operation-triggers/{id}/simulate', [OperationTriggerController::class, 'simulate'])->whereNumber('id');
 
         Route::get('work-order-evidences', [WorkOrderEvidenceController::class, 'index']);
         Route::post('work-order-evidences', [WorkOrderEvidenceController::class, 'store']);
