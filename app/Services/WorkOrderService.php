@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Http\Resources\WorkOrder\WorkOrderResource;
 use App\Models\Customer;
+use App\Models\Packing;
 use App\Models\PackingChecklist;
 use App\Models\TemplateRoute;
 use App\Models\User;
