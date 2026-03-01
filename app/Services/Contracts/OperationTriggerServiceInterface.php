@@ -19,4 +19,6 @@ interface OperationTriggerServiceInterface
     public function disable(int $id, ?int $actorId = null): array;
 
     public function simulate(int $id, array $payload = []): array;
+
+    public function execute(int $id, array $payload = [], ?int $actorId = null): array;
 }

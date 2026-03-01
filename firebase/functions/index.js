@@ -269,6 +269,71 @@ exports.onWorkOrderEvent = functions.database
     return null;
   });
 
+exports.onTriggerExecutionQueued = functions.database
+  .ref("mes/triggers/executions/{executionId}")
+  .onCreate(async (snapshot, context) => {
+    const execution = snapshot.val() || {};
+    const triggerId = execution.trigger_id;
+    if (!triggerId) {
+      return null;
+    }
+
+    await snapshot.ref.update({
+      status: "processing",
+      started_at: new Date().toISOString(),
+    });
+
+    const apiBase =
+      process.env.MES_API_BASE_URL || functions.config()?.mes?.api_base_url;
+    const triggerKey =
+      process.env.MES_TRIGGER_KEY || functions.config()?.mes?.trigger_key;
+
+    if (!apiBase || !triggerKey) {
+      await snapshot.ref.update({
+        status: "failed",
+        error: "Missing MES_API_BASE_URL or MES_TRIGGER_KEY.",
+        finished_at: new Date().toISOString(),
+      });
+      return null;
+    }
+
+    const url = `${apiBase.replace(/\\/$/, "")}/api/v1/operation-triggers/${triggerId}/execute-internal`;
+
+    try {
+      const response = await fetch(url, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Trigger-Key": triggerKey,
+        },
+        body: JSON.stringify({
+          execution_id: context.params.executionId,
+          work_order_id: execution.work_order_id || null,
+          work_order_no: execution.work_order_no || null,
+          event_id: execution.event_id || null,
+        }),
+      });
+
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(payload?.message || "Execution request failed.");
+      }
+
+      await snapshot.ref.update({
+        status: payload?.data?.status || "success",
+        finished_at: new Date().toISOString(),
+      });
+    } catch (error) {
+      await snapshot.ref.update({
+        status: "failed",
+        error: error?.message || "Execution failed.",
+        finished_at: new Date().toISOString(),
+      });
+    }
+
+    return null;
+  });
+
 exports.scheduledTriggerSweep = functions.pubsub
   .schedule("every 5 minutes")
   .timeZone("Asia/Singapore")

@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Http\Requests\OperationTrigger\OperationTriggerExecuteRequest;
 use App\Http\Requests\OperationTrigger\OperationTriggerSimulateRequest;
 use App\Http\Requests\OperationTrigger\OperationTriggerStoreRequest;
 use App\Http\Requests\OperationTrigger\OperationTriggerUpdateRequest;
@@ -113,6 +114,29 @@ class OperationTriggerController extends Controller
             return $this->validationError($e);
         } catch (Throwable $e) {
             return $this->error('Failed to simulate operation trigger.', 500);
+        }
+    }
+
+    public function execute(OperationTriggerExecuteRequest $request, int $id): JsonResponse
+    {
+        $actor = $request->user();
+        $executeKey = config('services.operation_triggers.execute_key');
+        $headerKey = $request->header('X-Trigger-Key');
+
+        if (! $actor) {
+            if (! $executeKey || $headerKey !== $executeKey) {
+                return $this->error('Unauthorized trigger execution.', 401);
+            }
+        }
+
+        try {
+            $data = $this->triggerService->execute($id, $request->validated(), $actor?->id);
+
+            return $this->success('Operation trigger executed.', $data);
+        } catch (ValidationException $e) {
+            return $this->validationError($e);
+        } catch (Throwable $e) {
+            return $this->error('Failed to execute operation trigger.', 500);
         }
     }
 }

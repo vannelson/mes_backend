@@ -33,6 +33,8 @@ Route::prefix('v1')->group(function () {
     Route::post('auth/login', [AuthController::class, 'login']);
     Route::post('transcripts', [TranscriptController::class, 'store']);
     Route::get('images/{path}', [ImageController::class, 'show'])->where('path', '.*');
+    Route::post('operation-triggers/{id}/execute-internal', [OperationTriggerController::class, 'execute'])
+        ->whereNumber('id');
 
     Route::middleware('auth:sanctum')->group(function () {
         Route::post('auth/confirm-password', [AuthController::class, 'confirmPassword']);
@@ -107,6 +109,7 @@ Route::prefix('v1')->group(function () {
         Route::post('operation-triggers/{id}/publish', [OperationTriggerController::class, 'publish'])->whereNumber('id');
         Route::post('operation-triggers/{id}/disable', [OperationTriggerController::class, 'disable'])->whereNumber('id');
         Route::post('operation-triggers/{id}/simulate', [OperationTriggerController::class, 'simulate'])->whereNumber('id');
+        Route::post('operation-triggers/{id}/execute', [OperationTriggerController::class, 'execute'])->whereNumber('id');
 
         Route::get('work-order-evidences', [WorkOrderEvidenceController::class, 'index']);
         Route::post('work-order-evidences', [WorkOrderEvidenceController::class, 'store']);

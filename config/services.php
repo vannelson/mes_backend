@@ -50,5 +50,8 @@ return [
         'database_url' => env('FIREBASE_DATABASE_URL'),
         'service_account_path' => env('FIREBASE_SERVICE_ACCOUNT_PATH'),
     ],
+    'operation_triggers' => [
+        'execute_key' => env('OPERATION_TRIGGERS_EXECUTE_KEY'),
+    ],
 
 ];
