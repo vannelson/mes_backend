@@ -17,14 +17,19 @@ const isDateValue = (value) => {
 const parseDate = (value) => Date.parse(value);
 
 const isIn = (actual, expected) => {
-  if (Array.isArray(expected)) {
-    return expected.map(String).includes(String(actual));
+  const expectedList = Array.isArray(expected)
+    ? expected.map((entry) => normalize(entry))
+    : `${expected ?? ""}`
+        .split(",")
+        .map((entry) => normalize(entry.trim()))
+        .filter(Boolean);
+
+  if (Array.isArray(actual)) {
+    const actualList = actual.map((entry) => normalize(entry));
+    return actualList.some((entry) => expectedList.includes(entry));
   }
-  const list = `${expected ?? ""}`
-    .split(",")
-    .map((entry) => entry.trim())
-    .filter(Boolean);
-  return list.includes(String(actual));
+
+  return expectedList.includes(normalize(actual));
 };
 
 const evaluateOperator = (operator, actual, expected, expectedTo) => {
@@ -83,7 +88,7 @@ const evaluateOperator = (operator, actual, expected, expectedTo) => {
 const FIELD_MAP = {
   status: "status",
   priority: "priority",
-  assignee: "metadata.state.assignee",
+  assignee: "metadata.state.assignees",
   team: "metadata.state.team",
   sla_timer: "metadata.sla.minutes",
   sla_breach: "metadata.sla.breached",

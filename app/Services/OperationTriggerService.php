@@ -16,7 +16,7 @@ class OperationTriggerService implements OperationTriggerServiceInterface
     protected array $fieldMap = [
         'status' => 'status',
         'priority' => 'priority',
-        'assignee' => 'metadata.state.assignee',
+        'assignee' => 'metadata.state.assignees',
         'team' => 'metadata.state.team',
         'sla_timer' => 'metadata.sla.minutes',
         'sla_breach' => 'metadata.sla.breached',
@@ -381,11 +381,32 @@ class OperationTriggerService implements OperationTriggerServiceInterface
             return (float) $actual === (float) $expected;
         }
 
-        return (string) $actual === (string) $expected;
+        if (is_array($actual) || is_array($expected)) {
+            $actualList = is_array($actual) ? $actual : [$actual];
+            $expectedList = is_array($expected) ? $expected : [$expected];
+            $actualList = array_map('strtolower', array_map('strval', $actualList));
+            $expectedList = array_map('strtolower', array_map('strval', $expectedList));
+            sort($actualList);
+            sort($expectedList);
+            return $actualList === $expectedList;
+        }
+
+        $left = strtolower((string) $actual);
+        $right = strtolower((string) $expected);
+        return $left === $right;
     }
 
     protected function contains(mixed $actual, mixed $expected): bool
     {
+        if (is_array($actual)) {
+            if (is_array($expected)) {
+                $actualList = array_map('strtolower', array_map('strval', $actual));
+                $expectedList = array_map('strtolower', array_map('strval', $expected));
+                return (bool) array_intersect($actualList, $expectedList);
+            }
+            return in_array(strtolower((string) $expected), array_map('strtolower', array_map('strval', $actual)), true);
+        }
+
         return str_contains(strtolower((string) $actual), strtolower((string) $expected));
     }
 
@@ -401,12 +422,18 @@ class OperationTriggerService implements OperationTriggerServiceInterface
 
     protected function isIn(mixed $actual, mixed $expected): bool
     {
-        if (is_array($expected)) {
-            return in_array((string) $actual, array_map('strval', $expected), true);
+        $expectedList = is_array($expected)
+            ? array_map('strtolower', array_map('strval', $expected))
+            : array_map('strtolower', array_map('trim', explode(',', (string) $expected)));
+
+        $expectedList = array_values(array_filter($expectedList, static fn($value) => $value !== ''));
+
+        if (is_array($actual)) {
+            $actualList = array_map('strtolower', array_map('strval', $actual));
+            return (bool) array_intersect($actualList, $expectedList);
         }
 
-        $list = array_filter(array_map('trim', explode(',', (string) $expected)));
-        return in_array((string) $actual, $list, true);
+        return in_array(strtolower((string) $actual), $expectedList, true);
     }
 
     protected function between(mixed $actual, mixed $expected, mixed $expectedTo): bool
