@@ -31,6 +31,16 @@ class OperationTriggerService implements OperationTriggerServiceInterface
         'parameter_temp' => 'metadata.parameters.temperature',
         'updated_at' => 'updated_at',
         'custom_field' => 'metadata.custom',
+        'route_status' => 'loop.item.status',
+        'route_name' => 'loop.item.name',
+        'route_code' => 'loop.item.route',
+        'route_progress_pct' => 'loop.item.progress_pct',
+        'assignee_id' => 'loop.item.id',
+        'assignee_name' => 'loop.item.name',
+        'checklist_label' => 'loop.item.label',
+        'checklist_status' => 'loop.item.status',
+        'parameter_name' => 'loop.item.name',
+        'parameter_value' => 'loop.item.value',
     ];
 
     public function __construct(
@@ -162,13 +172,15 @@ class OperationTriggerService implements OperationTriggerServiceInterface
             'changes' => Arr::get($payload, 'changes', []),
         ];
 
-        $rule = is_array($trigger->rule) ? $trigger->rule : [];
-        $evaluation = $this->evaluateGroup($rule, $context);
+        $evaluation = $this->evaluateTriggerLogic($trigger, $context);
 
         return [
             'trigger_id' => $trigger->id,
             'matched' => $evaluation['matched'] ?? false,
-            'summary' => $evaluation,
+            'branch' => $evaluation['branch'] ?? null,
+            'summary' => $evaluation['summary'] ?? null,
+            'branches' => $evaluation['branches'] ?? [],
+            'loop' => $evaluation['loop'] ?? [],
             'work_order' => [
                 'id' => $workOrder->id,
                 'work_order_no' => $workOrder->work_order_no,
@@ -286,6 +298,7 @@ class OperationTriggerService implements OperationTriggerServiceInterface
             'status' => Arr::get($data, 'status', $trigger?->status ?? 'draft'),
             'tags' => Arr::get($data, 'tags', $trigger?->tags ?? []),
             'rule' => Arr::get($data, 'rule', $trigger?->rule ?? []),
+            'loop' => Arr::get($data, 'loop', $trigger?->loop ?? []),
             'schedule' => Arr::get($data, 'schedule', $trigger?->schedule ?? []),
             'actions' => Arr::get($data, 'actions', $trigger?->actions ?? []),
             'cooldown' => Arr::get($data, 'cooldown', $trigger?->cooldown ?? []),
@@ -354,9 +367,138 @@ class OperationTriggerService implements OperationTriggerServiceInterface
         ?string $executionId = null
     ): array {
         $rule = is_array($trigger->rule) ? $trigger->rule : [];
-        $evaluation = $this->evaluateGroup($rule, $context);
+        $loop = $this->normalizeLoopConfig($trigger->loop ?? []);
+        $branches = $this->normalizeActionBranches($trigger->actions ?? []);
+        $evaluation = null;
+        $actionResults = [];
+        $matched = false;
+        $startedAt = microtime(true);
 
-        if (! ($evaluation['matched'] ?? false)) {
+        if ($loop['mode'] === 'for_each') {
+            $items = $this->resolveLoopItems($loop, $context);
+            $items = array_slice($items, 0, $loop['limit']);
+            $loopResults = [];
+            $matchedCount = 0;
+
+            foreach ($items as $index => $item) {
+                $loopContext = array_merge($context, [
+                    'loop' => [
+                        'item' => $item,
+                        'index' => $index,
+                        'collection' => $loop['collection'],
+                    ],
+                ]);
+                $branchEval = $this->evaluateBranchRules($rule, $branches, $loopContext);
+                $loopResults[] = $branchEval;
+
+                if ($branchEval['matched'] ?? false) {
+                    $matchedCount++;
+                    if ($loop['gate'] === 'any') {
+                        $variables = $this->buildTemplateVariables(
+                            $context['work_order'] ?? $workOrder->toArray(),
+                            [
+                                'event_id' => $eventId,
+                                'loop_item' => $item,
+                                'loop_index' => $index,
+                                'loop_collection' => $loop['collection'],
+                            ]
+                        );
+                        $results = $this->executeActionList(
+                            $branchEval['actions'] ?? [],
+                            $workOrder,
+                            $variables,
+                            $actorId
+                        );
+                        foreach ($results as &$result) {
+                            $result['loop_index'] = $index;
+                            $result['branch'] = $branchEval['branch'] ?? null;
+                        }
+                        $actionResults = array_merge($actionResults, $results);
+                    }
+                }
+            }
+
+            $allMatched = ! empty($items) && $matchedCount === count($items);
+            $matched = $loop['gate'] === 'all' ? $allMatched : $matchedCount > 0;
+
+            if ($loop['gate'] === 'all' && $matched) {
+                foreach ($loopResults as $index => $branchEval) {
+                    if (! ($branchEval['matched'] ?? false)) {
+                        continue;
+                    }
+                    $item = $items[$index] ?? null;
+                    $variables = $this->buildTemplateVariables(
+                        $context['work_order'] ?? $workOrder->toArray(),
+                        [
+                            'event_id' => $eventId,
+                            'loop_item' => $item,
+                            'loop_index' => $index,
+                            'loop_collection' => $loop['collection'],
+                        ]
+                    );
+                    $results = $this->executeActionList(
+                        $branchEval['actions'] ?? [],
+                        $workOrder,
+                        $variables,
+                        $actorId
+                    );
+                    foreach ($results as &$result) {
+                        $result['loop_index'] = $index;
+                        $result['branch'] = $branchEval['branch'] ?? null;
+                    }
+                    $actionResults = array_merge($actionResults, $results);
+                }
+            }
+
+            $evaluation = [
+                'matched' => $matched,
+                'summary' => $loopResults[0]['summary'] ?? null,
+                'branches' => $loopResults[0]['branches'] ?? [],
+                'loop' => [
+                    'mode' => 'for_each',
+                    'collection' => $loop['collection'],
+                    'gate' => $loop['gate'],
+                    'items' => count($items),
+                    'matched' => $matchedCount,
+                ],
+            ];
+        } else {
+            if ($loop['mode'] === 'while') {
+                $loopCondition = is_array($loop['condition'] ?? null) ? $loop['condition'] : [];
+                $loopEval = $this->evaluateGroup($loopCondition, $context);
+                if (! ($loopEval['matched'] ?? false)) {
+                    $evaluation = [
+                        'matched' => false,
+                        'summary' => $loopEval,
+                        'loop' => [
+                            'mode' => 'while',
+                            'condition' => $loopEval,
+                        ],
+                    ];
+                }
+            }
+
+            if ($evaluation === null) {
+                $branchEval = $this->evaluateBranchRules($rule, $branches, $context);
+                $evaluation = $branchEval;
+                $matched = $branchEval['matched'] ?? false;
+
+                if ($matched) {
+                    $variables = $this->buildTemplateVariables(
+                        $context['work_order'] ?? $workOrder->toArray(),
+                        ['event_id' => $eventId]
+                    );
+                    $actionResults = $this->executeActionList(
+                        $branchEval['actions'] ?? [],
+                        $workOrder,
+                        $variables,
+                        $actorId
+                    );
+                }
+            }
+        }
+
+        if (! $matched) {
             $this->appendExecution($trigger, [
                 'id' => $executionId ?? Str::uuid()->toString(),
                 'work_order_id' => $workOrder->id,
@@ -372,40 +514,6 @@ class OperationTriggerService implements OperationTriggerServiceInterface
                 'matched' => false,
                 'summary' => $evaluation,
             ];
-        }
-
-        $variables = $this->buildTemplateVariables(
-            $context['work_order'] ?? $workOrder->toArray(),
-            ['event_id' => $eventId]
-        );
-        $actions = is_array($trigger->actions) ? $trigger->actions : [];
-        $actionResults = [];
-        $startedAt = microtime(true);
-
-        foreach ($actions as $action) {
-            if (! Arr::get($action, 'enabled', true)) {
-                $actionResults[] = [
-                    'type' => $action['type'] ?? 'unknown',
-                    'status' => 'skipped',
-                    'reason' => 'Action disabled.',
-                ];
-                continue;
-            }
-
-            $type = $action['type'] ?? 'unknown';
-            $result = match ($type) {
-                'in_app' => $this->executeInAppAction($action, $workOrder, $variables, $actorId),
-                'push' => $this->executeNotificationAction($action, $workOrder, $variables, $actorId),
-                'virtual_screen' => $this->executeVirtualScreenAction($action, $workOrder, $variables),
-                'webhook' => $this->executeWebhookAction($action, $variables),
-                default => [
-                    'type' => $type,
-                    'status' => 'skipped',
-                    'reason' => 'Unsupported action type.',
-                ],
-            };
-
-            $actionResults[] = $result;
         }
 
         $durationMs = (int) round((microtime(true) - $startedAt) * 1000);
@@ -460,6 +568,9 @@ class OperationTriggerService implements OperationTriggerServiceInterface
     {
         $changes = [];
         foreach ($this->fieldMap as $fieldKey => $path) {
+            if (str_starts_with((string) $path, 'loop.')) {
+                continue;
+            }
             $before = data_get($beforeSnapshot, $path);
             $after = data_get($afterSnapshot, $path);
             if (! $this->compare($before, $after)) {
@@ -558,7 +669,7 @@ class OperationTriggerService implements OperationTriggerServiceInterface
             $progressPct = $this->computeProgressPctFromMetadata($metadata);
         }
 
-        return [
+        $variables = [
             'work_order_id' => $workOrder['id'] ?? null,
             'work_order_no' => $workOrder['work_order_no'] ?? null,
             'status' => $workOrder['status'] ?? null,
@@ -570,6 +681,15 @@ class OperationTriggerService implements OperationTriggerServiceInterface
             'sla_timer' => Arr::get($metadata, 'sla.minutes'),
             'event_id' => Arr::get($payload, 'event_id'),
         ];
+
+        $loopItem = $payload['loop_item'] ?? null;
+        if (is_array($loopItem)) {
+            $variables['loop_item_json'] = json_encode($loopItem);
+            $variables['loop_item_name'] = $loopItem['name'] ?? $loopItem['label'] ?? null;
+            $variables['loop_item_id'] = $loopItem['id'] ?? null;
+        }
+
+        return array_merge($variables, $payload);
     }
 
     protected function executeInAppAction(
@@ -856,6 +976,7 @@ class OperationTriggerService implements OperationTriggerServiceInterface
                 'status' => $trigger->status,
                 'is_active' => (bool) $trigger->is_active,
                 'rule' => $trigger->rule ?? [],
+                'loop' => $trigger->loop ?? [],
                 'schedule' => $trigger->schedule ?? [],
                 'actions' => $trigger->actions ?? [],
                 'cooldown' => $trigger->cooldown ?? [],
@@ -874,6 +995,381 @@ class OperationTriggerService implements OperationTriggerServiceInterface
         $direction = strtolower($order[1] ?? 'desc') === 'asc' ? 'asc' : 'desc';
 
         return [$column, $direction];
+    }
+
+    protected function normalizeLoopConfig(mixed $raw): array
+    {
+        $loop = is_array($raw) ? $raw : [];
+        $mode = strtolower((string) ($loop['mode'] ?? 'none'));
+
+        return [
+            'mode' => in_array($mode, ['for_each', 'while'], true) ? $mode : 'none',
+            'collection' => $loop['collection'] ?? 'routes',
+            'gate' => strtolower((string) ($loop['gate'] ?? 'any')) === 'all' ? 'all' : 'any',
+            'limit' => max(1, (int) ($loop['limit'] ?? 25)),
+            'condition' => is_array($loop['condition'] ?? null) ? $loop['condition'] : [],
+        ];
+    }
+
+    protected function normalizeActionBranches(mixed $raw): array
+    {
+        if (! is_array($raw)) {
+            return ['if' => [], 'else_if' => [], 'else' => []];
+        }
+
+        if (array_values($raw) === $raw) {
+            return [
+                'if' => $raw,
+                'else_if' => [],
+                'else' => [],
+            ];
+        }
+
+        $elseIf = [];
+        foreach (($raw['else_if'] ?? []) as $branch) {
+            if (! is_array($branch)) {
+                continue;
+            }
+            $elseIf[] = [
+                'id' => $branch['id'] ?? Str::uuid()->toString(),
+                'label' => $branch['label'] ?? 'Else if',
+                'rule' => is_array($branch['rule'] ?? null) ? $branch['rule'] : [],
+                'actions' => is_array($branch['actions'] ?? null) ? $branch['actions'] : [],
+            ];
+        }
+
+        return [
+            'if' => is_array($raw['if'] ?? null) ? $raw['if'] : [],
+            'else_if' => $elseIf,
+            'else' => is_array($raw['else'] ?? null) ? $raw['else'] : [],
+        ];
+    }
+
+    protected function evaluateBranchRules(array $rule, array $branches, array $context): array
+    {
+        $ifEval = $this->evaluateGroup($rule, $context);
+        $elseIfResults = [];
+
+        if ($ifEval['matched'] ?? false) {
+            return [
+                'matched' => true,
+                'branch' => 'if',
+                'summary' => $ifEval,
+                'branches' => [
+                    'if' => $ifEval,
+                    'else_if' => [],
+                    'else' => ['matched' => false],
+                ],
+                'actions' => $branches['if'] ?? [],
+            ];
+        }
+
+        foreach ($branches['else_if'] ?? [] as $branch) {
+            $evaluation = $this->evaluateGroup(
+                is_array($branch['rule'] ?? null) ? $branch['rule'] : [],
+                $context
+            );
+            $elseIfResults[] = [
+                'id' => $branch['id'] ?? null,
+                'label' => $branch['label'] ?? 'Else if',
+                'evaluation' => $evaluation,
+            ];
+
+            if ($evaluation['matched'] ?? false) {
+                return [
+                    'matched' => true,
+                    'branch' => 'else_if',
+                    'branch_id' => $branch['id'] ?? null,
+                    'summary' => $evaluation,
+                    'branches' => [
+                        'if' => $ifEval,
+                        'else_if' => $elseIfResults,
+                        'else' => ['matched' => false],
+                    ],
+                    'actions' => $branch['actions'] ?? [],
+                ];
+            }
+        }
+
+        $elseActions = $branches['else'] ?? [];
+        $elseMatched = ! empty($elseActions);
+
+        return [
+            'matched' => $elseMatched,
+            'branch' => $elseMatched ? 'else' : null,
+            'summary' => $ifEval,
+            'branches' => [
+                'if' => $ifEval,
+                'else_if' => $elseIfResults,
+                'else' => ['matched' => $elseMatched],
+            ],
+            'actions' => $elseMatched ? $elseActions : [],
+        ];
+    }
+
+    protected function resolveLoopItems(array $loop, array $context): array
+    {
+        $workOrder = $context['work_order'] ?? [];
+        $metadata = Arr::get($workOrder, 'metadata', []);
+        $collection = $loop['collection'] ?? 'routes';
+
+        return match ($collection) {
+            'routes' => $this->buildRouteLoopItems($metadata),
+            'assignees' => $this->buildAssigneeLoopItems($metadata),
+            'checklists' => $this->buildChecklistLoopItems($metadata),
+            'parameters' => $this->buildParameterLoopItems($metadata),
+            default => [],
+        };
+    }
+
+    protected function buildRouteLoopItems(array $metadata): array
+    {
+        $routes = $this->extractRoutesFromMetadata($metadata);
+        $items = [];
+        foreach ($routes as $route) {
+            if (! is_array($route)) {
+                continue;
+            }
+            $items[] = array_merge($route, [
+                'progress_pct' => $this->computeProgressPctFromRoute($route),
+            ]);
+        }
+
+        return $items;
+    }
+
+    protected function buildAssigneeLoopItems(array $metadata): array
+    {
+        $assignees = $this->resolveAssigneeIds($metadata);
+        if (empty($assignees)) {
+            return [];
+        }
+
+        $users = User::query()
+            ->whereIn('id', $assignees)
+            ->get()
+            ->keyBy('id');
+
+        return array_map(
+            static function ($id) use ($users) {
+                $user = $users->get((int) $id);
+                $name = trim((string) ($user?->firstname . ' ' . $user?->lastname));
+                return [
+                    'id' => (string) $id,
+                    'name' => $name !== '' ? $name : ($user?->username ?? null),
+                ];
+            },
+            $assignees
+        );
+    }
+
+    protected function buildChecklistLoopItems(array $metadata): array
+    {
+        $routes = $this->extractRoutesFromMetadata($metadata);
+        $items = [];
+        foreach ($routes as $route) {
+            if (! is_array($route)) {
+                continue;
+            }
+            $checklists = $route['checklist'] ?? $route['checks'] ?? [];
+            if (! is_array($checklists)) {
+                continue;
+            }
+            foreach ($checklists as $check) {
+                if (! is_array($check)) {
+                    continue;
+                }
+                $items[] = array_merge($check, [
+                    'route' => $route['route'] ?? null,
+                    'route_name' => $route['name'] ?? null,
+                ]);
+            }
+        }
+
+        return $items;
+    }
+
+    protected function buildParameterLoopItems(array $metadata): array
+    {
+        $routes = $this->extractRoutesFromMetadata($metadata);
+        $items = [];
+        foreach ($routes as $route) {
+            if (! is_array($route)) {
+                continue;
+            }
+            $parameters = $route['parameters'] ?? [];
+            if (! is_array($parameters)) {
+                $parameters = [];
+            }
+            foreach ($parameters as $param) {
+                if (! is_array($param)) {
+                    continue;
+                }
+                $items[] = [
+                    'name' => $param['name'] ?? ($param['label'] ?? null),
+                    'label' => $param['label'] ?? null,
+                    'value' => $param['current_value'] ?? $param['value'] ?? null,
+                    'route' => $route['route'] ?? null,
+                    'route_name' => $route['name'] ?? null,
+                ];
+            }
+
+            $params = $route['params'] ?? [];
+            if (is_array($params)) {
+                foreach ($params as $key => $value) {
+                    $items[] = [
+                        'name' => (string) $key,
+                        'value' => $value,
+                        'route' => $route['route'] ?? null,
+                        'route_name' => $route['name'] ?? null,
+                    ];
+                }
+            }
+        }
+
+        return $items;
+    }
+
+    protected function computeProgressPctFromRoute(array $route): ?float
+    {
+        $timeTracker = $this->resolveRouteTimeTracker($route);
+        $entries = is_array($timeTracker['entries'] ?? null) ? $timeTracker['entries'] : [];
+        $best = null;
+
+        foreach ($entries as $entry) {
+            if (! is_array($entry)) {
+                continue;
+            }
+            $value = $entry['route_progress_pct']
+                ?? $entry['routeProgressPct']
+                ?? $entry['operator_progress_pct']
+                ?? $entry['operatorProgressPct']
+                ?? null;
+            if ($value === null) {
+                continue;
+            }
+            $numeric = $this->toNumber($value);
+            if ($best === null || $numeric > $best) {
+                $best = $numeric;
+            }
+        }
+
+        return $best;
+    }
+
+    protected function evaluateTriggerLogic(OperationTrigger $trigger, array $context): array
+    {
+        $loop = $this->normalizeLoopConfig($trigger->loop ?? []);
+        $rule = is_array($trigger->rule) ? $trigger->rule : [];
+        $branches = $this->normalizeActionBranches($trigger->actions ?? []);
+
+        if ($loop['mode'] === 'for_each') {
+            $items = $this->resolveLoopItems($loop, $context);
+            $limitedItems = array_slice($items, 0, $loop['limit']);
+            $results = [];
+            $matchedCount = 0;
+
+            foreach ($limitedItems as $index => $item) {
+                $loopContext = array_merge($context, [
+                    'loop' => [
+                        'item' => $item,
+                        'index' => $index,
+                        'collection' => $loop['collection'],
+                    ],
+                ]);
+                $result = $this->evaluateBranchRules($rule, $branches, $loopContext);
+                $results[] = $result;
+                if ($result['matched'] ?? false) {
+                    $matchedCount++;
+                }
+            }
+
+            $allMatched = ! empty($limitedItems) && $matchedCount === count($limitedItems);
+            $matched = $loop['gate'] === 'all' ? $allMatched : $matchedCount > 0;
+
+            return [
+                'matched' => $matched,
+                'branch' => null,
+                'summary' => $results[0]['summary'] ?? null,
+                'branches' => [
+                    'if' => $results[0]['branches']['if'] ?? null,
+                    'else_if' => $results[0]['branches']['else_if'] ?? [],
+                    'else' => $results[0]['branches']['else'] ?? ['matched' => false],
+                ],
+                'loop' => [
+                    'mode' => 'for_each',
+                    'collection' => $loop['collection'],
+                    'gate' => $loop['gate'],
+                    'items' => count($limitedItems),
+                    'matched' => $matchedCount,
+                ],
+            ];
+        }
+
+        if ($loop['mode'] === 'while') {
+            $loopCondition = is_array($loop['condition'] ?? null) ? $loop['condition'] : [];
+            $loopEval = $this->evaluateGroup($loopCondition, $context);
+            if (! ($loopEval['matched'] ?? false)) {
+                return [
+                    'matched' => false,
+                    'branch' => null,
+                    'summary' => $loopEval,
+                    'branches' => [],
+                    'loop' => [
+                        'mode' => 'while',
+                        'collection' => null,
+                        'gate' => null,
+                        'items' => 0,
+                        'matched' => 0,
+                        'condition' => $loopEval,
+                    ],
+                ];
+            }
+        }
+
+        $result = $this->evaluateBranchRules($rule, $branches, $context);
+        $result['loop'] = [
+            'mode' => $loop['mode'],
+        ];
+
+        return $result;
+    }
+
+    protected function executeActionList(
+        array $actions,
+        WorkOrder $workOrder,
+        array $variables,
+        ?int $actorId = null
+    ): array {
+        $actionResults = [];
+
+        foreach ($actions as $action) {
+            if (! Arr::get($action, 'enabled', true)) {
+                $actionResults[] = [
+                    'type' => $action['type'] ?? 'unknown',
+                    'status' => 'skipped',
+                    'reason' => 'Action disabled.',
+                ];
+                continue;
+            }
+
+            $type = $action['type'] ?? 'unknown';
+            $result = match ($type) {
+                'in_app' => $this->executeInAppAction($action, $workOrder, $variables, $actorId),
+                'push' => $this->executeNotificationAction($action, $workOrder, $variables, $actorId),
+                'virtual_screen' => $this->executeVirtualScreenAction($action, $workOrder, $variables),
+                'webhook' => $this->executeWebhookAction($action, $variables),
+                default => [
+                    'type' => $type,
+                    'status' => 'skipped',
+                    'reason' => 'Unsupported action type.',
+                ],
+            };
+
+            $actionResults[] = $result;
+        }
+
+        return $actionResults;
     }
 
     protected function evaluateGroup(array $group, array $context): array
@@ -918,8 +1414,12 @@ class OperationTriggerService implements OperationTriggerServiceInterface
         $expectedTo = Arr::get($condition, 'valueTo');
         $changes = Arr::get($context, 'changes', []);
         $workOrder = $context['work_order'] ?? [];
-        $pathExists = $path ? Arr::has($workOrder, $path) : false;
-        $current = $path ? data_get($workOrder, $path) : null;
+        $source = $workOrder;
+        if ($path && (str_starts_with($path, 'loop.') || str_starts_with($path, 'loop_item.'))) {
+            $source = $context;
+        }
+        $pathExists = $path ? Arr::has($source, $path) : false;
+        $current = $path ? data_get($source, $path) : null;
 
         $matched = false;
         $reason = null;

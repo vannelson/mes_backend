@@ -20,6 +20,7 @@ class OperationTriggerStoreRequest extends FormRequest
             'status' => ['nullable', 'in:draft,published,paused,disabled'],
             'tags' => ['nullable', 'array'],
             'rule' => ['required', 'array'],
+            'loop' => ['nullable', 'array'],
             'schedule' => ['nullable', 'array'],
             'actions' => ['required', 'array'],
             'cooldown' => ['nullable', 'array'],

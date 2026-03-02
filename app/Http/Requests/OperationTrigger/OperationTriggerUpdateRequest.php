@@ -20,6 +20,7 @@ class OperationTriggerUpdateRequest extends FormRequest
             'status' => ['sometimes', 'in:draft,published,paused,disabled'],
             'tags' => ['sometimes', 'nullable', 'array'],
             'rule' => ['sometimes', 'array'],
+            'loop' => ['sometimes', 'nullable', 'array'],
             'schedule' => ['sometimes', 'nullable', 'array'],
             'actions' => ['sometimes', 'array'],
             'cooldown' => ['sometimes', 'nullable', 'array'],

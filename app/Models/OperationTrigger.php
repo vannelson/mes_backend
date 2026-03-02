@@ -16,6 +16,7 @@ class OperationTrigger extends Model
         'status',
         'tags',
         'rule',
+        'loop',
         'schedule',
         'actions',
         'cooldown',
@@ -33,6 +34,7 @@ class OperationTrigger extends Model
     protected $casts = [
         'tags' => 'array',
         'rule' => 'array',
+        'loop' => 'array',
         'schedule' => 'array',
         'actions' => 'array',
         'cooldown' => 'array',
