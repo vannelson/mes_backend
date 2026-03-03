@@ -681,6 +681,7 @@ class OperationTriggerService implements OperationTriggerServiceInterface
             'progress_pct' => $progressPct,
             'sla_timer' => Arr::get($metadata, 'sla.minutes'),
             'event_id' => Arr::get($payload, 'event_id'),
+            'app_url' => config('app.url'),
         ];
 
         $loopItem = $payload['loop_item'] ?? null;
@@ -871,7 +872,8 @@ class OperationTriggerService implements OperationTriggerServiceInterface
     protected function executeWebhookAction(array $action, array $variables): array
     {
         $webhook = Arr::get($action, 'webhook', []);
-        $url = Arr::get($webhook, 'url');
+        $urlTemplate = Arr::get($webhook, 'url');
+        $url = $urlTemplate ? $this->renderTemplate((string) $urlTemplate, $variables) : null;
         if (! $url) {
             return [
                 'type' => 'webhook',
@@ -883,13 +885,18 @@ class OperationTriggerService implements OperationTriggerServiceInterface
         $method = strtoupper(Arr::get($webhook, 'method', 'POST'));
         $headers = $this->normalizeWebhookHeaders(Arr::get($webhook, 'headers', []));
         $payload = $this->renderTemplate(Arr::get($action, 'template', ''), $variables);
-        $json = json_decode($payload, true);
+        $payload = is_string($payload) ? trim($payload) : $payload;
+        $json = is_string($payload) ? json_decode($payload, true) : null;
 
         try {
             $request = Http::withHeaders($headers);
-            $response = $json !== null && json_last_error() === JSON_ERROR_NONE
-                ? $request->send($method, $url, ['json' => $json])
-                : $request->send($method, $url, ['body' => $payload]);
+            if ($method === 'GET' && ($payload === '' || $payload === null)) {
+                $response = $request->send($method, $url);
+            } elseif ($json !== null && json_last_error() === JSON_ERROR_NONE) {
+                $response = $request->send($method, $url, ['json' => $json]);
+            } else {
+                $response = $request->send($method, $url, ['body' => $payload]);
+            }
         } catch (\Throwable $e) {
             return [
                 'type' => 'webhook',
