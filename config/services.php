@@ -53,7 +53,7 @@ return [
     'mailtrap' => [
         'api_token' => env('MAILTRAP_API_TOKEN'),
         'endpoint' => env('MAILTRAP_ENDPOINT', 'https://send.api.mailtrap.io/api/send'),
-        'from_address' => env('MAIL_FROM_ADDRESS'),
+        'from_address' => env('MAIL_FROM_ADDRESS', env('MAIL_FROM')),
         'from_name' => env('MAIL_FROM_NAME', env('APP_NAME', 'MES')),
         'category' => env('MAILTRAP_CATEGORY', 'MES Automation'),
         'timeout' => env('MAILTRAP_TIMEOUT', 10),
