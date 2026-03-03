@@ -46,7 +46,8 @@ class OperationTriggerService implements OperationTriggerServiceInterface
     public function __construct(
         protected FirebaseRealtimeService $firebaseRealtimeService,
         protected MessageService $messageService,
-        protected WorkOrderNotificationService $notificationService
+        protected WorkOrderNotificationService $notificationService,
+        protected TriggerEmailService $triggerEmailService
     ) {
     }
 
@@ -785,6 +786,50 @@ class OperationTriggerService implements OperationTriggerServiceInterface
         ];
     }
 
+    protected function executeEmailAction(
+        array $action,
+        WorkOrder $workOrder,
+        array $variables,
+        ?int $actorId = null
+    ): array {
+        $emails = $this->resolveRecipientEmails($action, $workOrder);
+        if (empty($emails)) {
+            return [
+                'type' => 'email',
+                'status' => 'skipped',
+                'reason' => 'No recipients resolved.',
+            ];
+        }
+
+        $subjectTemplate = Arr::get($action, 'subject')
+            ?: Arr::get($action, 'label', 'Work order update');
+        $subject = $this->renderTemplate($subjectTemplate, $variables);
+        $html = $this->renderTemplate(Arr::get($action, 'template', ''), $variables);
+        $text = trim(strip_tags($html));
+
+        try {
+            $this->triggerEmailService->send([
+                'to' => $emails,
+                'subject' => $subject,
+                'html' => $html,
+                'text' => $text !== '' ? $text : null,
+                'category' => config('services.mailtrap.category', 'MES Automation'),
+            ]);
+        } catch (\Throwable $e) {
+            return [
+                'type' => 'email',
+                'status' => 'failed',
+                'reason' => $e->getMessage(),
+            ];
+        }
+
+        return [
+            'type' => 'email',
+            'status' => 'success',
+            'recipients' => count($emails),
+        ];
+    }
+
     protected function executeVirtualScreenAction(
         array $action,
         WorkOrder $workOrder,
@@ -881,6 +926,50 @@ class OperationTriggerService implements OperationTriggerServiceInterface
             )),
             default => $this->resolveAssigneeIds($metadata),
         };
+    }
+
+    protected function resolveRecipientEmails(array $action, WorkOrder $workOrder): array
+    {
+        $mode = Arr::get($action, 'recipients.mode', 'assignee');
+
+        if ($mode === 'emails') {
+            return $this->normalizeEmailList(Arr::get($action, 'recipients.emails', ''));
+        }
+
+        $recipientIds = $this->resolveRecipientIds($action, $workOrder);
+        if (empty($recipientIds)) {
+            return [];
+        }
+
+        $emails = User::query()
+            ->whereIn('id', $recipientIds)
+            ->pluck('email')
+            ->filter()
+            ->all();
+
+        return $this->normalizeEmailList($emails);
+    }
+
+    protected function normalizeEmailList(mixed $value): array
+    {
+        $items = [];
+
+        if (is_array($value)) {
+            $items = $value;
+        } elseif (is_string($value)) {
+            $items = preg_split('/[,\s;]+/', $value, -1, PREG_SPLIT_NO_EMPTY) ?: [];
+        }
+
+        $emails = [];
+        foreach ($items as $item) {
+            $email = trim((string) $item);
+            if ($email === '' || ! filter_var($email, FILTER_VALIDATE_EMAIL)) {
+                continue;
+            }
+            $emails[] = strtolower($email);
+        }
+
+        return array_values(array_unique($emails));
     }
 
     protected function resolveAssigneeIds(array $metadata): array
@@ -1357,6 +1446,7 @@ class OperationTriggerService implements OperationTriggerServiceInterface
             $result = match ($type) {
                 'in_app' => $this->executeInAppAction($action, $workOrder, $variables, $actorId),
                 'push' => $this->executeNotificationAction($action, $workOrder, $variables, $actorId),
+                'email' => $this->executeEmailAction($action, $workOrder, $variables, $actorId),
                 'virtual_screen' => $this->executeVirtualScreenAction($action, $workOrder, $variables),
                 'webhook' => $this->executeWebhookAction($action, $variables),
                 default => [

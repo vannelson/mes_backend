@@ -50,6 +50,14 @@ return [
         'database_url' => env('FIREBASE_DATABASE_URL'),
         'service_account_path' => env('FIREBASE_SERVICE_ACCOUNT_PATH'),
     ],
+    'mailtrap' => [
+        'api_token' => env('MAILTRAP_API_TOKEN'),
+        'endpoint' => env('MAILTRAP_ENDPOINT', 'https://send.api.mailtrap.io/api/send'),
+        'from_address' => env('MAIL_FROM_ADDRESS'),
+        'from_name' => env('MAIL_FROM_NAME', env('APP_NAME', 'MES')),
+        'category' => env('MAILTRAP_CATEGORY', 'MES Automation'),
+        'timeout' => env('MAILTRAP_TIMEOUT', 10),
+    ],
     'operation_triggers' => [
         'execute_key' => env('OPERATION_TRIGGERS_EXECUTE_KEY'),
     ],
