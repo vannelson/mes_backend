@@ -2237,6 +2237,49 @@ class OperationTriggerService implements OperationTriggerServiceInterface
         ];
     }
 
+    protected function collectValuesByKey(
+        mixed $source,
+        string $targetKey,
+        int $maxDepth = 6,
+        int $maxValues = 40
+    ): array {
+        if ($maxDepth <= 0 || $maxValues <= 0) {
+            return [];
+        }
+        if (is_object($source)) {
+            $source = (array) $source;
+        }
+        if (! is_array($source)) {
+            return [];
+        }
+
+        $results = [];
+        foreach ($source as $key => $value) {
+            if ($key === $targetKey) {
+                $results[] = $value;
+                if (count($results) >= $maxValues) {
+                    return $results;
+                }
+            }
+            if (is_array($value) || is_object($value)) {
+                $nested = $this->collectValuesByKey(
+                    $value,
+                    $targetKey,
+                    $maxDepth - 1,
+                    $maxValues - count($results)
+                );
+                if (! empty($nested)) {
+                    $results = array_merge($results, $nested);
+                    if (count($results) >= $maxValues) {
+                        return $results;
+                    }
+                }
+            }
+        }
+
+        return $results;
+    }
+
     protected function evaluateCondition(array $condition, array $context): array
     {
         $fieldKey = Arr::get($condition, 'field');
@@ -2246,8 +2289,17 @@ class OperationTriggerService implements OperationTriggerServiceInterface
         $expectedTo = Arr::get($condition, 'valueTo');
         $changes = Arr::get($context, 'changes', []);
         $workOrder = $context['work_order'] ?? [];
-        if ($fieldKey === 'data_field' && $path && ! str_starts_with($path, 'data.')) {
-            $path = 'data.' . ltrim($path, '.');
+        $looseDataKey = null;
+        if ($fieldKey === 'data_field' && is_string($path) && $path !== '') {
+            $hasExplicitPrefix = str_starts_with($path, 'data.')
+                || str_starts_with($path, 'loop.')
+                || str_starts_with($path, 'loop_item.')
+                || $path === 'data';
+            if (! $hasExplicitPrefix && ! str_contains($path, '.')) {
+                $looseDataKey = $path;
+            } elseif (! $hasExplicitPrefix) {
+                $path = 'data.' . ltrim($path, '.');
+            }
         }
 
         $source = $workOrder;
@@ -2294,17 +2346,38 @@ class OperationTriggerService implements OperationTriggerServiceInterface
                 }
             }
         } else {
-            $matched = $this->evaluateOperator($operator, $current, $expected, $expectedTo);
-            if (! $pathExists) {
-                $reason = 'Field not found in work order snapshot';
-            } elseif ($operator === 'between' && ($expected === null || $expectedTo === null)) {
-                $reason = 'Between operator requires both values';
+            if ($fieldKey === 'data_field' && $looseDataKey) {
+                $dataRoot = Arr::get($context, 'data');
+                $matches = $this->collectValuesByKey($dataRoot, $looseDataKey);
+                $pathExists = ! empty($matches);
+                $current = $pathExists ? $matches : null;
+                $matched = false;
+                foreach ($matches as $value) {
+                    if ($this->evaluateOperator($operator, $value, $expected, $expectedTo)) {
+                        $matched = true;
+                        break;
+                    }
+                }
+                if (! $pathExists) {
+                    $reason = 'Field not found in API data';
+                } elseif ($operator === 'between' && ($expected === null || $expectedTo === null)) {
+                    $reason = 'Between operator requires both values';
+                }
+            } else {
+                $matched = $this->evaluateOperator($operator, $current, $expected, $expectedTo);
+                if (! $pathExists) {
+                    $reason = $fieldKey === 'data_field'
+                        ? 'Field not found in API data'
+                        : 'Field not found in work order snapshot';
+                } elseif ($operator === 'between' && ($expected === null || $expectedTo === null)) {
+                    $reason = 'Between operator requires both values';
+                }
             }
         }
 
         return [
             'field' => $fieldKey,
-            'path' => $path,
+            'path' => $looseDataKey ?: $path,
             'operator' => $operator,
             'expected' => $expected,
             'expected_to' => $expectedTo,
