@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Http\Requests\OperationTrigger\OperationTriggerExecuteRequest;
+use App\Http\Requests\OperationTrigger\OperationTriggerApiToolPreviewRequest;
 use App\Http\Requests\OperationTrigger\OperationTriggerSimulateRequest;
 use App\Http\Requests\OperationTrigger\OperationTriggerStoreRequest;
 use App\Http\Requests\OperationTrigger\OperationTriggerUpdateRequest;
@@ -153,6 +154,23 @@ class OperationTriggerController extends Controller
             return $this->validationError($e);
         } catch (Throwable $e) {
             return $this->error('Failed to execute operation trigger.', 500);
+        }
+    }
+
+    public function previewApiTool(
+        OperationTriggerApiToolPreviewRequest $request,
+        int $id
+    ): JsonResponse {
+        try {
+            $payload = $request->validated();
+            $payload['authorization'] = $request->header('Authorization');
+            $data = $this->triggerService->previewApiTool($id, $payload);
+
+            return $this->success('API tool preview complete.', $data);
+        } catch (ValidationException $e) {
+            return $this->validationError($e);
+        } catch (Throwable $e) {
+            return $this->error('Failed to preview API tool.', 500);
         }
     }
 }

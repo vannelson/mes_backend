@@ -25,6 +25,8 @@ interface OperationTriggerServiceInterface
 
     public function execute(int $id, array $payload = [], ?int $actorId = null): array;
 
+    public function previewApiTool(int $id, array $payload = []): array;
+
     public function executeForWorkOrderEvent(
         string $event,
         WorkOrder $workOrder,

@@ -111,6 +111,7 @@ Route::prefix('v1')->group(function () {
         Route::post('operation-triggers/{id}/disable', [OperationTriggerController::class, 'disable'])->whereNumber('id');
         Route::post('operation-triggers/{id}/simulate', [OperationTriggerController::class, 'simulate'])->whereNumber('id');
         Route::post('operation-triggers/{id}/execute', [OperationTriggerController::class, 'execute'])->whereNumber('id');
+        Route::post('operation-triggers/{id}/api-tool-preview', [OperationTriggerController::class, 'previewApiTool'])->whereNumber('id');
 
         Route::get('work-order-evidences', [WorkOrderEvidenceController::class, 'index']);
         Route::post('work-order-evidences', [WorkOrderEvidenceController::class, 'store']);

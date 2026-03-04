@@ -257,6 +257,80 @@ class OperationTriggerService implements OperationTriggerServiceInterface
         );
     }
 
+    public function previewApiTool(int $id, array $payload = []): array
+    {
+        $trigger = OperationTrigger::query()->findOrFail($id);
+        $nodeId = Arr::get($payload, 'node_id');
+
+        if (! $nodeId) {
+            throw ValidationException::withMessages([
+                'node_id' => 'API tool node id is required.',
+            ]);
+        }
+
+        $node = null;
+        $payloadNode = Arr::get($payload, 'node');
+        if (is_array($payloadNode)) {
+            if (($payloadNode['id'] ?? null) !== $nodeId) {
+                throw ValidationException::withMessages([
+                    'node_id' => 'Node id does not match the preview payload.',
+                ]);
+            }
+            $node = $payloadNode;
+        } else {
+            $flow = $this->normalizeFlow($trigger->flow ?? []);
+            foreach ($flow['nodes'] as $flowNode) {
+                if (($flowNode['id'] ?? null) === $nodeId) {
+                    $node = $flowNode;
+                    break;
+                }
+            }
+        }
+
+        if (! $node || ($node['type'] ?? null) !== 'tool.api') {
+            throw ValidationException::withMessages([
+                'node_id' => 'Selected node is not an API tool.',
+            ]);
+        }
+
+        $workOrderId = Arr::get($payload, 'work_order_id');
+        $workOrderNo = Arr::get($payload, 'work_order_no');
+        $workOrder = null;
+
+        if ($workOrderId || $workOrderNo) {
+            $workOrder = WorkOrder::query()
+                ->when($workOrderId, fn($query) => $query->where('id', $workOrderId))
+                ->when($workOrderNo, fn($query) => $query->where('work_order_no', $workOrderNo))
+                ->first();
+
+            if (! $workOrder) {
+                throw ValidationException::withMessages([
+                    'work_order' => 'Work order not found for API preview.',
+                ]);
+            }
+        }
+
+        $context = [
+            'work_order' => $workOrder ? $this->hydrateWorkOrderContext($workOrder->toArray()) : [],
+            'changes' => Arr::get($payload, 'changes', []),
+            'authorization' => Arr::get($payload, 'authorization'),
+        ];
+
+        if (array_key_exists('data', $payload)) {
+            $context['data'] = $payload['data'];
+        }
+
+        [, $result] = $this->executeApiToolNode($node, $context);
+
+        return [
+            'node_id' => $nodeId,
+            'status' => $result['status'] ?? 'failed',
+            'status_code' => $result['status_code'] ?? null,
+            'data' => $result['data'] ?? null,
+            'reason' => $result['reason'] ?? null,
+        ];
+    }
+
     public function executeForWorkOrderEvent(
         string $event,
         WorkOrder $workOrder,
