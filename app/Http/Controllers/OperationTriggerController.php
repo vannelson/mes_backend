@@ -104,6 +104,18 @@ class OperationTriggerController extends Controller
         }
     }
 
+    public function destroy(Request $request, int $id): JsonResponse
+    {
+        try {
+            $actorId = $request->user()?->id;
+            $data = $this->triggerService->delete($id, $actorId);
+
+            return $this->success('Operation trigger deleted successfully.', $data);
+        } catch (Throwable $e) {
+            return $this->error('Failed to delete operation trigger.', 500);
+        }
+    }
+
     public function simulate(OperationTriggerSimulateRequest $request, int $id): JsonResponse
     {
         try {

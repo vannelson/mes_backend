@@ -12,6 +12,7 @@ use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 
@@ -149,6 +150,23 @@ class OperationTriggerService implements OperationTriggerServiceInterface
         $this->publishRealtimeUpdate($trigger, 'disabled');
 
         return $trigger->toArray();
+    }
+
+    public function delete(int $id, ?int $actorId = null): array
+    {
+        $trigger = OperationTrigger::query()->findOrFail($id);
+        $triggerId = $trigger->id;
+
+        $this->appendAudit($trigger, $actorId, 'Deleted trigger');
+        $trigger->save();
+
+        $trigger->delete();
+        $this->publishRealtimeUpdate($trigger, 'deleted');
+
+        return [
+            'id' => $triggerId,
+            'deleted' => true,
+        ];
     }
 
     public function simulate(int $id, array $payload = []): array
@@ -295,6 +313,12 @@ class OperationTriggerService implements OperationTriggerServiceInterface
 
     protected function normalizePayload(array $data, ?OperationTrigger $trigger = null): array
     {
+        if (array_key_exists('flow', $data) && ! Schema::hasColumn('operation_triggers', 'flow')) {
+            throw ValidationException::withMessages([
+                'flow' => 'Flow support is not available yet. Run the flow migration first.',
+            ]);
+        }
+
         return [
             'tenant_id' => Arr::get($data, 'tenant_id', $trigger?->tenant_id),
             'name' => Arr::get($data, 'name', $trigger?->name),

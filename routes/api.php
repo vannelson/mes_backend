@@ -106,6 +106,7 @@ Route::prefix('v1')->group(function () {
         Route::post('operation-triggers', [OperationTriggerController::class, 'store']);
         Route::get('operation-triggers/{id}', [OperationTriggerController::class, 'show'])->whereNumber('id');
         Route::put('operation-triggers/{id}', [OperationTriggerController::class, 'update'])->whereNumber('id');
+        Route::delete('operation-triggers/{id}', [OperationTriggerController::class, 'destroy'])->whereNumber('id');
         Route::post('operation-triggers/{id}/publish', [OperationTriggerController::class, 'publish'])->whereNumber('id');
         Route::post('operation-triggers/{id}/disable', [OperationTriggerController::class, 'disable'])->whereNumber('id');
         Route::post('operation-triggers/{id}/simulate', [OperationTriggerController::class, 'simulate'])->whereNumber('id');
