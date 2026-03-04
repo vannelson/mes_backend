@@ -190,6 +190,7 @@ class OperationTriggerService implements OperationTriggerServiceInterface
         $context = [
             'work_order' => $this->hydrateWorkOrderContext($workOrder->toArray()),
             'changes' => Arr::get($payload, 'changes', []),
+            'authorization' => Arr::get($payload, 'authorization'),
         ];
 
         $evaluation = $this->hasFlow($trigger)
