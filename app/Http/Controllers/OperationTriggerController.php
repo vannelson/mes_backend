@@ -119,7 +119,9 @@ class OperationTriggerController extends Controller
     public function simulate(OperationTriggerSimulateRequest $request, int $id): JsonResponse
     {
         try {
-            $data = $this->triggerService->simulate($id, $request->validated());
+            $payload = $request->validated();
+            $payload['authorization'] = $request->header('Authorization');
+            $data = $this->triggerService->simulate($id, $payload);
 
             return $this->success('Operation trigger simulation complete.', $data);
         } catch (ValidationException $e) {

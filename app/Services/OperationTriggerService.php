@@ -1039,6 +1039,7 @@ class OperationTriggerService implements OperationTriggerServiceInterface
         if ($authorization) {
             $headers['Authorization'] = $authorization;
         }
+        $headers['Accept'] = 'application/json';
 
         try {
             $request = Http::withHeaders($headers);
