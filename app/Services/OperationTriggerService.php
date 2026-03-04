@@ -1393,6 +1393,7 @@ class OperationTriggerService implements OperationTriggerServiceInterface
             'work_order_no' => $workOrder['work_order_no'] ?? null,
             'status' => $workOrder['status'] ?? null,
             'priority' => $workOrder['priority'] ?? null,
+            'customer_id' => $workOrder['customer_id'] ?? null,
             'assignee' => implode(', ', $assignees),
             'assignees' => implode(', ', $assignees),
             'team' => Arr::get($state, 'team', ''),
