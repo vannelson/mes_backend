@@ -1229,6 +1229,44 @@ class OperationTriggerService implements OperationTriggerServiceInterface
                     $subset = $sourceData;
                 }
 
+                $link = Arr::get($source, 'link', []);
+                $linkNodeId = Arr::get(
+                    $link,
+                    'node_id',
+                    Arr::get($link, 'nodeId', Arr::get($source, 'link_node_id', Arr::get($source, 'linkNodeId')))
+                );
+                $linkSourceKey = Arr::get(
+                    $link,
+                    'source_key',
+                    Arr::get($link, 'sourceKey', Arr::get($source, 'link_source_key', Arr::get($source, 'linkSourceKey')))
+                );
+                $linkTargetKey = Arr::get(
+                    $link,
+                    'target_key',
+                    Arr::get($link, 'targetKey', Arr::get($source, 'link_target_key', Arr::get($source, 'linkTargetKey')))
+                );
+                $linkAs = Arr::get(
+                    $link,
+                    'as',
+                    Arr::get($link, 'key', Arr::get($link, 'namespace', Arr::get($source, 'link_as', Arr::get($source, 'linkAs'))))
+                );
+                if ($linkNodeId && $linkSourceKey && $linkTargetKey) {
+                    $targetData = $apiNodes[$linkNodeId] ?? null;
+                    if (is_array($targetData) || is_object($targetData)) {
+                        $index = $this->buildJoinIndex($targetData, (string) $linkTargetKey);
+                        $attachKey = trim((string) $linkAs);
+                        if ($attachKey === '') {
+                            $attachKey = (string) $linkNodeId;
+                        }
+                        $subset = $this->attachJoinData(
+                            $subset,
+                            (string) $linkSourceKey,
+                            $index,
+                            $attachKey
+                        );
+                    }
+                }
+
                 $mergeToRoot = Arr::get(
                     $source,
                     'merge_to_root',
@@ -2394,6 +2432,100 @@ class OperationTriggerService implements OperationTriggerServiceInterface
         }
 
         return data_get($source, $field);
+    }
+
+    protected function normalizeJoinValues(mixed $value): array
+    {
+        if (is_array($value)) {
+            $values = [];
+            foreach ($value as $item) {
+                if (is_scalar($item)) {
+                    $values[] = (string) $item;
+                }
+            }
+            return $values;
+        }
+        if (is_scalar($value)) {
+            return [(string) $value];
+        }
+        return [];
+    }
+
+    protected function buildJoinIndex(mixed $source, string $targetKey): array
+    {
+        if (is_object($source)) {
+            $source = (array) $source;
+        }
+        if (! is_array($source)) {
+            return [];
+        }
+
+        $index = [];
+        foreach ($source as $entry) {
+            if (is_object($entry)) {
+                $entry = (array) $entry;
+            }
+            if (! is_array($entry)) {
+                continue;
+            }
+            $value = $this->resolveMergeFieldValue($entry, $targetKey);
+            $keys = $this->normalizeJoinValues($value);
+            foreach ($keys as $key) {
+                if (! array_key_exists($key, $index)) {
+                    $index[$key] = $entry;
+                } else {
+                    if (! is_array($index[$key]) || array_keys($index[$key]) !== range(0, count($index[$key]) - 1)) {
+                        $index[$key] = [$index[$key]];
+                    }
+                    $index[$key][] = $entry;
+                }
+            }
+        }
+
+        return $index;
+    }
+
+    protected function attachJoinData(mixed $subset, string $sourceKey, array $index, string $attachKey): mixed
+    {
+        if (is_object($subset)) {
+            $subset = (array) $subset;
+        }
+        if (! is_array($subset)) {
+            return $subset;
+        }
+
+        $isList = array_keys($subset) === range(0, count($subset) - 1);
+        if ($isList) {
+            foreach ($subset as $idx => $item) {
+                $subset[$idx] = $this->attachJoinData($item, $sourceKey, $index, $attachKey);
+            }
+            return $subset;
+        }
+
+        $value = $this->resolveMergeFieldValue($subset, $sourceKey);
+        $keys = $this->normalizeJoinValues($value);
+        if (empty($keys)) {
+            return $subset;
+        }
+
+        $matches = [];
+        foreach ($keys as $key) {
+            if (! array_key_exists($key, $index)) {
+                continue;
+            }
+            $hit = $index[$key];
+            if (is_array($hit) && array_keys($hit) === range(0, count($hit) - 1)) {
+                $matches = array_merge($matches, $hit);
+            } else {
+                $matches[] = $hit;
+            }
+        }
+
+        if (! empty($matches)) {
+            $subset[$attachKey] = count($matches) === 1 ? $matches[0] : $matches;
+        }
+
+        return $subset;
     }
 
     protected function evaluateCondition(array $condition, array $context): array
