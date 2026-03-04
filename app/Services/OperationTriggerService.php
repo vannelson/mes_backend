@@ -454,6 +454,22 @@ class OperationTriggerService implements OperationTriggerServiceInterface
 
     protected function appendExecution(OperationTrigger $trigger, array $execution): void
     {
+        static $hasExecutionsColumn = null;
+        static $hasLastFiredAtColumn = null;
+
+        if ($hasExecutionsColumn === null) {
+            $hasExecutionsColumn = Schema::hasColumn('operation_triggers', 'executions');
+            $hasLastFiredAtColumn = Schema::hasColumn('operation_triggers', 'last_fired_at');
+        }
+
+        if (! $hasExecutionsColumn) {
+            if (($execution['status'] ?? null) === 'success' && $hasLastFiredAtColumn) {
+                $trigger->last_fired_at = now();
+                $trigger->save();
+            }
+            return;
+        }
+
         $executions = is_array($trigger->executions) ? $trigger->executions : [];
         array_unshift($executions, $execution);
         $trigger->executions = array_slice($executions, 0, 20);
@@ -1796,7 +1812,7 @@ class OperationTriggerService implements OperationTriggerServiceInterface
         $mode = Arr::get($action, 'recipients.mode', 'assignee');
         $metadata = $this->hydrateWorkOrderContext($workOrder->toArray())['metadata'] ?? [];
 
-        return match ($mode) {
+        $recipientIds = match ($mode) {
             'all' => User::query()->pluck('id')->all(),
             'team' => $this->resolveTeamRecipients(Arr::get($action, 'recipients.team')),
             'users' => array_values(array_filter(
@@ -1804,6 +1820,16 @@ class OperationTriggerService implements OperationTriggerServiceInterface
             )),
             default => $this->resolveAssigneeIds($metadata),
         };
+
+        if (empty($recipientIds)) {
+            return [];
+        }
+
+        if (in_array($mode, ['assignee', 'users'], true)) {
+            return User::query()->whereIn('id', $recipientIds)->pluck('id')->all();
+        }
+
+        return $recipientIds;
     }
 
     protected function resolveRecipientEmails(array $action, WorkOrder $workOrder): array
@@ -2323,18 +2349,26 @@ class OperationTriggerService implements OperationTriggerServiceInterface
             }
 
             $type = $action['type'] ?? 'unknown';
-            $result = match ($type) {
-                'in_app' => $this->executeInAppAction($action, $workOrder, $variables, $actorId),
-                'push' => $this->executeNotificationAction($action, $workOrder, $variables, $actorId),
-                'email' => $this->executeEmailAction($action, $workOrder, $variables, $actorId),
-                'virtual_screen' => $this->executeVirtualScreenAction($action, $workOrder, $variables),
-                'webhook' => $this->executeWebhookAction($action, $variables, $authorization),
-                default => [
+            try {
+                $result = match ($type) {
+                    'in_app' => $this->executeInAppAction($action, $workOrder, $variables, $actorId),
+                    'push' => $this->executeNotificationAction($action, $workOrder, $variables, $actorId),
+                    'email' => $this->executeEmailAction($action, $workOrder, $variables, $actorId),
+                    'virtual_screen' => $this->executeVirtualScreenAction($action, $workOrder, $variables),
+                    'webhook' => $this->executeWebhookAction($action, $variables, $authorization),
+                    default => [
+                        'type' => $type,
+                        'status' => 'skipped',
+                        'reason' => 'Unsupported action type.',
+                    ],
+                };
+            } catch (\Throwable $e) {
+                $result = [
                     'type' => $type,
-                    'status' => 'skipped',
-                    'reason' => 'Unsupported action type.',
-                ],
-            };
+                    'status' => 'failed',
+                    'reason' => $e->getMessage(),
+                ];
+            }
 
             $actionResults[] = $result;
         }
