@@ -130,7 +130,9 @@ class OperationTriggerController extends Controller
         }
 
         try {
-            $data = $this->triggerService->execute($id, $request->validated(), $actor?->id);
+            $payload = $request->validated();
+            $payload['authorization'] = $request->header('Authorization');
+            $data = $this->triggerService->execute($id, $payload, $actor?->id);
 
             return $this->success('Operation trigger executed.', $data);
         } catch (ValidationException $e) {

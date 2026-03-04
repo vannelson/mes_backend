@@ -173,7 +173,9 @@ class OperationTriggerService implements OperationTriggerServiceInterface
             'changes' => Arr::get($payload, 'changes', []),
         ];
 
-        $evaluation = $this->evaluateTriggerLogic($trigger, $context);
+        $evaluation = $this->hasFlow($trigger)
+            ? $this->simulateFlow($trigger, $context)
+            : $this->evaluateTriggerLogic($trigger, $context);
 
         return [
             'trigger_id' => $trigger->id,
@@ -222,6 +224,7 @@ class OperationTriggerService implements OperationTriggerServiceInterface
         $context = [
             'work_order' => $contextWorkOrder,
             'changes' => Arr::get($payload, 'changes', []),
+            'authorization' => Arr::get($payload, 'authorization'),
         ];
 
         return $this->executeForTrigger(
@@ -302,6 +305,7 @@ class OperationTriggerService implements OperationTriggerServiceInterface
             'loop' => Arr::get($data, 'loop', $trigger?->loop ?? []),
             'schedule' => Arr::get($data, 'schedule', $trigger?->schedule ?? []),
             'actions' => Arr::get($data, 'actions', $trigger?->actions ?? []),
+            'flow' => Arr::get($data, 'flow', $trigger?->flow ?? []),
             'cooldown' => Arr::get($data, 'cooldown', $trigger?->cooldown ?? []),
             'debounce' => Arr::get($data, 'debounce', $trigger?->debounce ?? []),
             'version' => Arr::get($data, 'version', $trigger?->version ?? 1),
@@ -367,6 +371,17 @@ class OperationTriggerService implements OperationTriggerServiceInterface
         ?string $eventId = null,
         ?string $executionId = null
     ): array {
+        if ($this->hasFlow($trigger)) {
+            return $this->executeFlow(
+                $trigger,
+                $workOrder,
+                $context,
+                $actorId,
+                $eventId,
+                $executionId
+            );
+        }
+
         $rule = is_array($trigger->rule) ? $trigger->rule : [];
         $loop = $this->normalizeLoopConfig($trigger->loop ?? []);
         $branches = $this->normalizeActionBranches($trigger->actions ?? []);
@@ -551,6 +566,569 @@ class OperationTriggerService implements OperationTriggerServiceInterface
         ];
     }
 
+    protected function hasFlow(OperationTrigger $trigger): bool
+    {
+        $flow = $this->normalizeFlow($trigger->flow ?? []);
+
+        return ! empty($flow['nodes']);
+    }
+
+    protected function normalizeFlow(mixed $raw): array
+    {
+        $flow = is_array($raw) ? $raw : [];
+        $nodes = array_values(array_filter($flow['nodes'] ?? [], 'is_array'));
+        $edges = $flow['edges'] ?? $flow['connections'] ?? [];
+        $edges = array_values(array_filter($edges, 'is_array'));
+
+        return [
+            'nodes' => $nodes,
+            'edges' => $edges,
+        ];
+    }
+
+    protected function buildFlowIndex(array $flow): array
+    {
+        $nodesById = [];
+        foreach ($flow['nodes'] as $node) {
+            $id = $node['id'] ?? null;
+            if ($id) {
+                $nodesById[$id] = $node;
+            }
+        }
+
+        $edgesByFrom = [];
+        foreach ($flow['edges'] as $edge) {
+            $from = $this->normalizeEdgeEndpoint($edge, 'from');
+            $to = $this->normalizeEdgeEndpoint($edge, 'to');
+            if (! $from['node_id'] || ! $to['node_id']) {
+                continue;
+            }
+            $edgesByFrom[$from['node_id']][$from['port']][] = [
+                'node_id' => $to['node_id'],
+                'port' => $to['port'],
+            ];
+        }
+
+        return [$nodesById, $edgesByFrom];
+    }
+
+    protected function normalizeEdgeEndpoint(array $edge, string $key): array
+    {
+        $endpoint = $edge[$key] ?? null;
+        if (is_string($endpoint)) {
+            return ['node_id' => $endpoint, 'port' => 'main'];
+        }
+        if (! is_array($endpoint)) {
+            return ['node_id' => null, 'port' => 'main'];
+        }
+
+        return [
+            'node_id' => $endpoint['nodeId'] ?? $endpoint['node_id'] ?? null,
+            'port' => $endpoint['output'] ?? $endpoint['input'] ?? $endpoint['port'] ?? 'main',
+        ];
+    }
+
+    protected function executeFlow(
+        OperationTrigger $trigger,
+        WorkOrder $workOrder,
+        array $context,
+        ?int $actorId = null,
+        ?string $eventId = null,
+        ?string $executionId = null
+    ): array {
+        $startedAt = microtime(true);
+        $flow = $this->normalizeFlow($trigger->flow ?? []);
+        [$nodesById, $edgesByFrom] = $this->buildFlowIndex($flow);
+        $triggerNodes = array_filter(
+            $flow['nodes'] ?? [],
+            static fn($node) => str_starts_with((string) ($node['type'] ?? ''), 'trigger.')
+        );
+
+        if (empty($triggerNodes)) {
+            $this->appendExecution($trigger, [
+                'id' => $executionId ?? Str::uuid()->toString(),
+                'work_order_id' => $workOrder->id,
+                'work_order_no' => $workOrder->work_order_no,
+                'status' => 'skipped',
+                'at' => now()->toIso8601String(),
+                'summary' => ['reason' => 'No trigger node configured.'],
+            ]);
+
+            return [
+                'trigger_id' => $trigger->id,
+                'status' => 'skipped',
+                'matched' => false,
+                'summary' => ['reason' => 'No trigger node configured.'],
+            ];
+        }
+
+        $actionResults = [];
+        $nodeResults = [];
+        $queue = [];
+        foreach ($triggerNodes as $node) {
+            if (! empty($node['id'])) {
+                $queue[] = [
+                    'node_id' => $node['id'],
+                    'context' => $context,
+                ];
+            }
+        }
+
+        $stepCount = 0;
+        $maxSteps = 300;
+
+        while (! empty($queue) && $stepCount < $maxSteps) {
+            $stepCount++;
+            $state = array_shift($queue);
+            $node = $nodesById[$state['node_id']] ?? null;
+            if (! $node) {
+                continue;
+            }
+
+            [$nextOutputs, $nextContext, $nodeMeta] = $this->executeFlowNode(
+                $node,
+                $state['context'],
+                $workOrder,
+                $actorId,
+                $eventId
+            );
+
+            if ($nodeMeta) {
+                $nodeResults[] = $nodeMeta;
+            }
+
+            if (! empty($nodeMeta['actions'])) {
+                $actionResults = array_merge($actionResults, $nodeMeta['actions']);
+            }
+
+            if (! empty($nodeMeta['dispatches'])) {
+                foreach ($nodeMeta['dispatches'] as $dispatch) {
+                    $targets = $edgesByFrom[$state['node_id']][$dispatch['output']] ?? [];
+                    foreach ($targets as $target) {
+                        if (! empty($target['node_id'])) {
+                            $queue[] = [
+                                'node_id' => $target['node_id'],
+                                'context' => $dispatch['context'],
+                            ];
+                        }
+                    }
+                }
+            }
+
+            foreach ($nextOutputs as $output) {
+                $targets = $edgesByFrom[$state['node_id']][$output] ?? [];
+                foreach ($targets as $target) {
+                    if (! empty($target['node_id'])) {
+                        $queue[] = [
+                            'node_id' => $target['node_id'],
+                            'context' => $nextContext,
+                        ];
+                    }
+                }
+            }
+        }
+
+        $matched = ! empty($actionResults);
+        $durationMs = (int) round((microtime(true) - $startedAt) * 1000);
+        $hasFailure = collect($actionResults)->contains(
+            static fn($result): bool => ($result['status'] ?? '') === 'failed'
+        );
+
+        $status = $matched ? ($hasFailure ? 'failed' : 'success') : 'skipped';
+
+        $this->appendExecution($trigger, [
+            'id' => $executionId ?? Str::uuid()->toString(),
+            'work_order_id' => $workOrder->id,
+            'work_order_no' => $workOrder->work_order_no,
+            'status' => $status,
+            'duration_ms' => $durationMs,
+            'at' => now()->toIso8601String(),
+            'summary' => [
+                'nodes' => $nodeResults,
+                'actions' => $actionResults,
+            ],
+        ]);
+
+        if ($matched) {
+            $this->firebaseRealtimeService->publishTriggerExecution([
+                'trigger_id' => $trigger->id,
+                'work_order_id' => $workOrder->id,
+                'status' => $status,
+                'duration_ms' => $durationMs,
+            ]);
+        }
+
+        return [
+            'trigger_id' => $trigger->id,
+            'status' => $status,
+            'matched' => $matched,
+            'actions' => $actionResults,
+            'duration_ms' => $durationMs,
+        ];
+    }
+
+    protected function simulateFlow(OperationTrigger $trigger, array $context): array
+    {
+        $flow = $this->normalizeFlow($trigger->flow ?? []);
+        [$nodesById, $edgesByFrom] = $this->buildFlowIndex($flow);
+        $triggerNodes = array_filter(
+            $flow['nodes'] ?? [],
+            static fn($node) => str_starts_with((string) ($node['type'] ?? ''), 'trigger.')
+        );
+
+        $queue = [];
+        foreach ($triggerNodes as $node) {
+            if (! empty($node['id'])) {
+                $queue[] = [
+                    'node_id' => $node['id'],
+                    'context' => $context,
+                ];
+            }
+        }
+
+        $nodeResults = [];
+        $plannedActions = [];
+        $stepCount = 0;
+        $maxSteps = 200;
+
+        while (! empty($queue) && $stepCount < $maxSteps) {
+            $stepCount++;
+            $state = array_shift($queue);
+            $node = $nodesById[$state['node_id']] ?? null;
+            if (! $node) {
+                continue;
+            }
+
+            [$nextOutputs, $nextContext, $nodeMeta] = $this->executeFlowNode(
+                $node,
+                $state['context'],
+                null,
+                null,
+                null,
+                false
+            );
+
+            if ($nodeMeta) {
+                $nodeResults[] = $nodeMeta;
+            }
+
+            if (! empty($nodeMeta['actions'])) {
+                $plannedActions = array_merge($plannedActions, $nodeMeta['actions']);
+            }
+
+            if (! empty($nodeMeta['dispatches'])) {
+                foreach ($nodeMeta['dispatches'] as $dispatch) {
+                    $targets = $edgesByFrom[$state['node_id']][$dispatch['output']] ?? [];
+                    foreach ($targets as $target) {
+                        if (! empty($target['node_id'])) {
+                            $queue[] = [
+                                'node_id' => $target['node_id'],
+                                'context' => $dispatch['context'],
+                            ];
+                        }
+                    }
+                }
+            }
+
+            foreach ($nextOutputs as $output) {
+                $targets = $edgesByFrom[$state['node_id']][$output] ?? [];
+                foreach ($targets as $target) {
+                    if (! empty($target['node_id'])) {
+                        $queue[] = [
+                            'node_id' => $target['node_id'],
+                            'context' => $nextContext,
+                        ];
+                    }
+                }
+            }
+        }
+
+        return [
+            'matched' => ! empty($plannedActions),
+            'summary' => [
+                'nodes' => $nodeResults,
+                'actions' => $plannedActions,
+            ],
+        ];
+    }
+
+    protected function executeFlowNode(
+        array $node,
+        array $context,
+        ?WorkOrder $workOrder,
+        ?int $actorId,
+        ?string $eventId,
+        bool $executeActions = true
+    ): array {
+        $type = (string) ($node['type'] ?? '');
+        $config = is_array($node['config'] ?? null) ? $node['config'] : [];
+        $nodeMeta = [
+            'node_id' => $node['id'] ?? null,
+            'type' => $type,
+        ];
+
+        if (str_starts_with($type, 'trigger.')) {
+            return [['main'], $context, $nodeMeta];
+        }
+
+        if ($type === 'logic.if') {
+            $rule = is_array($config['rule'] ?? null) ? $config['rule'] : [];
+            $evaluation = $this->evaluateGroup($rule, $context);
+            $matched = (bool) ($evaluation['matched'] ?? false);
+            $nodeMeta['matched'] = $matched;
+            $nodeMeta['summary'] = $evaluation;
+            return [[$matched ? 'true' : 'false'], $context, $nodeMeta];
+        }
+
+        if ($type === 'loop.for') {
+            $loop = $this->normalizeLoopConfig([
+                'mode' => 'for_each',
+                'collection' => $config['collection'] ?? 'routes',
+                'gate' => $config['gate'] ?? 'any',
+                'limit' => $config['limit'] ?? 25,
+            ]);
+            $items = $this->resolveLoopItems($loop, $context);
+            $items = array_slice($items, 0, $loop['limit']);
+            $nodeMeta['items'] = count($items);
+
+            $dispatches = [];
+            foreach ($items as $index => $item) {
+                $nextContext = array_merge($context, [
+                    'loop' => [
+                        'item' => $item,
+                        'index' => $index,
+                        'collection' => $loop['collection'],
+                    ],
+                ]);
+                $dispatches[] = [
+                    'output' => 'loop',
+                    'context' => $nextContext,
+                ];
+            }
+
+            if (! empty($dispatches)) {
+                $nodeMeta['dispatches'] = $dispatches;
+            }
+
+            return [['done'], $context, $nodeMeta];
+        }
+
+        if ($type === 'loop.while') {
+            $rule = is_array($config['rule'] ?? null) ? $config['rule'] : [];
+            $maxIterations = max(1, (int) ($config['maxIterations'] ?? 5));
+            $evaluation = $this->evaluateGroup($rule, $context);
+            $matched = (bool) ($evaluation['matched'] ?? false);
+            $nodeMeta['matched'] = $matched;
+            $nodeMeta['summary'] = $evaluation;
+            $nodeMeta['iterations'] = $matched ? $maxIterations : 0;
+
+            if ($matched) {
+                $nodeMeta['dispatches'] = [[
+                    'output' => 'loop',
+                    'context' => array_merge($context, [
+                        'loop' => [
+                            'index' => 0,
+                            'collection' => 'while',
+                        ],
+                    ]),
+                ]];
+            }
+
+            return [['done'], $context, $nodeMeta];
+        }
+
+        if ($type === 'tool.api') {
+            [$nextContext, $result] = $this->executeApiToolNode($node, $context);
+            $nodeMeta['result'] = $result;
+            return [['main'], $nextContext, $nodeMeta];
+        }
+
+        if ($type === 'tool.merge') {
+            [$nextContext, $result] = $this->executeMergeToolNode($node, $context);
+            $nodeMeta['result'] = $result;
+            return [['main'], $nextContext, $nodeMeta];
+        }
+
+        if (str_starts_with($type, 'action.')) {
+            $action = $this->buildActionFromNode($node);
+            if (! $action) {
+                return [['main'], $context, $nodeMeta];
+            }
+            if ($executeActions && ! $workOrder) {
+                return [['main'], $context, $nodeMeta];
+            }
+
+            $workOrderData = $context['work_order'] ?? ($workOrder?->toArray() ?? []);
+            $variables = $this->buildTemplateVariables(
+                $workOrderData,
+                [
+                    'event_id' => $eventId,
+                    'loop_item' => Arr::get($context, 'loop.item'),
+                    'loop_index' => Arr::get($context, 'loop.index'),
+                    'loop_collection' => Arr::get($context, 'loop.collection'),
+                    'data' => Arr::get($context, 'data'),
+                ]
+            );
+            $authorization = Arr::get($context, 'authorization');
+            $results = $executeActions
+                ? $this->executeActionList([$action], $workOrder, $variables, $actorId, $authorization)
+                : [[
+                    'type' => $action['type'] ?? 'unknown',
+                    'status' => 'queued',
+                ]];
+
+            foreach ($results as &$result) {
+                $result['node_id'] = $node['id'] ?? null;
+            }
+            $nodeMeta['actions'] = $results;
+
+            return [['main'], $context, $nodeMeta];
+        }
+
+        return [['main'], $context, $nodeMeta];
+    }
+
+    protected function executeApiToolNode(array $node, array $context): array
+    {
+        $config = is_array($node['config'] ?? null) ? $node['config'] : [];
+        $method = strtoupper((string) ($config['method'] ?? 'GET'));
+        $urlTemplate = (string) ($config['url'] ?? '');
+        $variables = $this->buildTemplateVariables(
+            $context['work_order'] ?? [],
+            [
+                'data' => Arr::get($context, 'data'),
+                'loop_item' => Arr::get($context, 'loop.item'),
+                'loop_index' => Arr::get($context, 'loop.index'),
+            ]
+        );
+        $url = $this->renderTemplate($urlTemplate, $variables);
+        if (! $url) {
+            return [$context, ['status' => 'skipped', 'reason' => 'Missing URL']];
+        }
+
+        $bodyTemplate = (string) ($config['body'] ?? '');
+        $payload = $bodyTemplate !== '' ? $this->renderTemplate($bodyTemplate, $variables) : null;
+        $json = is_string($payload) ? json_decode($payload, true) : null;
+        $authorization = Arr::get($context, 'authorization');
+        $headers = [];
+        if ($authorization) {
+            $headers['Authorization'] = $authorization;
+        }
+
+        try {
+            $request = Http::withHeaders($headers);
+            if ($method === 'GET' && ($payload === null || $payload === '')) {
+                $response = $request->send($method, $url);
+            } elseif (is_array($json)) {
+                $response = $request->send($method, $url, ['json' => $json]);
+            } else {
+                $response = $request->send($method, $url, ['body' => $payload]);
+            }
+        } catch (\Throwable $e) {
+            return [$context, ['status' => 'failed', 'reason' => $e->getMessage()]];
+        }
+
+        $result = [
+            'status' => $response->successful() ? 'success' : 'failed',
+            'status_code' => $response->status(),
+        ];
+
+        if ($response->successful()) {
+            $jsonBody = $response->json();
+            $context['data'] = $jsonBody ?? $response->body();
+        } else {
+            $result['reason'] = $response->body();
+        }
+
+        return [$context, $result];
+    }
+
+    protected function executeMergeToolNode(array $node, array $context): array
+    {
+        $config = is_array($node['config'] ?? null) ? $node['config'] : [];
+        $mode = strtolower((string) ($config['mode'] ?? 'merge'));
+        $payload = $config['data'] ?? [];
+        if (is_string($payload) && trim($payload) !== '') {
+            $decoded = json_decode($payload, true);
+            if (is_array($decoded)) {
+                $payload = $decoded;
+            }
+        }
+
+        $existing = Arr::get($context, 'data', []);
+        if (! is_array($existing)) {
+            $existing = [];
+        }
+
+        $context['data'] = $mode === 'replace' ? $payload : array_merge($existing, $payload);
+
+        return [$context, ['status' => 'success']];
+    }
+
+    protected function buildActionFromNode(array $node): ?array
+    {
+        $config = is_array($node['config'] ?? null) ? $node['config'] : [];
+        $type = (string) ($node['type'] ?? '');
+
+        return match ($type) {
+            'action.message' => array_merge(
+                [
+                    'type' => 'in_app',
+                    'enabled' => true,
+                    'label' => $config['label'] ?? 'In-app message',
+                    'template' => $config['template'] ?? '',
+                    'recipients' => $config['recipients'] ?? ['mode' => 'assignee', 'users' => []],
+                ],
+                $config['action'] ?? []
+            ),
+            'action.notify' => array_merge(
+                [
+                    'type' => 'push',
+                    'enabled' => true,
+                    'label' => $config['label'] ?? 'Notify',
+                    'template' => $config['template'] ?? '',
+                    'recipients' => $config['recipients'] ?? ['mode' => 'assignee', 'users' => []],
+                ],
+                $config['action'] ?? []
+            ),
+            'action.email' => array_merge(
+                [
+                    'type' => 'email',
+                    'enabled' => true,
+                    'label' => $config['label'] ?? 'Email',
+                    'subject' => $config['subject'] ?? 'Work Order update',
+                    'template' => $config['template'] ?? '',
+                    'recipients' => $config['recipients'] ?? ['mode' => 'assignee', 'users' => []],
+                ],
+                $config['action'] ?? []
+            ),
+            'action.webhook' => array_merge(
+                [
+                    'type' => 'webhook',
+                    'enabled' => true,
+                    'label' => $config['label'] ?? 'Webhook',
+                    'template' => $config['template'] ?? '',
+                    'webhook' => [
+                        'url' => $config['url'] ?? '',
+                        'method' => $config['method'] ?? 'POST',
+                    ],
+                ],
+                $config['action'] ?? []
+            ),
+            'action.screen' => array_merge(
+                [
+                    'type' => 'virtual_screen',
+                    'enabled' => true,
+                    'label' => $config['label'] ?? 'Virtual screen',
+                    'template' => $config['template'] ?? '',
+                    'recipients' => $config['recipients'] ?? ['mode' => 'screen', 'screenId' => ''],
+                ],
+                $config['action'] ?? []
+            ),
+            default => null,
+        };
+    }
+
     protected function buildWorkOrderContextFromSnapshot(
         WorkOrder $workOrder,
         array $snapshot
@@ -598,6 +1176,43 @@ class OperationTriggerService implements OperationTriggerServiceInterface
 
     protected function shouldTriggerForEvent(OperationTrigger $trigger, string $event): bool
     {
+        if ($this->hasFlow($trigger)) {
+            $flow = $this->normalizeFlow($trigger->flow ?? []);
+            $nodes = $flow['nodes'] ?? [];
+            $eventNodes = array_filter(
+                $nodes,
+                static fn($node) => ($node['type'] ?? null) === 'trigger.event'
+            );
+
+            if (empty($eventNodes)) {
+                return false;
+            }
+
+            foreach ($eventNodes as $node) {
+                $nodeEvent = Arr::get($node, 'config.event');
+                if (! $nodeEvent) {
+                    return true;
+                }
+
+                if ($nodeEvent === $event) {
+                    return true;
+                }
+
+                if ($nodeEvent === 'work_order.updated') {
+                    if (in_array($event, [
+                        'work_order.status_changed',
+                        'work_order.progress',
+                        'work_order.checklist',
+                        'work_order.validation',
+                    ], true)) {
+                        return true;
+                    }
+                }
+            }
+
+            return false;
+        }
+
         $schedule = is_array($trigger->schedule) ? $trigger->schedule : [];
         $mode = strtolower((string) ($schedule['mode'] ?? 'event'));
         if ($mode !== 'event') {
@@ -689,6 +1304,13 @@ class OperationTriggerService implements OperationTriggerServiceInterface
             $variables['loop_item_json'] = json_encode($loopItem);
             $variables['loop_item_name'] = $loopItem['name'] ?? $loopItem['label'] ?? null;
             $variables['loop_item_id'] = $loopItem['id'] ?? null;
+        }
+
+        if (array_key_exists('data', $payload)) {
+            $variables['data'] = $payload['data'];
+            $variables['data_json'] = is_scalar($payload['data'])
+                ? (string) $payload['data']
+                : json_encode($payload['data']);
         }
 
         return array_merge($variables, $payload);
@@ -869,7 +1491,11 @@ class OperationTriggerService implements OperationTriggerServiceInterface
         ];
     }
 
-    protected function executeWebhookAction(array $action, array $variables): array
+    protected function executeWebhookAction(
+        array $action,
+        array $variables,
+        ?string $authorization = null
+    ): array
     {
         $webhook = Arr::get($action, 'webhook', []);
         $urlTemplate = Arr::get($webhook, 'url');
@@ -883,7 +1509,10 @@ class OperationTriggerService implements OperationTriggerServiceInterface
         }
 
         $method = strtoupper(Arr::get($webhook, 'method', 'POST'));
-        $headers = $this->normalizeWebhookHeaders(Arr::get($webhook, 'headers', []));
+        $headers = [];
+        if ($authorization) {
+            $headers['Authorization'] = $authorization;
+        }
         $payload = $this->renderTemplate(Arr::get($action, 'template', ''), $variables);
         $payload = is_string($payload) ? trim($payload) : $payload;
         $json = is_string($payload) ? json_decode($payload, true) : null;
@@ -1075,6 +1704,7 @@ class OperationTriggerService implements OperationTriggerServiceInterface
                 'loop' => $trigger->loop ?? [],
                 'schedule' => $trigger->schedule ?? [],
                 'actions' => $trigger->actions ?? [],
+                'flow' => $trigger->flow ?? [],
                 'cooldown' => $trigger->cooldown ?? [],
                 'debounce' => $trigger->debounce ?? [],
                 'version' => $trigger->version ?? 1,
@@ -1435,7 +2065,8 @@ class OperationTriggerService implements OperationTriggerServiceInterface
         array $actions,
         WorkOrder $workOrder,
         array $variables,
-        ?int $actorId = null
+        ?int $actorId = null,
+        ?string $authorization = null
     ): array {
         $actionResults = [];
 
@@ -1455,7 +2086,7 @@ class OperationTriggerService implements OperationTriggerServiceInterface
                 'push' => $this->executeNotificationAction($action, $workOrder, $variables, $actorId),
                 'email' => $this->executeEmailAction($action, $workOrder, $variables, $actorId),
                 'virtual_screen' => $this->executeVirtualScreenAction($action, $workOrder, $variables),
-                'webhook' => $this->executeWebhookAction($action, $variables),
+                'webhook' => $this->executeWebhookAction($action, $variables, $authorization),
                 default => [
                     'type' => $type,
                     'status' => 'skipped',
