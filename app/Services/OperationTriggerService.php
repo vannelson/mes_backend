@@ -42,6 +42,7 @@ class OperationTriggerService implements OperationTriggerServiceInterface
         'checklist_status' => 'loop.item.status',
         'parameter_name' => 'loop.item.name',
         'parameter_value' => 'loop.item.value',
+        'data_field' => 'data',
     ];
 
     public function __construct(
@@ -1059,7 +1060,9 @@ class OperationTriggerService implements OperationTriggerServiceInterface
 
         if ($response->successful()) {
             $jsonBody = $response->json();
-            $context['data'] = $jsonBody ?? $response->body();
+            $data = $jsonBody ?? $response->body();
+            $context['data'] = $data;
+            $result['data'] = $data;
         } else {
             $result['reason'] = $response->body();
         }
@@ -1086,7 +1089,7 @@ class OperationTriggerService implements OperationTriggerServiceInterface
 
         $context['data'] = $mode === 'replace' ? $payload : array_merge($existing, $payload);
 
-        return [$context, ['status' => 'success']];
+        return [$context, ['status' => 'success', 'data' => $context['data']]];
     }
 
     protected function buildActionFromNode(array $node): ?array
@@ -1320,7 +1323,8 @@ class OperationTriggerService implements OperationTriggerServiceInterface
             'progress_pct' => $progressPct,
             'sla_timer' => Arr::get($metadata, 'sla.minutes'),
             'event_id' => Arr::get($payload, 'event_id'),
-            'app_url' => config('app.url'),
+            'app_url' => config('services.operation_triggers.api_base_url')
+                ?: config('app.url'),
         ];
 
         $loopItem = $payload['loop_item'] ?? null;
@@ -2166,8 +2170,17 @@ class OperationTriggerService implements OperationTriggerServiceInterface
         $expectedTo = Arr::get($condition, 'valueTo');
         $changes = Arr::get($context, 'changes', []);
         $workOrder = $context['work_order'] ?? [];
+        if ($fieldKey === 'data_field' && $path && ! str_starts_with($path, 'data.')) {
+            $path = 'data.' . ltrim($path, '.');
+        }
+
         $source = $workOrder;
-        if ($path && (str_starts_with($path, 'loop.') || str_starts_with($path, 'loop_item.'))) {
+        if ($path && (
+            str_starts_with($path, 'loop.') ||
+            str_starts_with($path, 'loop_item.') ||
+            str_starts_with($path, 'data.') ||
+            $path === 'data'
+        )) {
             $source = $context;
         }
         $pathExists = $path ? Arr::has($source, $path) : false;

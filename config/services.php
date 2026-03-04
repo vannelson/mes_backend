@@ -60,6 +60,7 @@ return [
     ],
     'operation_triggers' => [
         'execute_key' => env('OPERATION_TRIGGERS_EXECUTE_KEY'),
+        'api_base_url' => env('OPERATION_TRIGGERS_API_BASE_URL'),
     ],
 
 ];
