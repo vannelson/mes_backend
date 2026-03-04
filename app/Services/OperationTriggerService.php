@@ -1920,12 +1920,42 @@ class OperationTriggerService implements OperationTriggerServiceInterface
     {
         $rendered = $template;
         foreach ($variables as $key => $value) {
-            $replacement = is_array($value) ? implode(', ', $value) : (string) ($value ?? '');
+            $replacement = $this->stringifyTemplateValue($value);
             $pattern = '/\\{\\{\\s*' . preg_quote((string) $key, '/') . '\\s*\\}\\}/i';
             $rendered = preg_replace($pattern, $replacement, $rendered) ?? $rendered;
         }
 
         return $rendered;
+    }
+
+    protected function stringifyTemplateValue(mixed $value): string
+    {
+        if (is_array($value)) {
+            $allScalar = true;
+            foreach ($value as $item) {
+                if (is_array($item) || is_object($item)) {
+                    $allScalar = false;
+                    break;
+                }
+            }
+
+            if ($allScalar) {
+                return implode(', ', array_map(
+                    static fn ($item) => (string) ($item ?? ''),
+                    $value
+                ));
+            }
+
+            $encoded = json_encode($value);
+            return $encoded !== false ? $encoded : '';
+        }
+
+        if (is_object($value)) {
+            $encoded = json_encode($value);
+            return $encoded !== false ? $encoded : '';
+        }
+
+        return (string) ($value ?? '');
     }
 
     protected function normalizeWebhookHeaders(mixed $raw): array
