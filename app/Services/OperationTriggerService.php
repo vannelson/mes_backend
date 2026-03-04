@@ -1138,6 +1138,15 @@ class OperationTriggerService implements OperationTriggerServiceInterface
             $jsonBody = $response->json();
             $data = $jsonBody ?? $response->body();
             $context['data'] = $data;
+            $nodeId = $node['id'] ?? null;
+            if ($nodeId) {
+                $existing = Arr::get($context, 'api_nodes', []);
+                if (! is_array($existing)) {
+                    $existing = [];
+                }
+                $existing[$nodeId] = $data;
+                $context['api_nodes'] = $existing;
+            }
             $result['data'] = $data;
         } else {
             $result['reason'] = $response->body();
@@ -1163,7 +1172,97 @@ class OperationTriggerService implements OperationTriggerServiceInterface
             $existing = [];
         }
 
-        $context['data'] = $mode === 'replace' ? $payload : array_merge($existing, $payload);
+        $mergeData = $mode === 'replace' ? [] : $existing;
+        $mergeData = is_array($payload) ? array_merge($mergeData, $payload) : $mergeData;
+
+        $sources = Arr::get($config, 'sources', []);
+        if (is_array($sources) && ! empty($sources)) {
+            $apiNodes = Arr::get($context, 'api_nodes', []);
+            if (! is_array($apiNodes)) {
+                $apiNodes = [];
+            }
+            $fieldUsage = [];
+            foreach ($sources as $source) {
+                $fields = Arr::get($source, 'fields', []);
+                if (is_string($fields)) {
+                    $fields = array_filter(array_map('trim', explode(',', $fields)));
+                }
+                if (! is_array($fields)) {
+                    $fields = [];
+                }
+                foreach ($fields as $field) {
+                    $fieldUsage[$field] = ($fieldUsage[$field] ?? 0) + 1;
+                }
+            }
+
+            foreach ($sources as $source) {
+                $nodeId = Arr::get($source, 'node_id', Arr::get($source, 'nodeId'));
+                if (! $nodeId) {
+                    continue;
+                }
+                $sourceData = $apiNodes[$nodeId] ?? null;
+                if (! is_array($sourceData) && ! is_object($sourceData)) {
+                    continue;
+                }
+                $fieldsProvided = is_array($source) && array_key_exists('fields', $source);
+                $fields = Arr::get($source, 'fields', []);
+                if (is_string($fields)) {
+                    $fields = array_filter(array_map('trim', explode(',', $fields)));
+                }
+                if (! is_array($fields)) {
+                    $fields = [];
+                }
+                $subset = [];
+                if ($fieldsProvided) {
+                    if (empty($fields)) {
+                        $subset = [];
+                    } else {
+                        foreach ($fields as $field) {
+                            $subset[$field] = $this->resolveMergeFieldValue($sourceData, $field);
+                        }
+                    }
+                } elseif (! empty($fields)) {
+                    foreach ($fields as $field) {
+                        $subset[$field] = $this->resolveMergeFieldValue($sourceData, $field);
+                    }
+                } elseif (is_array($sourceData)) {
+                    $subset = $sourceData;
+                }
+
+                $mergeToRoot = Arr::get(
+                    $source,
+                    'merge_to_root',
+                    Arr::get($source, 'mergeToRoot', true)
+                );
+                $namespace = trim((string) Arr::get(
+                    $source,
+                    'key',
+                    Arr::get($source, 'namespace', '')
+                ));
+                if ($namespace === '') {
+                    $namespace = (string) $nodeId;
+                }
+
+                if ($mergeToRoot) {
+                    foreach ($subset as $field => $value) {
+                        $collision = array_key_exists($field, $mergeData)
+                            || (($fieldUsage[$field] ?? 0) > 1);
+                        if ($collision) {
+                            if (! isset($mergeData[$namespace]) || ! is_array($mergeData[$namespace])) {
+                                $mergeData[$namespace] = [];
+                            }
+                            $mergeData[$namespace][$field] = $value;
+                        } else {
+                            $mergeData[$field] = $value;
+                        }
+                    }
+                } else {
+                    $mergeData[$namespace] = $subset;
+                }
+            }
+        }
+
+        $context['data'] = $mergeData;
 
         return [$context, ['status' => 'success', 'data' => $context['data']]];
     }
@@ -2279,6 +2378,22 @@ class OperationTriggerService implements OperationTriggerServiceInterface
         }
 
         return $results;
+    }
+
+    protected function resolveMergeFieldValue(mixed $source, string $field): mixed
+    {
+        if ($field === '') {
+            return null;
+        }
+        if (! str_contains($field, '.') && ! str_contains($field, '[')) {
+            $matches = $this->collectValuesByKey($source, $field);
+            if (empty($matches)) {
+                return null;
+            }
+            return count($matches) === 1 ? $matches[0] : array_values($matches);
+        }
+
+        return data_get($source, $field);
     }
 
     protected function evaluateCondition(array $condition, array $context): array
