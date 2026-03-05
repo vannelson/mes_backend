@@ -1083,6 +1083,7 @@ class OperationTriggerService implements OperationTriggerServiceInterface
                     'loop_index' => Arr::get($context, 'loop.index'),
                     'loop_collection' => Arr::get($context, 'loop.collection'),
                     'data' => Arr::get($context, 'data'),
+                    'api_nodes' => Arr::get($context, 'api_nodes'),
                 ]
             );
             $authorization = Arr::get($context, 'authorization');
@@ -1571,6 +1572,13 @@ class OperationTriggerService implements OperationTriggerServiceInterface
                 : json_encode($payload['data']);
         }
 
+        if (array_key_exists('api_nodes', $payload)) {
+            $variables['api_nodes'] = $payload['api_nodes'];
+            $variables['api_nodes_json'] = is_scalar($payload['api_nodes'])
+                ? (string) $payload['api_nodes']
+                : json_encode($payload['api_nodes']);
+        }
+
         return array_merge($variables, $payload);
     }
 
@@ -1918,14 +1926,61 @@ class OperationTriggerService implements OperationTriggerServiceInterface
 
     protected function renderTemplate(string $template, array $variables): string
     {
-        $rendered = $template;
-        foreach ($variables as $key => $value) {
-            $replacement = $this->stringifyTemplateValue($value);
-            $pattern = '/\\{\\{\\s*' . preg_quote((string) $key, '/') . '\\s*\\}\\}/i';
-            $rendered = preg_replace($pattern, $replacement, $rendered) ?? $rendered;
+        if ($template === '') {
+            return '';
         }
 
-        return $rendered;
+        $rendered = preg_replace_callback(
+            '/\\{\\{\\s*([^}]+)\\s*\\}\\}/',
+            function (array $matches) use ($variables): string {
+                $token = trim($matches[1] ?? '');
+                if ($token === '') {
+                    return $matches[0] ?? '';
+                }
+
+                ['found' => $found, 'value' => $value] = $this->resolveTemplateValue(
+                    $variables,
+                    $token
+                );
+
+                if (! $found) {
+                    return $matches[0] ?? '';
+                }
+
+                return $this->stringifyTemplateValue($value);
+            },
+            $template
+        );
+
+        return $rendered ?? $template;
+    }
+
+    protected function resolveTemplateValue(array $variables, string $path): array
+    {
+        $normalized = $this->normalizeTemplatePath($path);
+        $sentinel = new \stdClass();
+
+        $value = data_get($variables, $normalized, $sentinel);
+        if ($value !== $sentinel) {
+            return ['found' => true, 'value' => $value];
+        }
+
+        if (! str_starts_with($normalized, 'data.') && array_key_exists('data', $variables)) {
+            $data = $variables['data'];
+            $value = data_get($data, $normalized, $sentinel);
+            if ($value !== $sentinel) {
+                return ['found' => true, 'value' => $value];
+            }
+        }
+
+        return ['found' => false, 'value' => null];
+    }
+
+    protected function normalizeTemplatePath(string $path): string
+    {
+        $normalized = preg_replace('/\\[(\\w+)\\]/', '.$1', $path) ?? $path;
+        $normalized = preg_replace('/\\.+/', '.', $normalized) ?? $normalized;
+        return ltrim($normalized, '.');
     }
 
     protected function stringifyTemplateValue(mixed $value): string
