@@ -58,6 +58,19 @@ class VirtualScreenRepository extends BaseRepository implements VirtualScreenRep
     }
 
     /**
+     * Get all virtual screens.
+     *
+     * @return Collection
+     */
+    public function getAllScreens(): Collection
+    {
+        return $this->model
+            ->with(['playlistItems'])
+            ->orderBy('created_at', 'desc')
+            ->get();
+    }
+
+    /**
      * Get active virtual screens for a user.
      *
      * @param int $userId

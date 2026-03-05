@@ -5,6 +5,7 @@ namespace App\Services;
 use App\Repositories\Contracts\PlaylistItemRepositoryInterface;
 use App\Repositories\Contracts\VirtualScreenRepositoryInterface;
 use App\Services\Contracts\PlaylistItemServiceInterface;
+use App\Models\User;
 use Illuminate\Support\Facades\Cache;
 
 class PlaylistItemService implements PlaylistItemServiceInterface
@@ -26,7 +27,8 @@ class PlaylistItemService implements PlaylistItemServiceInterface
     {
         // Verify ownership
         $screen = $this->virtualScreenRepository->findById($virtualScreenId);
-        if ($screen->user_id !== $userId) {
+        $user = User::query()->find($userId);
+        if ($screen->user_id !== $userId && ! $this->isPrivilegedUser($user)) {
             throw new \Exception('Unauthorized access to virtual screen.');
         }
 
@@ -189,5 +191,11 @@ class PlaylistItemService implements PlaylistItemServiceInterface
         }
 
         Cache::forget("virtual_screen_playlist_{$screen->share_token}");
+    }
+
+    protected function isPrivilegedUser(?User $user): bool
+    {
+        $role = strtolower(trim((string) ($user?->user_type ?? '')));
+        return in_array($role, ['manager', 'supervisor', 'admin', 'superadmin'], true);
     }
 }

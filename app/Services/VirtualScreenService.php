@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Models\ScreenMedia;
+use App\Models\User;
 use App\Models\VirtualScreen;
 use App\Repositories\Contracts\VirtualScreenRepositoryInterface;
 use App\Services\Contracts\VirtualScreenServiceInterface;
@@ -25,7 +26,10 @@ class VirtualScreenService implements VirtualScreenServiceInterface
      */
     public function getUserScreens(int $userId): array
     {
-        $screens = $this->virtualScreenRepository->getUserScreens($userId);
+        $user = User::query()->find($userId);
+        $screens = $this->isPrivilegedUser($user)
+            ? $this->virtualScreenRepository->getAllScreens()
+            : $this->virtualScreenRepository->getUserScreens($userId);
 
         return [
             'data' => $screens->map(function ($screen) {
@@ -46,7 +50,8 @@ class VirtualScreenService implements VirtualScreenServiceInterface
         $screen = $this->virtualScreenRepository->getWithPlaylistItems($id);
 
         // Verify ownership
-        if ($screen->user_id !== $userId) {
+        $user = User::query()->find($userId);
+        if ($screen->user_id !== $userId && ! $this->isPrivilegedUser($user)) {
             throw new \Exception('Unauthorized access to virtual screen.');
         }
 
@@ -302,6 +307,12 @@ class VirtualScreenService implements VirtualScreenServiceInterface
 
         $screen->access_code = VirtualScreen::generateAccessCode();
         $screen->saveQuietly();
+    }
+
+    protected function isPrivilegedUser(?User $user): bool
+    {
+        $role = strtolower(trim((string) ($user?->user_type ?? '')));
+        return in_array($role, ['manager', 'supervisor', 'admin', 'superadmin'], true);
     }
 
     protected function buildPublicPlaylist(VirtualScreen $screen): array

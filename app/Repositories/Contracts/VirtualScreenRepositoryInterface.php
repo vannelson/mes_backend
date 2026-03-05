@@ -32,6 +32,13 @@ interface VirtualScreenRepositoryInterface extends RepositoryInterface
     public function getUserScreens(int $userId): Collection;
 
     /**
+     * Get all virtual screens.
+     *
+     * @return Collection
+     */
+    public function getAllScreens(): Collection;
+
+    /**
      * Get active virtual screens for a user.
      *
      * @param int $userId
