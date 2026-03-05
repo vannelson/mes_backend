@@ -1108,7 +1108,7 @@ class OperationTriggerService implements OperationTriggerServiceInterface
     protected function executeApiToolNode(array $node, array $context): array
     {
         $config = is_array($node['config'] ?? null) ? $node['config'] : [];
-        $method = strtoupper((string) ($config['method'] ?? 'GET'));
+        $method = 'GET';
         $urlTemplate = (string) ($config['url'] ?? '');
         $variables = $this->buildTemplateVariables(
             $context['work_order'] ?? [],
