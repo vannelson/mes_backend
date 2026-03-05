@@ -1417,6 +1417,23 @@ class OperationTriggerService implements OperationTriggerServiceInterface
             }
         }
 
+        $beforeProgress = $this->computeProgressPctFromMetadata(
+            Arr::get($beforeSnapshot, 'metadata', [])
+        );
+        $afterProgress = $this->computeProgressPctFromMetadata(
+            Arr::get($afterSnapshot, 'metadata', [])
+        );
+        if ($beforeProgress !== null || $afterProgress !== null) {
+            $beforeValue = $beforeProgress ?? data_get($beforeSnapshot, $this->fieldMap['progress_pct']);
+            $afterValue = $afterProgress ?? data_get($afterSnapshot, $this->fieldMap['progress_pct']);
+            if (! $this->compare($beforeValue, $afterValue)) {
+                $changes['progress_pct'] = [
+                    'before' => $beforeValue,
+                    'after' => $afterValue,
+                ];
+            }
+        }
+
         foreach (['status', 'priority', 'is_released'] as $fieldKey) {
             $before = $beforeSnapshot[$fieldKey] ?? null;
             $after = $afterSnapshot[$fieldKey] ?? null;
@@ -1538,8 +1555,17 @@ class OperationTriggerService implements OperationTriggerServiceInterface
         $state = is_array($metadata['state'] ?? null) ? $metadata['state'] : [];
         $assignees = $this->resolveAssigneeIds($metadata);
         $progressPct = Arr::get($state, 'progressPct', null);
-        if ($progressPct === null) {
-            $progressPct = $this->computeProgressPctFromMetadata($metadata);
+        $computedProgressPct = $this->computeProgressPctFromMetadata($metadata);
+        if (
+            $computedProgressPct !== null
+            && (
+                $progressPct === null
+                || $progressPct === ''
+                || (! is_numeric($progressPct) && $progressPct !== 0)
+                || ((float) $progressPct === 0.0 && $computedProgressPct > 0)
+            )
+        ) {
+            $progressPct = $computedProgressPct;
         }
 
         $variables = [
@@ -2333,6 +2359,10 @@ class OperationTriggerService implements OperationTriggerServiceInterface
             }
         }
 
+        if ($best === null) {
+            $best = $this->resolveRouteProgressFallback($route);
+        }
+
         return $best;
     }
 
@@ -2680,15 +2710,25 @@ class OperationTriggerService implements OperationTriggerServiceInterface
         }
         $pathExists = $path ? Arr::has($source, $path) : false;
         $current = $path ? data_get($source, $path) : null;
+        $multiValues = null;
 
         $matched = false;
         $reason = null;
 
-        if (! $pathExists && $fieldKey === 'progress_pct') {
+        if ($fieldKey === 'progress_pct') {
             $computed = $this->computeProgressPctFromMetadata(
                 Arr::get($workOrder, 'metadata', [])
             );
-            if ($computed !== null) {
+            if (
+                $computed !== null
+                && (
+                    ! $pathExists
+                    || $current === null
+                    || $current === ''
+                    || (! is_numeric($current) && $current !== 0)
+                    || ((float) $current === 0.0 && $computed > 0)
+                )
+            ) {
                 $current = $computed;
                 $pathExists = true;
             }
@@ -2713,6 +2753,18 @@ class OperationTriggerService implements OperationTriggerServiceInterface
                 }
             }
         } else {
+            if (
+                ! $pathExists
+                && $fieldKey
+                && ! Arr::has($context, 'loop.item')
+            ) {
+                $metadata = Arr::get($workOrder, 'metadata', []);
+                $multiValues = $this->collectConditionValuesFromMetadata($fieldKey, $metadata);
+                if (! empty($multiValues)) {
+                    $current = $multiValues;
+                    $pathExists = true;
+                }
+            }
             if ($fieldKey === 'data_field' && $looseDataKey) {
                 $dataRoot = Arr::get($context, 'data');
                 $matches = $this->collectValuesByKey($dataRoot, $looseDataKey);
@@ -2731,7 +2783,17 @@ class OperationTriggerService implements OperationTriggerServiceInterface
                     $reason = 'Between operator requires both values';
                 }
             } else {
-                $matched = $this->evaluateOperator($operator, $current, $expected, $expectedTo);
+                if (is_array($current)) {
+                    $matched = false;
+                    foreach ($current as $value) {
+                        if ($this->evaluateOperator($operator, $value, $expected, $expectedTo)) {
+                            $matched = true;
+                            break;
+                        }
+                    }
+                } else {
+                    $matched = $this->evaluateOperator($operator, $current, $expected, $expectedTo);
+                }
                 if (! $pathExists) {
                     $reason = $fieldKey === 'data_field'
                         ? 'Field not found in API data'
@@ -2958,6 +3020,13 @@ class OperationTriggerService implements OperationTriggerServiceInterface
                 }
             }
 
+            if ($best === null) {
+                $direct = $this->resolveRouteProgressFallback($route);
+                if ($direct !== null) {
+                    $best = $direct;
+                }
+            }
+
             if ($best === null && !empty($entries)) {
                 $produced = $this->resolvePrintedQty($entries);
                 $target = $this->resolveTargetPrintedQty($entries, $metadata);
@@ -2972,6 +3041,135 @@ class OperationTriggerService implements OperationTriggerServiceInterface
         }
 
         return $best;
+    }
+
+    protected function resolveRouteProgressFallback(array $route): ?float
+    {
+        $candidates = [
+            $route['progress_pct'] ?? null,
+            $route['progressPct'] ?? null,
+            Arr::get($route, 'progress.pct'),
+            Arr::get($route, 'progress.percent'),
+            Arr::get($route, 'state.progress_pct'),
+            Arr::get($route, 'state.progressPct'),
+            Arr::get($route, 'metadata.progress_pct'),
+            Arr::get($route, 'metadata.progressPct'),
+        ];
+
+        foreach ($candidates as $value) {
+            if ($value === null || $value === '') {
+                continue;
+            }
+            $numeric = $this->toNumber($value);
+            return max(0, min(100, $numeric));
+        }
+
+        return null;
+    }
+
+    protected function collectConditionValuesFromMetadata(string $fieldKey, array $metadata): array
+    {
+        return match ($fieldKey) {
+            'route_status' => $this->collectRouteValues($metadata, 'status'),
+            'route_name' => $this->collectRouteValues($metadata, 'name'),
+            'route_code' => $this->collectRouteValues($metadata, 'code'),
+            'route_progress_pct' => $this->collectRouteValues($metadata, 'progress_pct'),
+            'checklist_label' => $this->collectChecklistValues($metadata, 'label'),
+            'checklist_status' => $this->collectChecklistValues($metadata, 'status'),
+            'parameter_name' => $this->collectParameterValues($metadata, 'name'),
+            'parameter_value' => $this->collectParameterValues($metadata, 'value'),
+            'assignee_id' => $this->collectAssigneeValues($metadata, 'id'),
+            'assignee_name' => $this->collectAssigneeValues($metadata, 'name'),
+            default => [],
+        };
+    }
+
+    protected function collectRouteValues(array $metadata, string $field): array
+    {
+        $routes = $this->buildRouteLoopItems($metadata);
+        $values = [];
+        foreach ($routes as $route) {
+            if (! is_array($route)) {
+                continue;
+            }
+            $value = match ($field) {
+                'status' => $this->resolveRouteStatusValue($route),
+                'name' => $route['name'] ?? $route['label'] ?? $route['route'] ?? $route['key'] ?? null,
+                'code' => $route['route'] ?? $route['key'] ?? null,
+                'progress_pct' => $route['progress_pct'] ?? null,
+                default => null,
+            };
+            if ($value === null || $value === '') {
+                continue;
+            }
+            $values[] = $value;
+        }
+        return $values;
+    }
+
+    protected function resolveRouteStatusValue(array $route): ?string
+    {
+        $value = Arr::get($route, 'status')
+            ?? Arr::get($route, 'state.status')
+            ?? Arr::get($route, 'progress.status');
+        if ($value === null || $value === '') {
+            $completedAt = $route['completed_at'] ?? $route['completedAt'] ?? null;
+            if ($completedAt) {
+                return 'completed';
+            }
+        }
+        return $value !== null && $value !== '' ? (string) $value : null;
+    }
+
+    protected function collectChecklistValues(array $metadata, string $field): array
+    {
+        $items = $this->buildChecklistLoopItems($metadata);
+        $values = [];
+        foreach ($items as $item) {
+            if (! is_array($item)) {
+                continue;
+            }
+            $value = $item[$field] ?? null;
+            if ($value === null || $value === '') {
+                continue;
+            }
+            $values[] = $value;
+        }
+        return $values;
+    }
+
+    protected function collectParameterValues(array $metadata, string $field): array
+    {
+        $items = $this->buildParameterLoopItems($metadata);
+        $values = [];
+        foreach ($items as $item) {
+            if (! is_array($item)) {
+                continue;
+            }
+            $value = $item[$field] ?? null;
+            if ($value === null || $value === '') {
+                continue;
+            }
+            $values[] = $value;
+        }
+        return $values;
+    }
+
+    protected function collectAssigneeValues(array $metadata, string $field): array
+    {
+        $items = $this->buildAssigneeLoopItems($metadata);
+        $values = [];
+        foreach ($items as $item) {
+            if (! is_array($item)) {
+                continue;
+            }
+            $value = $item[$field] ?? null;
+            if ($value === null || $value === '') {
+                continue;
+            }
+            $values[] = $value;
+        }
+        return $values;
     }
 
     protected function extractRoutesFromMetadata(array $metadata): array

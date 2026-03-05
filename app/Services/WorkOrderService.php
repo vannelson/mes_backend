@@ -3787,6 +3787,13 @@ class WorkOrderService implements WorkOrderServiceInterface
                 }
             }
 
+            if ($best === null) {
+                $direct = $this->resolveRouteProgressFallback($route);
+                if ($direct !== null) {
+                    $best = $direct;
+                }
+            }
+
             if ($best === null && !empty($entries)) {
                 $produced = $this->resolvePrintedQty($entries);
                 $target = $this->resolveTargetPrintedQty($entries, $metadata);
@@ -3801,6 +3808,30 @@ class WorkOrderService implements WorkOrderServiceInterface
         }
 
         return $best;
+    }
+
+    protected function resolveRouteProgressFallback(array $route): ?float
+    {
+        $candidates = [
+            $route['progress_pct'] ?? null,
+            $route['progressPct'] ?? null,
+            Arr::get($route, 'progress.pct'),
+            Arr::get($route, 'progress.percent'),
+            Arr::get($route, 'state.progress_pct'),
+            Arr::get($route, 'state.progressPct'),
+            Arr::get($route, 'metadata.progress_pct'),
+            Arr::get($route, 'metadata.progressPct'),
+        ];
+
+        foreach ($candidates as $value) {
+            if ($value === null || $value === '') {
+                continue;
+            }
+            $numeric = $this->numericValue($value);
+            return max(0, min(100, $numeric));
+        }
+
+        return null;
     }
 
     protected function normalizeTimeTrackerEntries(mixed $entries): array
