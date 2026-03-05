@@ -5,12 +5,14 @@ namespace App\Services;
 use App\Models\OperationTrigger;
 use App\Models\PlaylistItem;
 use App\Models\User;
+use App\Models\VirtualScreen;
 use App\Models\WorkOrderNotification;
 use App\Models\WorkOrder;
 use App\Services\Contracts\OperationTriggerServiceInterface;
 use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
@@ -1378,7 +1380,11 @@ class OperationTriggerService implements OperationTriggerServiceInterface
                     'enabled' => true,
                     'label' => $config['label'] ?? 'Virtual screen',
                     'template' => $config['template'] ?? '',
-                    'recipients' => $config['recipients'] ?? ['mode' => 'screen', 'screenId' => ''],
+                    'recipients' => $config['recipients'] ?? [
+                        'mode' => 'screen',
+                        'screenId' => '',
+                        'widgetId' => '',
+                    ],
                 ],
                 $config['action'] ?? []
             ),
@@ -1750,7 +1756,12 @@ class OperationTriggerService implements OperationTriggerServiceInterface
         WorkOrder $workOrder,
         array $variables
     ): array {
-        $screenId = Arr::get($action, 'recipients.screenId');
+        $recipients = Arr::get($action, 'recipients');
+        $screenId = Arr::get($action, 'recipients.screenId')
+            ?? Arr::get($action, 'recipients.screen_id');
+        if (! $screenId && is_string($recipients) && str_starts_with($recipients, 'screen:')) {
+            $screenId = trim(substr($recipients, strlen('screen:')));
+        }
         if (! $screenId) {
             return [
                 'type' => 'virtual_screen',
@@ -1759,27 +1770,87 @@ class OperationTriggerService implements OperationTriggerServiceInterface
             ];
         }
 
+        $screen = VirtualScreen::query()->find($screenId);
+        if (! $screen) {
+            return [
+                'type' => 'virtual_screen',
+                'status' => 'failed',
+                'reason' => 'Virtual screen not found.',
+            ];
+        }
+
+        $widgetId = Arr::get($action, 'recipients.widgetId')
+            ?? Arr::get($action, 'recipients.widget_id');
         $message = $this->renderTemplate(Arr::get($action, 'template', ''), $variables);
+        $duration = Arr::get($action, 'duration');
+        $durationValue = is_numeric($duration) ? (int) $duration : null;
+
+        $item = null;
+        if ($widgetId) {
+            $item = PlaylistItem::query()
+                ->where('virtual_screen_id', $screenId)
+                ->where('id', $widgetId)
+                ->first();
+            if ($item && ($item->type !== 'widget' || Arr::get($item->content, 'widget_type') !== 'ticker')) {
+                $item = null;
+            }
+        }
+
+        if (! $item) {
+            $item = PlaylistItem::query()
+                ->where('virtual_screen_id', $screenId)
+                ->where('type', 'widget')
+                ->where('content->widget_type', 'ticker')
+                ->orderBy('order')
+                ->first();
+        }
+
+        if ($item) {
+            $content = is_array($item->content) ? $item->content : [];
+            $content['widget_type'] = 'ticker';
+            $content['text'] = $message;
+            $item->content = $content;
+            if ($durationValue !== null) {
+                $item->duration = $durationValue;
+            }
+            $item->save();
+            if ($screen->share_token) {
+                Cache::forget("virtual_screen_playlist_{$screen->share_token}");
+            }
+
+            return [
+                'type' => 'virtual_screen',
+                'status' => 'success',
+                'screen_id' => $screenId,
+                'widget_id' => $item->id,
+                'mode' => 'updated',
+            ];
+        }
+
         $nextOrder = (int) (PlaylistItem::query()
             ->where('virtual_screen_id', $screenId)
             ->max('order') ?? -1) + 1;
-
-        PlaylistItem::query()->create([
+        $created = PlaylistItem::query()->create([
             'virtual_screen_id' => $screenId,
             'type' => 'widget',
             'content' => [
                 'widget_type' => 'ticker',
                 'text' => $message,
             ],
-            'duration' => Arr::get($action, 'duration', 10),
+            'duration' => $durationValue ?? 10,
             'order' => $nextOrder,
             'is_active' => true,
         ]);
+        if ($screen->share_token) {
+            Cache::forget("virtual_screen_playlist_{$screen->share_token}");
+        }
 
         return [
             'type' => 'virtual_screen',
             'status' => 'success',
             'screen_id' => $screenId,
+            'widget_id' => $created->id ?? null,
+            'mode' => 'created',
         ];
     }
 
