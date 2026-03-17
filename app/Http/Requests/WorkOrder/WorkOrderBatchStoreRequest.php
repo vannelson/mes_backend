@@ -2,12 +2,15 @@
 
 namespace App\Http\Requests\WorkOrder;
 
+use App\Http\Requests\WorkOrder\Concerns\NormalizesWorkOrderDates;
 use Illuminate\Contracts\Validation\Validator;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Support\Facades\Log;
 
 class WorkOrderBatchStoreRequest extends FormRequest
 {
+    use NormalizesWorkOrderDates;
+
     protected function prepareForValidation(): void
     {
         $workOrders = $this->input('work_orders');
@@ -23,23 +26,7 @@ class WorkOrderBatchStoreRequest extends FormRequest
             'production_date_completed',
         ];
 
-        foreach ($workOrders as $index => $payload) {
-            if (!is_array($payload)) {
-                continue;
-            }
-
-            foreach ($dateFields as $field) {
-                if (!array_key_exists($field, $payload)) {
-                    continue;
-                }
-                $value = $payload[$field];
-                if (is_string($value) && trim($value) === '') {
-                    $payload[$field] = null;
-                }
-            }
-
-            $workOrders[$index] = $payload;
-        }
+        $workOrders = $this->normalizeWorkOrderDates($workOrders, $dateFields);
 
         $this->merge([
             'work_orders' => $workOrders,

@@ -2,10 +2,35 @@
 
 namespace App\Http\Requests\WorkOrder;
 
+use App\Http\Requests\WorkOrder\Concerns\NormalizesWorkOrderDates;
 use Illuminate\Foundation\Http\FormRequest;
 
 class WorkOrderBatchReplaceRequest extends FormRequest
 {
+    use NormalizesWorkOrderDates;
+
+    protected function prepareForValidation(): void
+    {
+        $workOrders = $this->input('work_orders');
+        if (!is_array($workOrders)) {
+            return;
+        }
+
+        $dateFields = [
+            'production_due_date',
+            'requested_delivery_date',
+            'order_date',
+            'production_start_date',
+            'production_date_completed',
+        ];
+
+        $workOrders = $this->normalizeWorkOrderDates($workOrders, $dateFields);
+
+        $this->merge([
+            'work_orders' => $workOrders,
+        ]);
+    }
+
     public function authorize(): bool
     {
         return true;
