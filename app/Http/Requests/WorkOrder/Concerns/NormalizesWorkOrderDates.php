@@ -61,6 +61,11 @@ trait NormalizesWorkOrderDates
                 return null;
             }
 
+            $lower = strtolower($value);
+            if (in_array($lower, ['no', 'n/a', 'na', 'none', 'null', '-', '--', 'tbd', 'tba'], true)) {
+                return null;
+            }
+
             $parsed = $this->parseDateString($value);
             if ($parsed !== null) {
                 return $parsed;
@@ -78,7 +83,11 @@ trait NormalizesWorkOrderDates
         }
 
         if (is_numeric($value)) {
-            return $this->normalizeNumericDate((float) $value);
+            $numeric = (float) $value;
+            if ($numeric <= 0) {
+                return null;
+            }
+            return $this->normalizeNumericDate($numeric);
         }
 
         return null;
