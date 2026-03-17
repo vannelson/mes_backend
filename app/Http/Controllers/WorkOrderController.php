@@ -248,7 +248,17 @@ class WorkOrderController extends Controller
         $payload = $request->validated();
         $result = $this->workOrderService->createBatch($payload['work_orders']);
 
-        return $this->success('Work orders created successfully!', $result);
+        $meta = [
+            'server_time' => now()->toIso8601String(),
+            'app_env' => app()->environment(),
+            'app_build' => config('app.build'),
+            'app_commit' => config('app.commit'),
+        ];
+
+        return $this->success('Work orders created successfully!', [
+            'result' => $result,
+            'meta' => $meta,
+        ]);
         // } catch (ValidationException $e) {
         //     return $this->validationError($e);
         // } catch (Throwable $e) {
