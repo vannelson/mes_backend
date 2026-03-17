@@ -8,6 +8,44 @@ use Illuminate\Support\Facades\Log;
 
 class WorkOrderBatchStoreRequest extends FormRequest
 {
+    protected function prepareForValidation(): void
+    {
+        $workOrders = $this->input('work_orders');
+        if (!is_array($workOrders)) {
+            return;
+        }
+
+        $dateFields = [
+            'production_due_date',
+            'requested_delivery_date',
+            'order_date',
+            'production_start_date',
+            'production_date_completed',
+        ];
+
+        foreach ($workOrders as $index => $payload) {
+            if (!is_array($payload)) {
+                continue;
+            }
+
+            foreach ($dateFields as $field) {
+                if (!array_key_exists($field, $payload)) {
+                    continue;
+                }
+                $value = $payload[$field];
+                if (is_string($value) && trim($value) === '') {
+                    $payload[$field] = null;
+                }
+            }
+
+            $workOrders[$index] = $payload;
+        }
+
+        $this->merge([
+            'work_orders' => $workOrders,
+        ]);
+    }
+
     public function authorize(): bool
     {
         return true;
