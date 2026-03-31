@@ -5,7 +5,6 @@ namespace App\Http\Resources\SupplierChangeControl;
 use App\Models\SupplierChangeControl;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
-use Illuminate\Support\Facades\Storage;
 
 class SupplierChangeControlResource extends JsonResource
 {
@@ -30,7 +29,7 @@ class SupplierChangeControlResource extends JsonResource
             return null;
         }
 
-        return url(Storage::url($path));
+        return url("/api/v1/supplier-change-controls/{$this->id}/attachment");
     }
 
     public function toArray(Request $request): array

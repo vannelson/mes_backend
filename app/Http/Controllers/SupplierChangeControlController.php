@@ -10,6 +10,7 @@ use App\Traits\ResponseTrait;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Arr;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\ValidationException;
 use Throwable;
 
@@ -87,6 +88,37 @@ class SupplierChangeControlController extends Controller
             return $this->success('Supplier change control retrieved successfully!', $record);
         } catch (Throwable $e) {
             return $this->error('Failed to load supplier change control.', 500);
+        }
+    }
+
+    public function attachment(string $id)
+    {
+        if (! ctype_digit($id)) {
+            abort(422, 'Invalid supplier change control id.');
+        }
+
+        try {
+            $record = $this->supplierChangeControlService->detail((int) $id);
+            $path = (string) ($record['data']['attachment_path'] ?? '');
+            if ($path === '') {
+                abort(404);
+            }
+
+            $cleanPath = ltrim(str_replace('\\', '/', $path), '/');
+            if ($cleanPath === '' || str_contains($cleanPath, '..')) {
+                abort(403);
+            }
+
+            if (!Storage::disk('public')->exists($cleanPath)) {
+                abort(404);
+            }
+
+            $absolutePath = Storage::disk('public')->path($cleanPath);
+            $mimeType = Storage::disk('public')->mimeType($cleanPath) ?: 'application/octet-stream';
+
+            return response()->file($absolutePath, ['Content-Type' => $mimeType]);
+        } catch (Throwable $e) {
+            abort(404);
         }
     }
 
@@ -168,4 +200,3 @@ class SupplierChangeControlController extends Controller
         }
     }
 }
-

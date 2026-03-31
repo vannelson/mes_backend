@@ -34,6 +34,8 @@ Route::prefix('v1')->group(function () {
     Route::post('auth/login', [AuthController::class, 'login']);
     Route::post('transcripts', [TranscriptController::class, 'store']);
     Route::get('images/{path}', [ImageController::class, 'show'])->where('path', '.*');
+    Route::get('supplier-change-controls/{id}/attachment', [SupplierChangeControlController::class, 'attachment'])
+        ->whereNumber('id');
     Route::post('operation-triggers/{id}/execute-internal', [OperationTriggerController::class, 'execute'])
         ->whereNumber('id');
 
