@@ -104,19 +104,37 @@ class SupplierChangeControlController extends Controller
                 abort(404);
             }
 
-            $cleanPath = ltrim(str_replace('\\', '/', $path), '/');
-            if ($cleanPath === '' || str_contains($cleanPath, '..')) {
-                abort(403);
+            $normalizedPath = ltrim(str_replace('\\', '/', trim($path)), '/');
+            $filename = basename($normalizedPath);
+            $candidatePaths = array_values(array_unique(array_filter([
+                $normalizedPath,
+                preg_replace('#^(public|storage)/#', '', $normalizedPath),
+                $filename !== '' ? 'supplier-change-controls/' . $filename : null,
+            ])));
+
+            $cleanPath = null;
+            foreach ($candidatePaths as $candidatePath) {
+                if ($candidatePath === '' || str_contains($candidatePath, '..')) {
+                    continue;
+                }
+
+                if (Storage::disk('public')->exists($candidatePath)) {
+                    $cleanPath = $candidatePath;
+                    break;
+                }
             }
 
-            if (!Storage::disk('public')->exists($cleanPath)) {
+            if (! $cleanPath) {
                 abort(404);
             }
 
             $absolutePath = Storage::disk('public')->path($cleanPath);
             $mimeType = Storage::disk('public')->mimeType($cleanPath) ?: 'application/octet-stream';
 
-            return response()->file($absolutePath, ['Content-Type' => $mimeType]);
+            return response()->file($absolutePath, [
+                'Content-Type' => $mimeType,
+                'Content-Disposition' => 'inline; filename="' . basename($cleanPath) . '"',
+            ]);
         } catch (Throwable $e) {
             abort(404);
         }
