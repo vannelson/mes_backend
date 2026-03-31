@@ -19,6 +19,7 @@ use App\Http\Controllers\PlaylistItemController;
 use App\Http\Controllers\PublicMediaController;
 use App\Http\Controllers\PublicScreenController;
 use App\Http\Controllers\ScreenMediaController;
+use App\Http\Controllers\SupplierChangeControlController;
 use App\Http\Controllers\TemplateRouteController;
 use App\Http\Controllers\TranscriptController;
 use App\Http\Controllers\UserController;
@@ -162,6 +163,13 @@ Route::prefix('v1')->group(function () {
         Route::get('packing-checklists/{id}', [PackingChecklistController::class, 'show']);
         Route::put('packing-checklists/{id}', [PackingChecklistController::class, 'update']);
         Route::delete('packing-checklists/{id}', [PackingChecklistController::class, 'destroy']);
+
+        Route::get('supplier-change-controls', [SupplierChangeControlController::class, 'index']);
+        Route::post('supplier-change-controls', [SupplierChangeControlController::class, 'store']);
+        Route::get('supplier-change-controls/{id}', [SupplierChangeControlController::class, 'show'])->whereNumber('id');
+        Route::put('supplier-change-controls/{id}', [SupplierChangeControlController::class, 'update'])->whereNumber('id');
+        Route::post('supplier-change-controls/{id}/step', [SupplierChangeControlController::class, 'updateStep'])->whereNumber('id');
+        Route::delete('supplier-change-controls/{id}', [SupplierChangeControlController::class, 'destroy'])->whereNumber('id');
 
         Route::get('dashboard/overview', [DashboardController::class, 'overview']);
 
