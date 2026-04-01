@@ -62,5 +62,9 @@ return [
         'execute_key' => env('OPERATION_TRIGGERS_EXECUTE_KEY'),
         'api_base_url' => env('OPERATION_TRIGGERS_API_BASE_URL'),
     ],
+    'libretranslate' => [
+        'endpoint' => env('LIBRETRANSLATE_ENDPOINT', 'http://127.0.0.1:5000/translate'),
+        'api_key' => env('LIBRETRANSLATE_API_KEY'),
+    ],
 
 ];
