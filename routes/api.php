@@ -21,7 +21,6 @@ use App\Http\Controllers\PublicScreenController;
 use App\Http\Controllers\ScreenMediaController;
 use App\Http\Controllers\SupplierChangeControlController;
 use App\Http\Controllers\TemplateRouteController;
-use App\Http\Controllers\TranslationController;
 use App\Http\Controllers\TranscriptController;
 use App\Http\Controllers\UserController;
 use App\Http\Controllers\VirtualScreenController;
@@ -33,7 +32,6 @@ use Illuminate\Support\Facades\Route;
 
 Route::prefix('v1')->group(function () {
     Route::post('auth/login', [AuthController::class, 'login']);
-    Route::post('translations/batch', [TranslationController::class, 'batch'])->middleware('throttle:120,1');
     Route::post('transcripts', [TranscriptController::class, 'store']);
     Route::get('images/{path}', [ImageController::class, 'show'])->where('path', '.*');
     Route::get('supplier-change-controls/{id}/attachment', [SupplierChangeControlController::class, 'attachment'])
