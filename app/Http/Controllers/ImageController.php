@@ -20,10 +20,15 @@ class ImageController extends Controller
         }
 
         $fullPath = public_path('images/' . $clean);
-        if (! is_file($fullPath)) {
-            abort(404);
+        if (is_file($fullPath)) {
+            return response()->file($fullPath);
         }
 
-        return response()->file($fullPath);
+        $storagePath = storage_path('app/public/' . $clean);
+        if (is_file($storagePath)) {
+            return response()->file($storagePath);
+        }
+
+        abort(404);
     }
 }

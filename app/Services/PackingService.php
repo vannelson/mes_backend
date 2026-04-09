@@ -5,8 +5,8 @@ namespace App\Services;
 use App\Http\Resources\Packing\PackingResource;
 use App\Repositories\Contracts\PackingRepositoryInterface;
 use App\Services\Contracts\PackingServiceInterface;
-use Illuminate\Http\File;
 use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\File as FileFacade;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 
@@ -45,12 +45,8 @@ class PackingService implements PackingServiceInterface
         try {
             $packing = $this->packingRepository->create($data);
         } catch (\Throwable $e) {
-            if ($newImagePath) {
-                Storage::disk('public')->delete($newImagePath);
-            }
-            if ($newDesignPath) {
-                Storage::disk('public')->delete($newDesignPath);
-            }
+            $this->deletePackingAsset($newImagePath);
+            $this->deletePackingAsset($newDesignPath);
             throw $e;
         }
 
@@ -105,12 +101,8 @@ class PackingService implements PackingServiceInterface
 
                 $created[] = $this->packingRepository->create($packing);
             } catch (\Throwable $e) {
-                if ($newImagePath) {
-                    Storage::disk('public')->delete($newImagePath);
-                }
-                if ($newDesignPath) {
-                    Storage::disk('public')->delete($newDesignPath);
-                }
+                $this->deletePackingAsset($newImagePath);
+                $this->deletePackingAsset($newDesignPath);
                 $failed[] = [
                     'index' => $index,
                     'message' => $e->getMessage(),
@@ -144,20 +136,16 @@ class PackingService implements PackingServiceInterface
         $updated = (bool) $this->packingRepository->update($id, $data);
 
         if (! $updated) {
-            if ($newImagePath) {
-                Storage::disk('public')->delete($newImagePath);
-            }
-            if ($newDesignPath) {
-                Storage::disk('public')->delete($newDesignPath);
-            }
+            $this->deletePackingAsset($newImagePath);
+            $this->deletePackingAsset($newDesignPath);
             return [];
         }
 
         if ($newImagePath && $packing->image) {
-            Storage::disk('public')->delete($packing->image);
+            $this->deletePackingAsset($packing->image);
         }
         if ($newDesignPath && $packing->design) {
-            Storage::disk('public')->delete($packing->design);
+            $this->deletePackingAsset($packing->design);
         }
 
         return (new PackingResource($this->packingRepository->findById($id)))->response()->getData(true);
@@ -172,10 +160,10 @@ class PackingService implements PackingServiceInterface
         $deleted = $this->packingRepository->delete($id);
 
         if ($deleted && $imagePath) {
-            Storage::disk('public')->delete($imagePath);
+            $this->deletePackingAsset($imagePath);
         }
         if ($deleted && $designPath) {
-            Storage::disk('public')->delete($designPath);
+            $this->deletePackingAsset($designPath);
         }
 
         return $deleted;
@@ -212,9 +200,36 @@ class PackingService implements PackingServiceInterface
             throw new \RuntimeException('Failed to convert image to PNG.');
         }
 
-        $storedPath = Storage::disk('public')->putFileAs('packing', new File($tempPath), $filename);
-        @unlink($tempPath);
+        $targetDir = public_path('images/packing');
+        if (!FileFacade::isDirectory($targetDir)) {
+            FileFacade::makeDirectory($targetDir, 0755, true);
+        }
+        $targetPath = $targetDir . DIRECTORY_SEPARATOR . $filename;
+        FileFacade::move($tempPath, $targetPath);
+        @FileFacade::chmod($targetPath, 0644);
 
-        return $storedPath;
+        return "packing/{$filename}";
+    }
+
+    protected function deletePackingAsset(?string $path): void
+    {
+        if (!$path) {
+            return;
+        }
+        $clean = ltrim($path, '/');
+        if (str_starts_with($clean, 'images/')) {
+            $clean = substr($clean, strlen('images/'));
+        }
+        if (str_starts_with($clean, 'storage/')) {
+            $clean = substr($clean, strlen('storage/'));
+        }
+
+        $publicPath = public_path('images/' . $clean);
+        if (FileFacade::exists($publicPath)) {
+            FileFacade::delete($publicPath);
+            return;
+        }
+
+        Storage::disk('public')->delete($clean);
     }
 }
