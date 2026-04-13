@@ -7,6 +7,7 @@ use App\Repositories\Contracts\PackingChecklistRepositoryInterface;
 use App\Services\Contracts\PackingChecklistServiceInterface;
 use Illuminate\Http\File;
 use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\File as FileFacade;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 
@@ -176,14 +177,16 @@ class PackingChecklistService implements PackingChecklistServiceInterface
         $checklist = $this->packingChecklistRepository->findById($id);
         $ulLabelPath = $checklist->ul_label_image;
         $cartonLabelPath = $checklist->carton_label_image;
+        $productImagePath = $checklist->product_image;
+        $coreImagePath = $checklist->core_image;
 
         $deleted = $this->packingChecklistRepository->delete($id);
 
-        if ($deleted && $ulLabelPath) {
-            Storage::disk('public')->delete($ulLabelPath);
-        }
-        if ($deleted && $cartonLabelPath) {
-            Storage::disk('public')->delete($cartonLabelPath);
+        if ($deleted) {
+            $this->deleteChecklistAsset($ulLabelPath);
+            $this->deleteChecklistAsset($cartonLabelPath);
+            $this->deleteChecklistAsset($productImagePath);
+            $this->deleteChecklistAsset($coreImagePath);
         }
 
         return $deleted;
@@ -220,9 +223,36 @@ class PackingChecklistService implements PackingChecklistServiceInterface
             throw new \RuntimeException('Failed to convert image to PNG.');
         }
 
-        $storedPath = Storage::disk('public')->putFileAs('packing_checklists', new File($tempPath), $filename);
-        @unlink($tempPath);
+        $targetDir = public_path('images/packingChecklist');
+        if (!FileFacade::isDirectory($targetDir)) {
+            FileFacade::makeDirectory($targetDir, 0755, true);
+        }
+        $targetPath = $targetDir . DIRECTORY_SEPARATOR . $filename;
+        FileFacade::move($tempPath, $targetPath);
+        @FileFacade::chmod($targetPath, 0644);
 
-        return $storedPath;
+        return "packingChecklist/{$filename}";
+    }
+
+    protected function deleteChecklistAsset(?string $path): void
+    {
+        if (!$path) {
+            return;
+        }
+        $clean = ltrim($path, '/');
+        if (str_starts_with($clean, 'images/')) {
+            $clean = substr($clean, strlen('images/'));
+        }
+        if (str_starts_with($clean, 'storage/')) {
+            $clean = substr($clean, strlen('storage/'));
+        }
+
+        $publicPath = public_path('images/' . $clean);
+        if (FileFacade::exists($publicPath)) {
+            FileFacade::delete($publicPath);
+            return;
+        }
+
+        Storage::disk('public')->delete($clean);
     }
 }
