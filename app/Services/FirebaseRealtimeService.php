@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Events\LocalRealtimeUpdate;
 use GuzzleHttp\Client;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
@@ -64,6 +65,10 @@ class FirebaseRealtimeService
 
     protected function publishUpdate(string $path, array $payload): bool
     {
+        if (! (bool) config('services.firebase.enabled', false)) {
+            return $this->publishLocal($path, $payload);
+        }
+
         $databaseUrl = config('services.firebase.database_url');
         $serviceAccountPath = config('services.firebase.service_account_path');
 
@@ -86,6 +91,27 @@ class FirebaseRealtimeService
         }
 
         return $this->publishViaOpenRules($databaseUrl, $value, $path);
+    }
+
+    protected function publishLocal(string $path, array $payload): bool
+    {
+        $value = $payload;
+        $value['updated_at'] = $value['updated_at'] ?? now()->toIso8601String();
+        $value['nonce'] = $value['nonce'] ?? (string) Str::uuid();
+
+        try {
+            broadcast(new LocalRealtimeUpdate(
+                LocalRealtimeUpdate::topicFromPath($path),
+                $value
+            ));
+            return true;
+        } catch (\Throwable $e) {
+            Log::warning('Local realtime broadcast failed.', [
+                'path' => $path,
+                'message' => $e->getMessage(),
+            ]);
+            return false;
+        }
     }
 
     protected function publishViaSdk(string $databaseUrl, string $serviceAccountPath, array $value, string $path): bool

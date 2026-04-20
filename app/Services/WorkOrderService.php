@@ -227,23 +227,31 @@ class WorkOrderService implements WorkOrderServiceInterface
 
         try {
             $metadataSnapshot = $this->withProgressPct($this->normalizeMetadata($workOrder->metadata));
+            $afterSnapshot = [
+                'status' => $workOrder->status,
+                'priority' => $workOrder->priority,
+                'is_released' => $workOrder->is_released,
+                'metadata' => $metadataSnapshot,
+                'updated_at' => $workOrder->updated_at?->toIso8601String(),
+                'completed_at' => $workOrder->completed_at?->toIso8601String(),
+            ];
             $this->firebaseRealtimeService->publishWorkOrderEvent([
                 'event' => 'work_order.created',
                 'work_order_id' => $workOrder->id,
                 'work_order_no' => $workOrder->work_order_no,
                 'actor_id' => null,
                 'occurred_at' => now()->toIso8601String(),
-                'snapshot' => [
-                    'status' => $workOrder->status,
-                    'priority' => $workOrder->priority,
-                    'is_released' => $workOrder->is_released,
-                    'metadata' => $metadataSnapshot,
-                    'updated_at' => $workOrder->updated_at?->toIso8601String(),
-                    'completed_at' => $workOrder->completed_at?->toIso8601String(),
-                ],
+                'snapshot' => $afterSnapshot,
             ]);
+
+            $this->triggerService->executeForWorkOrderEvent(
+                'work_order.created',
+                $workOrder,
+                [],
+                $afterSnapshot
+            );
         } catch (\Throwable) {
-            // Ignore realtime errors on create.
+            // Realtime and automation failures should not block work order creation.
         }
 
         return (new WorkOrderResource($workOrder))->response()->getData(true);

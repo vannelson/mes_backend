@@ -47,6 +47,7 @@ return [
         'endpoint' => env('PUTER_API_ENDPOINT'),
     ],
     'firebase' => [
+        'enabled' => env('FIREBASE_REALTIME_ENABLED', false),
         'database_url' => env('FIREBASE_DATABASE_URL'),
         'service_account_path' => env('FIREBASE_SERVICE_ACCOUNT_PATH'),
     ],
