@@ -890,6 +890,7 @@ class WorkOrderService implements WorkOrderServiceInterface
     protected function lastTimeTrackerAction(array $entries, int $operatorId): ?string
     {
         $last = null;
+        $statefulActions = ['start', 'pause', 'stop'];
         foreach ($entries as $entry) {
             if (!is_array($entry)) {
                 continue;
@@ -898,7 +899,11 @@ class WorkOrderService implements WorkOrderServiceInterface
             if ((string) $entryOperator !== (string) $operatorId) {
                 continue;
             }
-            $last = strtolower((string) ($entry['action'] ?? ''));
+            $action = strtolower(trim((string) ($entry['action'] ?? '')));
+            if (!in_array($action, $statefulActions, true)) {
+                continue;
+            }
+            $last = $action;
         }
 
         return $last ?: null;
