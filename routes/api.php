@@ -7,6 +7,9 @@ use App\Http\Controllers\BomController;
 use App\Http\Controllers\CustomerController;
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\DiecutController;
+use App\Http\Controllers\DiecutIntelligenceController;
+use App\Http\Controllers\DiecutProfileController;
+use App\Http\Controllers\DiecutToolController;
 use App\Http\Controllers\DiecutTypeController;
 use App\Http\Controllers\HistoricalWorkOrderController;
 use App\Http\Controllers\MachineController;
@@ -129,10 +132,19 @@ Route::prefix('v1')->group(function () {
         Route::post('boms/batch/replace', [BomController::class, 'replaceBatch']);
 
         Route::get('diecuts', [DiecutController::class, 'index']);
+        Route::get('diecuts/estimate', [DiecutIntelligenceController::class, 'estimate']);
+        Route::get('diecuts/tooling-summary', [DiecutIntelligenceController::class, 'toolingSummary']);
+        Route::post('diecuts/import-routing-workbook', [DiecutIntelligenceController::class, 'importRoutingWorkbook']);
+        Route::post('diecuts/import-tooling-workbook', [DiecutIntelligenceController::class, 'importToolingWorkbook']);
         Route::get('diecuts/by-batch', [DiecutController::class, 'listByBatch']);
         Route::post('diecuts/batch', [DiecutController::class, 'batchStore']);
         Route::post('diecuts/batch/replace', [DiecutController::class, 'replaceBatch']);
         Route::get('diecut-types', [DiecutTypeController::class, 'index']);
+        Route::get('diecut-profiles', [DiecutProfileController::class, 'index']);
+        Route::get('diecut-profiles/{id}', [DiecutProfileController::class, 'show'])->whereNumber('id');
+        Route::get('diecut-tools', [DiecutToolController::class, 'index']);
+        Route::post('diecut-tools/usage', [DiecutToolController::class, 'storeUsage']);
+        Route::get('diecut-tools/{id}', [DiecutToolController::class, 'show'])->whereNumber('id');
 
         Route::get('template-routes', [TemplateRouteController::class, 'index']);
         Route::get('template-routes/top', [TemplateRouteController::class, 'top']);

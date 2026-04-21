@@ -20,6 +20,7 @@ class DatabaseSeeder extends Seeder
             MachineSeeder::class,
             MachineImageSeeder::class,
             DiecutTypeSeeder::class,
+            DiecutIntegrationSeeder::class,
         ]);
     }
 }

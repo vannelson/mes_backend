@@ -2,6 +2,8 @@
 
 use Illuminate\Foundation\Inspiring;
 use Illuminate\Support\Facades\Artisan;
+use Illuminate\Http\UploadedFile;
+use App\Services\DiecutWorkbookImportService;
 use App\Services\TriggerEmailService;
 
 Artisan::command('inspire', function () {
@@ -37,3 +39,32 @@ Artisan::command('mailtrap:test {--to=} {--subject=}', function (TriggerEmailSer
         return 1;
     }
 })->purpose('Send a Mailtrap test email');
+
+Artisan::command('diecut:import-workbooks {--routing=} {--tooling=} {--batch=}', function (DiecutWorkbookImportService $importService) {
+    $batch = $this->option('batch') ?: now()->format('dmy\THi');
+    $results = [];
+
+    foreach (['routing' => 'importRoutingWorkbook', 'tooling' => 'importToolingWorkbook'] as $option => $method) {
+        $path = $this->option($option);
+        if (!$path) {
+            continue;
+        }
+
+        if (!is_file($path)) {
+            $this->error("{$option} workbook not found: {$path}");
+            return 1;
+        }
+
+        $file = new UploadedFile($path, basename($path), null, null, true);
+        $results[$option] = $importService->{$method}($file, $batch);
+        $this->info("Imported {$option} workbook.");
+        $this->line(json_encode($results[$option], JSON_PRETTY_PRINT));
+    }
+
+    if (empty($results)) {
+        $this->warn('No workbook paths supplied. Use --routing= and/or --tooling=.');
+        return 1;
+    }
+
+    return 0;
+})->purpose('Import DIECUT routing and tooling Excel workbooks into normalized MES tables');

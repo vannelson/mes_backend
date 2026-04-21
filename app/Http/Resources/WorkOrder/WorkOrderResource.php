@@ -4,6 +4,7 @@ namespace App\Http\Resources\WorkOrder;
 
 use App\Http\Resources\Customer\CustomerResource;
 use App\Http\Resources\TemplateRoute\TemplateRouteResource;
+use App\Services\DiecutIntelligenceService;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 
@@ -221,6 +222,26 @@ class WorkOrderResource extends JsonResource
         return url("/api/v1/images/{$clean}");
     }
 
+    protected function shouldIncludeDiecutContext(Request $request): bool
+    {
+        return $request->boolean('include_diecut_context')
+            || $request->is('api/v1/work-orders/detail')
+            || preg_match('#^api/v1/work-orders/[0-9]+$#', trim($request->path(), '/'));
+    }
+
+    protected function resolveDiecutContext(Request $request): ?array
+    {
+        if (!$this->shouldIncludeDiecutContext($request)) {
+            return null;
+        }
+
+        try {
+            return app(DiecutIntelligenceService::class)->buildWorkOrderContext($this->resource);
+        } catch (\Throwable) {
+            return null;
+        }
+    }
+
     /**
      * Transform the resource into an array.
      */
@@ -267,6 +288,7 @@ class WorkOrderResource extends JsonResource
                 $this->evidence_images ?? []
             ),
             'metadata' => $this->metadata,
+            'diecut_context' => $this->resolveDiecutContext($request),
             'customer' => CustomerResource::make($this->whenLoaded('customer')),
             'template_route' => TemplateRouteResource::make($this->whenLoaded('templateRoute')),
             'created_at' => $this->created_at,
