@@ -171,6 +171,7 @@ class DiecutWorkbookImportService
         for ($row = 2; $row <= $sheet->getHighestDataRow(); $row++) {
             $machineNo = trim((string) $sheet->getCell("A{$row}")->getCalculatedValue());
             $machineName = trim((string) $sheet->getCell("B{$row}")->getCalculatedValue());
+            $machineType = trim((string) $sheet->getCell("C{$row}")->getCalculatedValue());
             $speed = $this->intelligenceService->toFloat($sheet->getCell("D{$row}")->getCalculatedValue());
             if (($machineNo === '' && $machineName === '') || $speed === null) {
                 continue;
@@ -190,9 +191,28 @@ class DiecutWorkbookImportService
                 ->first();
 
             if ($machine) {
-                $machine->update(['average_speed' => (string) $speed]);
-                $updated++;
+                $machine->update([
+                    'machine_no' => $machine->machine_no ?: ($machineNo !== '' ? $machineNo : null),
+                    'machine_name' => $machine->machine_name ?: ($machineName !== '' ? $machineName : null),
+                    'machine_type' => $machine->machine_type ?: ($machineType !== '' ? $machineType : null),
+                    'average_speed' => (string) $speed,
+                ]);
+            } else {
+                Machine::query()->create([
+                    'production_area' => 'DIECUT',
+                    'machine_no' => $machineNo !== '' ? $machineNo : null,
+                    'machine_name' => $machineName !== '' ? $machineName : null,
+                    'machine_type' => $machineType !== '' ? $machineType : ($machineName !== '' ? $machineName : 'DIECUT'),
+                    'average_speed' => (string) $speed,
+                    'metadata' => [
+                        'source' => 'diecut_routing_workbook',
+                        'source_sheet' => $sheet->getTitle(),
+                        'source_row' => $row,
+                    ],
+                ]);
             }
+
+            $updated++;
         }
 
         return $updated;

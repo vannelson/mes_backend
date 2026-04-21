@@ -237,25 +237,41 @@ class DiecutIntelligenceService
             'forecast_quantity' => $order->forecast_quantity,
         ];
 
-        $machine = $this->resolveWorkOrderMachine($order);
+        $machineContext = $this->resolveWorkOrderMachineContext($order);
+        $machine = $machineContext['record'];
+        $routeMachine = $machineContext['route_machine'];
+        $routeSpeed = $this->toFloat($routeMachine['average_speed'] ?? $routeMachine['speed'] ?? $routeMachine['machine_speed'] ?? null);
+
         if ($machine) {
             $payload['machine_no'] = $machine->machine_no;
             $payload['machine_name'] = $machine->machine_name;
+        }
+        if ($routeSpeed !== null) {
+            $payload['machine_speed'] = $routeSpeed;
         }
 
         $profile = $this->resolveProfile($order->die_cut, $order->customer_part_number, $order->customer_code);
 
         return [
             'profile' => $profile ? $this->profilePayload($profile) : null,
-            'machine' => $machine ? [
-                'id' => $machine->id,
-                'machine_no' => $machine->machine_no,
-                'machine_name' => $machine->machine_name,
-                'machine_type' => $machine->machine_type,
-                'average_speed' => $machine->average_speed,
-            ] : null,
+            'machine' => $this->machinePayload($machine, $routeMachine, $routeSpeed),
             'tooling' => $this->summarizeTooling($profile),
             'estimate' => $this->estimateDuration($payload),
+        ];
+    }
+
+    protected function machinePayload(?Machine $machine, ?array $routeMachine = null, ?float $routeSpeed = null): ?array
+    {
+        if (!$machine && !$routeMachine) {
+            return null;
+        }
+
+        return [
+            'id' => $machine?->id,
+            'machine_no' => $machine?->machine_no ?? ($routeMachine['machine_no'] ?? $routeMachine['number'] ?? null),
+            'machine_name' => $machine?->machine_name ?? ($routeMachine['machine_name'] ?? $routeMachine['name'] ?? $routeMachine['label'] ?? null),
+            'machine_type' => $machine?->machine_type ?? ($routeMachine['machine_type'] ?? $routeMachine['type'] ?? null),
+            'average_speed' => $machine?->average_speed ?? ($routeSpeed !== null ? (string) $routeSpeed : null),
         ];
     }
 
@@ -291,15 +307,15 @@ class DiecutIntelligenceService
         );
     }
 
-    protected function resolveWorkOrderMachine(WorkOrder $order): ?Machine
+    protected function resolveWorkOrderMachineContext(WorkOrder $order): array
     {
         $metadata = is_array($order->metadata) ? $order->metadata : [];
         $routes = $metadata['routes'] ?? $metadata['data'] ?? $metadata['steps'] ?? [];
         if (!is_array($routes)) {
-            return null;
+            return ['record' => null, 'route_machine' => null];
         }
 
-        foreach ($routes as $route) {
+        foreach ($this->flattenRoutes($routes) as $route) {
             if (!is_array($route)) {
                 continue;
             }
@@ -310,13 +326,40 @@ class DiecutIntelligenceService
             }
 
             $machineType = strtolower(trim((string) ($machine['machine_type'] ?? $machine['printing_type'] ?? '')));
-            $machineName = strtolower(trim((string) ($machine['machine_name'] ?? '')));
-            if (str_contains($machineType, 'die') || str_contains($machineName, 'die')) {
-                return $this->resolveMachineRecord($machine['machine_no'] ?? null, $machine['machine_name'] ?? null);
+            $machineName = strtolower(trim((string) ($machine['machine_name'] ?? $machine['name'] ?? $machine['label'] ?? '')));
+            $routeName = strtolower(trim((string) ($route['name'] ?? $route['route'] ?? $route['key'] ?? '')));
+            if (str_contains($machineType, 'die') || str_contains($machineName, 'die') || str_contains($routeName, 'die')) {
+                return [
+                    'record' => $this->resolveMachineRecord(
+                        $machine['machine_no'] ?? $machine['number'] ?? $machine['no'] ?? null,
+                        $machine['machine_name'] ?? $machine['name'] ?? $machine['label'] ?? null
+                    ),
+                    'route_machine' => $machine,
+                ];
             }
         }
 
-        return null;
+        return ['record' => null, 'route_machine' => null];
+    }
+
+    protected function flattenRoutes(array $routes): array
+    {
+        $flat = [];
+        foreach ($routes as $route) {
+            if (!is_array($route)) {
+                continue;
+            }
+            if (isset($route['routes']) && is_array($route['routes'])) {
+                array_push($flat, ...$this->flattenRoutes($route['routes']));
+                continue;
+            }
+            if (isset($route['steps']) && is_array($route['steps'])) {
+                array_push($flat, ...$this->flattenRoutes($route['steps']));
+                continue;
+            }
+            $flat[] = $route;
+        }
+        return $flat;
     }
 
     protected function resolveMachineRecord(?string $machineNo = null, ?string $machineName = null): ?Machine
