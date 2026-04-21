@@ -21,6 +21,7 @@ class DatabaseSeeder extends Seeder
             MachineImageSeeder::class,
             DiecutTypeSeeder::class,
             DiecutIntegrationSeeder::class,
+            RouteChecklistConfigurationSeeder::class,
         ]);
     }
 }

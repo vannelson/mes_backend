@@ -20,6 +20,7 @@ use App\Http\Controllers\PackingChecklistController;
 use App\Http\Controllers\PackingController;
 use App\Http\Controllers\PlaylistItemController;
 use App\Http\Controllers\PublicMediaController;
+use App\Http\Controllers\RouteChecklistConfigurationController;
 use App\Http\Controllers\PublicScreenController;
 use App\Http\Controllers\ScreenMediaController;
 use App\Http\Controllers\SupplierChangeControlController;
@@ -181,6 +182,11 @@ Route::prefix('v1')->group(function () {
         Route::get('packing-checklists/{id}', [PackingChecklistController::class, 'show']);
         Route::put('packing-checklists/{id}', [PackingChecklistController::class, 'update']);
         Route::delete('packing-checklists/{id}', [PackingChecklistController::class, 'destroy']);
+
+        Route::get('route-checklist-configurations', [RouteChecklistConfigurationController::class, 'index']);
+        Route::post('route-checklist-configurations', [RouteChecklistConfigurationController::class, 'store']);
+        Route::put('route-checklist-configurations/{id}', [RouteChecklistConfigurationController::class, 'update'])->whereNumber('id');
+        Route::delete('route-checklist-configurations/{id}', [RouteChecklistConfigurationController::class, 'destroy'])->whereNumber('id');
 
         Route::get('supplier-change-controls', [SupplierChangeControlController::class, 'index']);
         Route::post('supplier-change-controls', [SupplierChangeControlController::class, 'store']);
