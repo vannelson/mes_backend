@@ -50,6 +50,46 @@ class MessageController extends Controller
         }
     }
 
+    public function groupConversation(Request $request, int $groupId): JsonResponse
+    {
+        $limit = (int) $request->query('limit', 50);
+        $page = (int) $request->query('page', 1);
+        $currentUser = $request->user();
+
+        try {
+            $messages = $this->messageService->listGroupConversation($currentUser, $groupId, $limit, $page);
+            $messages->getCollection()->transform(function ($message) use ($currentUser) {
+                return $this->messageService->serializeMessage($message, $currentUser->id);
+            });
+
+            return $this->successPagination('Group conversation retrieved.', $messages);
+        } catch (Throwable $e) {
+            return $this->error('Failed to load group conversation.', 500);
+        }
+    }
+
+    public function createGroup(Request $request): JsonResponse
+    {
+        $data = $request->validate([
+            'name' => ['required', 'string', 'max:120'],
+            'member_ids' => ['required', 'array', 'min:1'],
+            'member_ids.*' => ['integer', 'exists:users,id'],
+        ]);
+
+        $name = trim($data['name']);
+        if ($name === '') {
+            return $this->error('Group name is required.', 422);
+        }
+
+        try {
+            $group = $this->messageService->createGroup($request->user(), $name, $data['member_ids']);
+
+            return $this->success('Group created.', $this->messageService->serializeGroup($group), 201);
+        } catch (Throwable $e) {
+            return $this->error('Failed to create group.', 500);
+        }
+    }
+
     public function store(Request $request): JsonResponse
     {
         $data = $request->validate([
@@ -75,6 +115,29 @@ class MessageController extends Controller
             return $this->success('Message sent.', $this->messageService->serializeMessage($message, $sender->id));
         } catch (Throwable $e) {
             return $this->error('Failed to send message.', 500);
+        }
+    }
+
+    public function storeGroup(Request $request, int $groupId): JsonResponse
+    {
+        $data = $request->validate([
+            'body' => ['required', 'string', 'max:2000'],
+        ]);
+
+        $sender = $request->user();
+        $body = trim($data['body']);
+        if ($body === '') {
+            return $this->error('Message body is required.', 422);
+        }
+
+        try {
+            $group = $this->messageService->groupForUser($sender, $groupId);
+            $message = $this->messageService->sendGroup($sender, $group, $body);
+            $message->load(['sender', 'recipient', 'group.participants']);
+
+            return $this->success('Group message sent.', $this->messageService->serializeMessage($message, $sender->id));
+        } catch (Throwable $e) {
+            return $this->error('Failed to send group message.', 500);
         }
     }
 
@@ -113,6 +176,19 @@ class MessageController extends Controller
             ]);
         } catch (Throwable $e) {
             return $this->error('Failed to mark messages read.', 500);
+        }
+    }
+
+    public function markGroupRead(Request $request, int $groupId): JsonResponse
+    {
+        try {
+            $updated = $this->messageService->markGroupRead($request->user(), $groupId);
+
+            return $this->success('Group messages marked as read.', [
+                'updated' => $updated,
+            ]);
+        } catch (Throwable $e) {
+            return $this->error('Failed to mark group messages read.', 500);
         }
     }
 }

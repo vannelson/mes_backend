@@ -10,6 +10,7 @@ class Message extends Model
     protected $fillable = [
         'sender_id',
         'recipient_id',
+        'group_id',
         'body',
         'read_at',
     ];
@@ -26,5 +27,10 @@ class Message extends Model
     public function recipient(): BelongsTo
     {
         return $this->belongsTo(User::class, 'recipient_id');
+    }
+
+    public function group(): BelongsTo
+    {
+        return $this->belongsTo(MessageGroup::class, 'group_id');
     }
 }

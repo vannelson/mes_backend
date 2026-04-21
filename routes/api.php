@@ -72,6 +72,10 @@ Route::prefix('v1')->group(function () {
         Route::post('notifications/mark-read', [WorkOrderNotificationController::class, 'markManyRead']);
         Route::get('messages/threads', [MessageController::class, 'threads']);
         Route::get('messages/unread-count', [MessageController::class, 'unreadCount']);
+        Route::post('messages/groups', [MessageController::class, 'createGroup']);
+        Route::get('messages/groups/{groupId}', [MessageController::class, 'groupConversation'])->whereNumber('groupId');
+        Route::post('messages/groups/{groupId}', [MessageController::class, 'storeGroup'])->whereNumber('groupId');
+        Route::post('messages/groups/{groupId}/mark-read', [MessageController::class, 'markGroupRead'])->whereNumber('groupId');
         Route::get('messages/conversations/{userId}', [MessageController::class, 'conversation'])->whereNumber('userId');
         Route::post('messages/mark-read', [MessageController::class, 'markRead']);
         Route::post('messages', [MessageController::class, 'store']);
