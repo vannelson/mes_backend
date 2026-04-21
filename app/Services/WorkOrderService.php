@@ -574,7 +574,8 @@ class WorkOrderService implements WorkOrderServiceInterface
 
         $action = strtolower(trim((string) $payload['action']));
         $routeMetadata = is_array($route['metadata'] ?? null) ? $route['metadata'] : [];
-        $timeTracker = is_array($routeMetadata['timeTracker'] ?? null) ? $routeMetadata['timeTracker'] : [];
+        $rawTimeTracker = $routeMetadata['timeTracker'] ?? $routeMetadata['time_tracker'] ?? [];
+        $timeTracker = is_array($rawTimeTracker) ? $rawTimeTracker : [];
         $entries = is_array($timeTracker['entries'] ?? null) ? $timeTracker['entries'] : [];
 
         $lastAction = $this->lastTimeTrackerAction($entries, $operatorId);
@@ -647,6 +648,7 @@ class WorkOrderService implements WorkOrderServiceInterface
         $timeTracker['entries'] = $entries;
         $timeTracker['updated_at'] = $timestamp;
         $routeMetadata['timeTracker'] = $timeTracker;
+        unset($routeMetadata['time_tracker']);
         $route['metadata'] = $routeMetadata;
 
         $this->workOrderRepository->update($id, ['metadata' => $metadata]);
