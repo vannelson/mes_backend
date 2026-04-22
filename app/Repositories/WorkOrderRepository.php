@@ -139,8 +139,15 @@ class WorkOrderRepository extends BaseRepository implements WorkOrderRepositoryI
         }
 
         if ($operatorId = Arr::get($filters, 'operator_id')) {
-            $query->whereHas('userAssignments', function ($q) use ($operatorId) {
-                $q->where('user_id', $operatorId);
+            $metadataMatchedIds = $this->resolveMetadataAssignedWorkOrderIds((string) $operatorId);
+            $query->where(function ($q) use ($operatorId, $metadataMatchedIds) {
+                $q->whereHas('userAssignments', function ($assignmentQuery) use ($operatorId) {
+                    $assignmentQuery->where('user_id', $operatorId);
+                });
+
+                if (!empty($metadataMatchedIds)) {
+                    $q->orWhereIn('id', $metadataMatchedIds);
+                }
             });
         }
 
@@ -219,6 +226,145 @@ class WorkOrderRepository extends BaseRepository implements WorkOrderRepositoryI
         }
 
         return $query->paginate($limit, ['*'], 'page', $page);
+    }
+
+    protected function resolveMetadataAssignedWorkOrderIds(string $operatorId): array
+    {
+        if ($operatorId === '') {
+            return [];
+        }
+
+        return WorkOrder::query()
+            ->select(['id', 'metadata'])
+            ->get()
+            ->filter(function (WorkOrder $workOrder) use ($operatorId): bool {
+                return $this->workOrderMetadataHasOperatorAssignment($workOrder->metadata, $operatorId);
+            })
+            ->pluck('id')
+            ->map(static fn ($id) => (int) $id)
+            ->values()
+            ->all();
+    }
+
+    protected function workOrderMetadataHasOperatorAssignment(mixed $metadata, string $operatorId): bool
+    {
+        $normalized = $this->normalizeMetadata($metadata);
+        if (empty($normalized)) {
+            return false;
+        }
+
+        $routes = Arr::get($normalized, 'assignments.routes')
+            ?? Arr::get($normalized, 'route_assignments')
+            ?? Arr::get($normalized, 'routeAssignments')
+            ?? Arr::get($normalized, 'routes')
+            ?? [];
+
+        foreach ($this->flattenAssignmentRoutes($routes) as $route) {
+            if (!is_array($route)) {
+                continue;
+            }
+
+            $operators = Arr::get($route, 'operators', []);
+            if (is_array($operators)) {
+                foreach ($operators as $operator) {
+                    if ($this->operatorAssignmentMatches($operator, $operatorId)) {
+                        return true;
+                    }
+                }
+            }
+
+            $directOperatorId = Arr::get($route, 'operator_id')
+                ?? Arr::get($route, 'operatorId')
+                ?? Arr::get($route, 'user_id')
+                ?? Arr::get($route, 'metadata.machineOperatorId')
+                ?? Arr::get($route, 'machineOperatorId');
+            if ($directOperatorId !== null && (string) $directOperatorId === $operatorId) {
+                return true;
+            }
+
+            $additionalMachines = Arr::get($route, 'metadata.additionalMachines')
+                ?? Arr::get($route, 'additionalMachines')
+                ?? [];
+            if (is_array($additionalMachines)) {
+                foreach ($additionalMachines as $machine) {
+                    $machineOperatorId = Arr::get($machine, 'operatorId')
+                        ?? Arr::get($machine, 'machineOperatorId')
+                        ?? Arr::get($machine, 'machine.operatorId');
+                    if ($machineOperatorId !== null && (string) $machineOperatorId === $operatorId) {
+                        return true;
+                    }
+                }
+            }
+        }
+
+        return false;
+    }
+
+    protected function flattenAssignmentRoutes(mixed $routes): array
+    {
+        if (is_string($routes)) {
+            $decoded = json_decode($routes, true);
+            if (json_last_error() === JSON_ERROR_NONE) {
+                $routes = $decoded;
+            }
+        }
+
+        if (!is_array($routes)) {
+            return [];
+        }
+
+        if (Arr::has($routes, 'routes')) {
+            $routes = Arr::get($routes, 'routes', []);
+        }
+
+        $flattened = [];
+        foreach ($routes as $route) {
+            if (!is_array($route)) {
+                continue;
+            }
+
+            if (isset($route['routes']) && is_array($route['routes'])) {
+                foreach ($route['routes'] as $nestedRoute) {
+                    if (is_array($nestedRoute)) {
+                        $flattened[] = $nestedRoute;
+                    }
+                }
+                continue;
+            }
+
+            $flattened[] = $route;
+        }
+
+        return $flattened;
+    }
+
+    protected function operatorAssignmentMatches(mixed $operator, string $operatorId): bool
+    {
+        if (is_array($operator)) {
+            $candidate = Arr::get($operator, 'id')
+                ?? Arr::get($operator, 'user_id')
+                ?? Arr::get($operator, 'userId');
+
+            return $candidate !== null && (string) $candidate === $operatorId;
+        }
+
+        return $operator !== null && (string) $operator === $operatorId;
+    }
+
+    protected function normalizeMetadata(mixed $metadata): array
+    {
+        if (is_array($metadata)) {
+            return $metadata;
+        }
+
+        if (is_string($metadata)) {
+            $decoded = json_decode($metadata, true);
+            if (json_last_error() === JSON_ERROR_NONE && is_array($decoded)) {
+                return $decoded;
+            }
+        }
+
+        return [];
     }
 
     public function options(array $filters = [], array $order = [], int $limit = 10, int $page = 1): LengthAwarePaginator
