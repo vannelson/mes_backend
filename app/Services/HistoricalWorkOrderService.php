@@ -466,6 +466,8 @@ class HistoricalWorkOrderService
             ->get()
             ->map(function ($row): array {
                 return [
+                    'customer_part_number' => $row->customer_part_number,
+                    'customer_code' => $row->customer_code,
                     'work_order_no' => $row->work_order_no,
                     'total_rows' => (int) $row->total_rows,
                     'total_press' => (float) ($row->total_press ?? 0),
