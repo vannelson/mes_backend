@@ -14,13 +14,13 @@ class PackingStoreRequest extends FormRequest
     public static function baseRules(): array
     {
         return [
-            'wd_part_no' => ['nullable', 'string', 'max:255'],
+            'wd_part_no' => ['required', 'string', 'max:255'],
             'material' => ['nullable', 'string', 'max:255'],
             'description' => ['nullable', 'string'],
             'batch_number' => ['nullable', 'string', 'max:255'],
             'design' => ['nullable', 'string', 'max:255'],
             'shipping_location' => ['nullable', 'string', 'max:255'],
-            'customer_code' => ['nullable', 'string', 'max:255'],
+            'customer_code' => ['required', 'string', 'max:255'],
             'box_size' => ['nullable', 'string', 'max:255'],
             'qty_per_box' => ['nullable', 'string', 'max:255'],
             'qty_per_roll' => ['nullable', 'string', 'max:255'],
