@@ -52,6 +52,100 @@ class HistoricalWorkOrderService
         return HistoricalWorkOrderResource::collection($paginator)->response()->getData(true);
     }
 
+    public function getByPartNumber(array $filters = [], array $order = [], int $limit = 12, int $page = 1): array
+    {
+        $baseSub = $this->buildPartNumberBaseQuery($filters);
+
+        [$orderBy, $direction] = !empty($order) ? $order : ['latest_completed', 'desc'];
+        $direction = strtolower($direction) === 'asc' ? 'asc' : 'desc';
+        $allowed = [
+            'customer_part_number',
+            'customer_code',
+            'total_rows',
+            'total_work_orders',
+            'total_printed_qty',
+            'total_press',
+            'total_ups',
+            'average_cycle_days',
+            'min_cycle_days',
+            'max_cycle_days',
+            'earliest_started',
+            'latest_completed',
+        ];
+
+        if (!in_array($orderBy, $allowed, true)) {
+            $orderBy = 'latest_completed';
+        }
+
+        $query = DB::query()
+            ->fromSub($baseSub, 'part_history')
+            ->selectRaw('part_number_label AS customer_part_number')
+            ->selectRaw('customer_code_label AS customer_code')
+            ->selectRaw('COUNT(*) AS total_rows')
+            ->selectRaw("COUNT(DISTINCT NULLIF(work_order_label, 'Unassigned')) AS total_work_orders")
+            ->selectRaw('SUM(press_value) AS total_press')
+            ->selectRaw('SUM(ups_value) AS total_ups')
+            ->selectRaw('SUM(printed_value) AS total_printed_qty')
+            ->selectRaw('MIN(started_date) AS earliest_started')
+            ->selectRaw('MAX(completed_date) AS latest_completed')
+            ->selectRaw('AVG(cycle_days) AS average_cycle_days')
+            ->selectRaw('MIN(cycle_days) AS min_cycle_days')
+            ->selectRaw('MAX(cycle_days) AS max_cycle_days')
+            ->groupBy('part_number_label', 'customer_code_label');
+
+        $query->orderBy($orderBy, $direction)
+            ->orderBy('customer_part_number')
+            ->orderBy('customer_code');
+
+        $paginator = $query->paginate($limit, ['*'], 'page', $page);
+        $items = collect($paginator->items())
+            ->map(fn ($row) => (array) $row)
+            ->values();
+
+        $workOrdersByPart = $this->getWorkOrdersForPartGroups($filters, $items->all());
+
+        $data = $items
+            ->map(function (array $row) use ($workOrdersByPart): array {
+                $key = $this->partGroupKey(
+                    $row['customer_part_number'] ?? '',
+                    $row['customer_code'] ?? ''
+                );
+
+                return [
+                    'customer_part_number' => $row['customer_part_number'] ?? 'Unassigned',
+                    'customer_code' => $row['customer_code'] ?? 'Unknown',
+                    'total_rows' => (int) ($row['total_rows'] ?? 0),
+                    'total_work_orders' => (int) ($row['total_work_orders'] ?? 0),
+                    'total_press' => (float) ($row['total_press'] ?? 0),
+                    'total_ups' => (float) ($row['total_ups'] ?? 0),
+                    'total_printed_qty' => (float) ($row['total_printed_qty'] ?? 0),
+                    'earliest_started' => $row['earliest_started'] ?? null,
+                    'latest_completed' => $row['latest_completed'] ?? null,
+                    'average_cycle_days' => $row['average_cycle_days'] !== null
+                        ? (float) $row['average_cycle_days']
+                        : null,
+                    'min_cycle_days' => $row['min_cycle_days'] !== null
+                        ? (float) $row['min_cycle_days']
+                        : null,
+                    'max_cycle_days' => $row['max_cycle_days'] !== null
+                        ? (float) $row['max_cycle_days']
+                        : null,
+                    'work_orders' => $workOrdersByPart[$key] ?? [],
+                ];
+            })
+            ->all();
+
+        return [
+            'data' => $data,
+            'meta' => [
+                'current_page' => $paginator->currentPage(),
+                'last_page' => $paginator->lastPage(),
+                'per_page' => $paginator->perPage(),
+                'total' => $paginator->total(),
+            ],
+        ];
+    }
+
     public function summary(array $filters = []): array
     {
         $baseQuery = $this->applyFilters($this->baseFilterQuery(), $filters);
@@ -319,6 +413,101 @@ class HistoricalWorkOrderService
         return "historical_work_orders.{$column}";
     }
 
+    private function buildPartNumberBaseQuery(array $filters): Builder
+    {
+        return $this->applyFilters($this->baseFilterQuery(), $filters)
+            ->selectRaw($this->partNumberExpression() . ' AS part_number_label')
+            ->selectRaw($this->customerCodeExpression() . ' AS customer_code_label')
+            ->selectRaw($this->workOrderExpression() . ' AS work_order_label')
+            ->selectRaw($this->machineNameExpression() . ' AS machine_name_label')
+            ->selectRaw($this->staffNameLabelExpression() . ' AS staff_name_label')
+            ->selectRaw("{$this->numericExpression('no_of_press')} AS press_value")
+            ->selectRaw("{$this->numericExpression('no_of_ups')} AS ups_value")
+            ->selectRaw("{$this->numericExpression('printed_quantity')} AS printed_value")
+            ->selectRaw($this->dateExpression('date_started') . ' AS started_date')
+            ->selectRaw($this->dateExpression('date_completed') . ' AS completed_date')
+            ->selectRaw($this->cycleDaysExpression() . ' AS cycle_days');
+    }
+
+    private function getWorkOrdersForPartGroups(array $filters, array $groups): array
+    {
+        if (empty($groups)) {
+            return [];
+        }
+
+        $detailQuery = DB::query()
+            ->fromSub($this->buildPartNumberBaseQuery($filters), 'part_work_order_history')
+            ->selectRaw('part_number_label AS customer_part_number')
+            ->selectRaw('customer_code_label AS customer_code')
+            ->selectRaw('work_order_label AS work_order_no')
+            ->selectRaw('COUNT(*) AS total_rows')
+            ->selectRaw('SUM(press_value) AS total_press')
+            ->selectRaw('SUM(ups_value) AS total_ups')
+            ->selectRaw('SUM(printed_value) AS total_printed_qty')
+            ->selectRaw('MIN(started_date) AS earliest_started')
+            ->selectRaw('MAX(completed_date) AS latest_completed')
+            ->selectRaw('AVG(cycle_days) AS average_cycle_days')
+            ->selectRaw('MIN(cycle_days) AS min_cycle_days')
+            ->selectRaw('MAX(cycle_days) AS max_cycle_days')
+            ->selectRaw("GROUP_CONCAT(DISTINCT NULLIF(machine_name_label, 'Unknown') ORDER BY machine_name_label SEPARATOR ', ') AS machine_names")
+            ->selectRaw("GROUP_CONCAT(DISTINCT NULLIF(staff_name_label, 'Unknown') ORDER BY staff_name_label SEPARATOR ', ') AS staff_names")
+            ->groupBy('part_number_label', 'customer_code_label', 'work_order_label');
+
+        $detailQuery->where(function ($query) use ($groups) {
+            foreach ($groups as $group) {
+                $query->orWhere(function ($nested) use ($group) {
+                    $nested->where('part_number_label', $group['customer_part_number'] ?? 'Unassigned')
+                        ->where('customer_code_label', $group['customer_code'] ?? 'Unknown');
+                });
+            }
+        });
+
+        return $detailQuery
+            ->get()
+            ->map(function ($row): array {
+                return [
+                    'work_order_no' => $row->work_order_no,
+                    'total_rows' => (int) $row->total_rows,
+                    'total_press' => (float) ($row->total_press ?? 0),
+                    'total_ups' => (float) ($row->total_ups ?? 0),
+                    'total_printed_qty' => (float) ($row->total_printed_qty ?? 0),
+                    'earliest_started' => $row->earliest_started,
+                    'latest_completed' => $row->latest_completed,
+                    'average_cycle_days' => $row->average_cycle_days !== null
+                        ? (float) $row->average_cycle_days
+                        : null,
+                    'min_cycle_days' => $row->min_cycle_days !== null
+                        ? (float) $row->min_cycle_days
+                        : null,
+                    'max_cycle_days' => $row->max_cycle_days !== null
+                        ? (float) $row->max_cycle_days
+                        : null,
+                    'machine_names' => $row->machine_names
+                        ? array_values(array_filter(array_map('trim', explode(',', $row->machine_names))))
+                        : [],
+                    'staff_names' => $row->staff_names
+                        ? array_values(array_filter(array_map('trim', explode(',', $row->staff_names))))
+                        : [],
+                ];
+            })
+            ->sortBy([
+                ['latest_completed', 'desc'],
+                ['total_printed_qty', 'desc'],
+                ['work_order_no', 'asc'],
+            ])
+            ->groupBy(fn (array $row) => $this->partGroupKey(
+                $row['customer_part_number'] ?? '',
+                $row['customer_code'] ?? ''
+            ))
+            ->map(
+                fn ($rows) => $rows
+                    ->map(fn (array $row) => Arr::except($row, ['customer_part_number', 'customer_code']))
+                    ->values()
+                    ->all()
+            )
+            ->all();
+    }
+
     private function filterOptionExpressions(): array
     {
         return [
@@ -339,6 +528,31 @@ class HistoricalWorkOrderService
     private function staffNameExpression(): string
     {
         return "TRIM(COALESCE(NULLIF(CONCAT_WS(' ', users.firstname, users.middlename, users.lastname), ''), NULLIF({$this->qualifyColumn('add_user')}, ''), ''))";
+    }
+
+    private function staffNameLabelExpression(): string
+    {
+        return "COALESCE(NULLIF({$this->staffNameExpression()}, ''), 'Unknown')";
+    }
+
+    private function partNumberExpression(): string
+    {
+        return "COALESCE(NULLIF(TRIM({$this->qualifyColumn('customer_part_number')}), ''), 'Unassigned')";
+    }
+
+    private function customerCodeExpression(): string
+    {
+        return "COALESCE(NULLIF(TRIM({$this->qualifyColumn('customer_code')}), ''), 'Unknown')";
+    }
+
+    private function workOrderExpression(): string
+    {
+        return "COALESCE(NULLIF(TRIM({$this->qualifyColumn('work_order_no')}), ''), 'Unassigned')";
+    }
+
+    private function machineNameExpression(): string
+    {
+        return "COALESCE(NULLIF(TRIM({$this->qualifyColumn('machine_name')}), ''), 'Unknown')";
     }
 
     private function monthYearExpression(): string
@@ -391,5 +605,24 @@ class HistoricalWorkOrderService
     {
         $qualified = $this->qualifyColumn($column);
         return "CAST(REPLACE(COALESCE({$qualified}, '0'), ',', '') AS DECIMAL(18,2))";
+    }
+
+    private function dateExpression(string $column): string
+    {
+        $qualified = $this->qualifyColumn($column);
+        return "DATE(NULLIF(TRIM({$qualified}), ''))";
+    }
+
+    private function cycleDaysExpression(): string
+    {
+        $started = $this->dateExpression('date_started');
+        $completed = $this->dateExpression('date_completed');
+
+        return "CASE WHEN {$started} IS NOT NULL AND {$completed} IS NOT NULL THEN DATEDIFF({$completed}, {$started}) END";
+    }
+
+    private function partGroupKey(string $partNumber, string $customerCode): string
+    {
+        return "{$partNumber}::{$customerCode}";
     }
 }

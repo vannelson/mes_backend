@@ -109,6 +109,53 @@ class HistoricalWorkOrderController extends Controller
         }
     }
 
+    public function byPartNumber(Request $request): JsonResponse
+    {
+        $filters = Arr::get($request->all(), 'filters', []);
+        foreach (
+            [
+                'q',
+                'work_order_no',
+                'material_batch_no',
+                'die_cut',
+                'machine_name',
+                'machine_code',
+                'machine_type',
+                'staff_code',
+                'staff_name',
+                'customer_part_number',
+                'customer_code',
+                'completed_month',
+                'date_completed_from',
+                'date_completed_to',
+                'no_of_press_min',
+                'no_of_press_max',
+                'no_of_ups_min',
+                'no_of_ups_max',
+                'printed_quantity_min',
+                'printed_quantity_max',
+            ] as $key
+        ) {
+            $value = $request->get($key);
+            if ($value !== null && $value !== '') {
+                $filters[$key] = $value;
+            }
+        }
+
+        $order = Arr::get($request->all(), 'order', ['latest_completed', 'desc']);
+        $limit = (int) Arr::get($request->all(), 'limit', 12);
+        $limit = max(1, min($limit, 100));
+        $page = (int) Arr::get($request->all(), 'page', 1);
+
+        try {
+            $data = $this->historicalWorkOrderService->getByPartNumber($filters, $order, $limit, $page);
+
+            return $this->successPagination('Historical part-number work orders retrieved successfully!', $data);
+        } catch (Throwable $e) {
+            return $this->error('Failed to load historical part-number work orders.', 500);
+        }
+    }
+
     public function filterOptions(Request $request): JsonResponse
     {
         $column = trim((string) $request->get('column', ''));

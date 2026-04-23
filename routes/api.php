@@ -99,6 +99,7 @@ Route::prefix('v1')->group(function () {
         Route::post('work-orders/import', [WorkOrderController::class, 'import']);
         Route::get('historical-work-orders', [HistoricalWorkOrderController::class, 'index']);
         Route::get('historical-work-orders/summary', [HistoricalWorkOrderController::class, 'summary']);
+        Route::get('historical-work-orders/by-part-number', [HistoricalWorkOrderController::class, 'byPartNumber']);
         Route::get('historical-work-orders/filter-options', [HistoricalWorkOrderController::class, 'filterOptions']);
         Route::post('historical-work-orders/import', [HistoricalWorkOrderController::class, 'import']);
         Route::post('work-orders/link-template-routes', [WorkOrderController::class, 'linkTemplateRoutes']);
