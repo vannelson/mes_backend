@@ -289,7 +289,14 @@ class WorkOrderRepository extends BaseRepository implements WorkOrderRepositoryI
                 foreach ($additionalMachines as $machine) {
                     $machineOperatorId = Arr::get($machine, 'operatorId')
                         ?? Arr::get($machine, 'machineOperatorId')
-                        ?? Arr::get($machine, 'machine.operatorId');
+                        ?? Arr::get($machine, 'operator_id')
+                        ?? Arr::get($machine, 'user_id')
+                        ?? Arr::get($machine, 'machineDetails.operatorId')
+                        ?? Arr::get($machine, 'machineDetails.machineOperatorId')
+                        ?? Arr::get($machine, 'machine.operatorId')
+                        ?? Arr::get($machine, 'machine.machineOperatorId')
+                        ?? Arr::get($machine, 'metadata.operatorId')
+                        ?? Arr::get($machine, 'metadata.machineOperatorId');
                     if ($machineOperatorId !== null && (string) $machineOperatorId === $operatorId) {
                         return true;
                     }

@@ -3466,12 +3466,16 @@ class WorkOrderService implements WorkOrderServiceInterface
 
             $directOperatorId = Arr::get($route, 'operator_id')
                 ?? Arr::get($route, 'operatorId')
-                ?? Arr::get($route, 'user_id');
+                ?? Arr::get($route, 'user_id')
+                ?? Arr::get($route, 'metadata.machineOperatorId')
+                ?? Arr::get($route, 'machineOperatorId');
             if ($directOperatorId !== null && (string) $directOperatorId === $operatorId) {
                 return true;
             }
 
-            $additionalMachines = Arr::get($route, 'metadata.additionalMachines', []);
+            $additionalMachines = Arr::get($route, 'metadata.additionalMachines')
+                ?? Arr::get($route, 'additionalMachines')
+                ?? [];
             if (is_array($additionalMachines)) {
                 foreach ($additionalMachines as $machineAssignment) {
                     if (!is_array($machineAssignment)) {
@@ -3482,6 +3486,13 @@ class WorkOrderService implements WorkOrderServiceInterface
                         ?? Arr::get($machineAssignment, 'machineOperatorId')
                         ?? Arr::get($machineAssignment, 'operator_id')
                         ?? Arr::get($machineAssignment, 'user_id');
+                    $machineOperatorId = $machineOperatorId
+                        ?? Arr::get($machineAssignment, 'machineDetails.operatorId')
+                        ?? Arr::get($machineAssignment, 'machineDetails.machineOperatorId')
+                        ?? Arr::get($machineAssignment, 'machine.operatorId')
+                        ?? Arr::get($machineAssignment, 'machine.machineOperatorId')
+                        ?? Arr::get($machineAssignment, 'metadata.operatorId')
+                        ?? Arr::get($machineAssignment, 'metadata.machineOperatorId');
 
                     if ($machineOperatorId !== null && (string) $machineOperatorId === $operatorId) {
                         return true;
