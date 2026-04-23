@@ -303,6 +303,7 @@ class HistoricalWorkOrderService
             ->select([
                 'historical_work_orders.*',
                 DB::raw($this->staffNameExpression() . ' AS staff_name'),
+                DB::raw($this->effectiveStartDateExpression() . ' AS effective_start_date'),
             ]);
     }
 
@@ -424,7 +425,7 @@ class HistoricalWorkOrderService
             ->selectRaw("{$this->numericExpression('no_of_press')} AS press_value")
             ->selectRaw("{$this->numericExpression('no_of_ups')} AS ups_value")
             ->selectRaw("{$this->numericExpression('printed_quantity')} AS printed_value")
-            ->selectRaw($this->dateExpression('date_started') . ' AS started_date')
+            ->selectRaw($this->effectiveStartDateExpression() . ' AS started_date')
             ->selectRaw($this->dateExpression('date_completed') . ' AS completed_date')
             ->selectRaw($this->cycleDaysExpression() . ' AS cycle_days');
     }
@@ -617,10 +618,50 @@ class HistoricalWorkOrderService
 
     private function cycleDaysExpression(): string
     {
-        $started = $this->dateExpression('date_started');
+        $started = $this->effectiveStartDateExpression();
         $completed = $this->dateExpression('date_completed');
 
         return "CASE WHEN {$started} IS NOT NULL AND {$completed} IS NOT NULL THEN DATEDIFF({$completed}, {$started}) END";
+    }
+
+    private function effectiveStartDateExpression(): string
+    {
+        $started = $this->dateExpression('date_started');
+        $added = $this->dateExpression('add_date');
+        $matchedWorkOrder = $this->matchedWorkOrderStartDateExpression();
+        $matchedHistoricalWorkOrder = $this->matchedHistoricalWorkOrderStartDateExpression();
+        $matchedWorkOrderPart = $this->matchedWorkOrderPartStartDateExpression();
+        $matchedHistoricalPart = $this->matchedHistoricalPartStartDateExpression();
+
+        return "COALESCE({$matchedWorkOrder}, {$matchedHistoricalWorkOrder}, {$matchedWorkOrderPart}, {$matchedHistoricalPart}, {$started}, {$added})";
+    }
+
+    private function matchedWorkOrderStartDateExpression(): string
+    {
+        $workOrderNo = $this->qualifyColumn('work_order_no');
+
+        return "(SELECT MIN(production_start_date) FROM work_orders WHERE work_orders.work_order_no = {$workOrderNo} AND production_start_date IS NOT NULL)";
+    }
+
+    private function matchedHistoricalWorkOrderStartDateExpression(): string
+    {
+        $workOrderNo = $this->qualifyColumn('work_order_no');
+
+        return "(SELECT MIN(DATE(NULLIF(TRIM(hwo_match.date_started), ''))) FROM historical_work_orders hwo_match WHERE hwo_match.work_order_no = {$workOrderNo} AND NULLIF(TRIM(hwo_match.date_started), '') IS NOT NULL)";
+    }
+
+    private function matchedWorkOrderPartStartDateExpression(): string
+    {
+        $customerPartNumber = $this->qualifyColumn('customer_part_number');
+
+        return "(SELECT MIN(production_start_date) FROM work_orders WHERE work_orders.customer_part_number = {$customerPartNumber} AND production_start_date IS NOT NULL)";
+    }
+
+    private function matchedHistoricalPartStartDateExpression(): string
+    {
+        $customerPartNumber = $this->qualifyColumn('customer_part_number');
+
+        return "(SELECT MIN(DATE(NULLIF(TRIM(hwo_part_match.date_started), ''))) FROM historical_work_orders hwo_part_match WHERE hwo_part_match.customer_part_number = {$customerPartNumber} AND NULLIF(TRIM(hwo_part_match.date_started), '') IS NOT NULL)";
     }
 
     private function partGroupKey(string $partNumber, string $customerCode): string

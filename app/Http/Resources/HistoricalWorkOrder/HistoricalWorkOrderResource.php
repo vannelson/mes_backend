@@ -31,6 +31,7 @@ class HistoricalWorkOrderResource extends JsonResource
             'staff_name' => $this->staff_name,
             'no_of_press' => $this->no_of_press,
             'date_started' => $this->date_started,
+            'effective_start_date' => $this->effective_start_date,
             'time_started' => $this->time_started,
             'date_completed' => $this->date_completed,
             'time_completed' => $this->time_completed,
