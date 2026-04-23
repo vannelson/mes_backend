@@ -7,6 +7,7 @@ use App\Http\Resources\TemplateRoute\TemplateRouteResource;
 use App\Services\DiecutIntelligenceService;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
+use App\Models\UserWorkOrder;
 
 class WorkOrderResource extends JsonResource
 {
@@ -247,6 +248,32 @@ class WorkOrderResource extends JsonResource
      */
     public function toArray(Request $request): array
     {
+        $userAssignments = null;
+        if ($this->relationLoaded('userAssignments')) {
+            $userAssignments = $this->userAssignments
+                ->map(function (UserWorkOrder $assignment): array {
+                    return [
+                        'id' => $assignment->id,
+                        'user_id' => $assignment->user_id,
+                        'route_key' => $assignment->route_key,
+                        'route_code' => $assignment->route_code,
+                        'route_name' => $assignment->route_name,
+                        'order_seq' => $assignment->order_seq,
+                        'assigned_qty' => $assignment->assigned_qty,
+                        'user' => $assignment->user ? [
+                            'id' => $assignment->user->id,
+                            'firstname' => $assignment->user->firstname,
+                            'lastname' => $assignment->user->lastname,
+                            'middlename' => $assignment->user->middlename,
+                            'email' => $assignment->user->email,
+                            'picture_url' => $assignment->user->picture_url,
+                        ] : null,
+                    ];
+                })
+                ->values()
+                ->all();
+        }
+
         return [
             'id' => $this->id,
             'customer_id' => $this->customer_id,
@@ -288,6 +315,7 @@ class WorkOrderResource extends JsonResource
                 $this->evidence_images ?? []
             ),
             'metadata' => $this->metadata,
+            'user_assignments' => $userAssignments,
             'diecut_context' => $this->resolveDiecutContext($request),
             'customer' => CustomerResource::make($this->whenLoaded('customer')),
             'template_route' => TemplateRouteResource::make($this->whenLoaded('templateRoute')),

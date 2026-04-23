@@ -190,14 +190,22 @@ class WorkOrderService implements WorkOrderServiceInterface
 
     public function detail(int $id): array
     {
-        $workOrder = $this->workOrderRepository->findById($id)->load(['customer', 'templateRoute']);
+        $workOrder = $this->workOrderRepository->findById($id)->load([
+            'customer',
+            'templateRoute',
+            'userAssignments.user',
+        ]);
 
         return (new WorkOrderResource($workOrder))->response()->getData(true);
     }
 
     public function detailBy(string $column, mixed $value): array
     {
-        $workOrder = $this->workOrderRepository->findByColumn($column, $value)->load(['customer', 'templateRoute']);
+        $workOrder = $this->workOrderRepository->findByColumn($column, $value)->load([
+            'customer',
+            'templateRoute',
+            'userAssignments.user',
+        ]);
 
         return (new WorkOrderResource($workOrder))->response()->getData(true);
     }
