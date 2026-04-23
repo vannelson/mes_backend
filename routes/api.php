@@ -32,6 +32,7 @@ use App\Http\Controllers\WorkOrderController;
 use App\Http\Controllers\WorkOrderCommentController;
 use App\Http\Controllers\WorkOrderEvidenceController;
 use App\Http\Controllers\WorkOrderNotificationController;
+use App\Http\Controllers\WorkOrderSetupInspectionChecklistController;
 use Illuminate\Support\Facades\Route;
 
 Route::prefix('v1')->group(function () {
@@ -129,6 +130,12 @@ Route::prefix('v1')->group(function () {
         Route::post('work-order-evidences', [WorkOrderEvidenceController::class, 'store']);
         Route::delete('work-order-evidences/{id}', [WorkOrderEvidenceController::class, 'destroy']);
         Route::get('evidence-image', [WorkOrderEvidenceController::class, 'proxyImage']);
+
+        // Setup Inspection Checklist (per work order + route + machine)
+        Route::get('setup-inspection-checklists', [WorkOrderSetupInspectionChecklistController::class, 'index']);
+        Route::post('setup-inspection-checklists', [WorkOrderSetupInspectionChecklistController::class, 'upsert']);
+        Route::post('setup-inspection-checklists/approve', [WorkOrderSetupInspectionChecklistController::class, 'approve']);
+        Route::post('setup-inspection-checklists/unlock', [WorkOrderSetupInspectionChecklistController::class, 'unlock']);
 
         Route::get('boms', [BomController::class, 'index']);
         Route::get('boms/stats', [BomController::class, 'stats']);
