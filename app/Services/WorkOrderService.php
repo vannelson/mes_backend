@@ -215,6 +215,10 @@ class WorkOrderService implements WorkOrderServiceInterface
         }
 
         try {
+            if (array_key_exists('metadata', $data)) {
+                $data['metadata'] = $this->normalizeMetadata($data['metadata']);
+                $this->rebuildAssignmentSummary($data['metadata']);
+            }
             $workOrder = $this->workOrderRepository->create($data)->load(['customer', 'templateRoute']);
         } catch (Throwable $e) {
             $this->deleteEvidenceImages($storedImages);
@@ -411,6 +415,11 @@ class WorkOrderService implements WorkOrderServiceInterface
             $existingImages = is_array($workOrder->evidence_images) ? $workOrder->evidence_images : [];
             $storedImages = $this->storeEvidenceImages($evidenceImages);
             $data['evidence_images'] = array_values(array_merge($existingImages, $storedImages));
+        }
+
+        if (array_key_exists('metadata', $data)) {
+            $data['metadata'] = $this->normalizeMetadata($data['metadata']);
+            $this->rebuildAssignmentSummary($data['metadata']);
         }
 
         $updated = (bool) $this->workOrderRepository->update($id, $data);
@@ -1490,21 +1499,21 @@ class WorkOrderService implements WorkOrderServiceInterface
         ];
 
         if ($driver === 'mysql') {
-            $values = array_values(array_unique(array_map(fn ($d) => $mysqlMap[$d], $tokens)));
+            $values = array_values(array_unique(array_map(fn($d) => $mysqlMap[$d], $tokens)));
             $query->whereNotNull($column)
                 ->whereIn(DB::raw("WEEKDAY({$column})"), $values);
             return;
         }
 
         if ($driver === 'pgsql') {
-            $values = array_values(array_unique(array_map(fn ($d) => $isoMap[$d], $tokens)));
+            $values = array_values(array_unique(array_map(fn($d) => $isoMap[$d], $tokens)));
             $query->whereNotNull($column)
                 ->whereIn(DB::raw("EXTRACT(DOW FROM {$column})"), $values);
             return;
         }
 
         if ($driver === 'sqlite') {
-            $values = array_values(array_unique(array_map(fn ($d) => $isoMap[$d], $tokens)));
+            $values = array_values(array_unique(array_map(fn($d) => $isoMap[$d], $tokens)));
             $query->whereNotNull($column)
                 ->whereIn(DB::raw("strftime('%w', {$column})"), $values);
             return;
@@ -1562,8 +1571,7 @@ class WorkOrderService implements WorkOrderServiceInterface
         ?string $reference = null,
         ?string $batchNumber = null,
         ?string $templateBatchNumber = null
-    ): array
-    {
+    ): array {
         if (function_exists('set_time_limit')) {
             @set_time_limit(600);
         }
@@ -1760,50 +1768,10 @@ class WorkOrderService implements WorkOrderServiceInterface
         $linked = 0;
         $skipped = 0;
 
-        $processChunk = function ($query) use (
-            $templatesById,
-            $useCustomerPartNumber,
-            $allowWorkOrderFallback,
-            $normalizeRefs,
-            $partNumberIndex,
-            $workOrderIndex,
-            $hasIsReleased,
-            $hasStatus,
-            $hasProductionDateCompleted,
-            $hasProductionQtyCompleted,
-            &$linked,
-            &$skipped
-        ): void {
+        $processChunk = function ($query) use ($templatesById, $useCustomerPartNumber, $allowWorkOrderFallback, $normalizeRefs, $partNumberIndex, $workOrderIndex, $hasIsReleased, $hasStatus, $hasProductionDateCompleted, $hasProductionQtyCompleted, &$linked, &$skipped): void {
             $query->orderBy('id')
-                ->chunkById(200, function ($orders) use (
-                    $templatesById,
-                    $useCustomerPartNumber,
-                    $allowWorkOrderFallback,
-                    $normalizeRefs,
-                    $partNumberIndex,
-                    $workOrderIndex,
-                    $hasIsReleased,
-                    $hasStatus,
-                    $hasProductionDateCompleted,
-                    $hasProductionQtyCompleted,
-                    &$linked,
-                    &$skipped
-                ) {
-                    DB::transaction(function () use (
-                        $orders,
-                        $templatesById,
-                        $useCustomerPartNumber,
-                        $allowWorkOrderFallback,
-                        $normalizeRefs,
-                        $partNumberIndex,
-                        $workOrderIndex,
-                        $hasIsReleased,
-                        $hasStatus,
-                        $hasProductionDateCompleted,
-                        $hasProductionQtyCompleted,
-                        &$linked,
-                        &$skipped
-                    ) {
+                ->chunkById(200, function ($orders) use ($templatesById, $useCustomerPartNumber, $allowWorkOrderFallback, $normalizeRefs, $partNumberIndex, $workOrderIndex, $hasIsReleased, $hasStatus, $hasProductionDateCompleted, $hasProductionQtyCompleted, &$linked, &$skipped) {
+                    DB::transaction(function () use ($orders, $templatesById, $useCustomerPartNumber, $allowWorkOrderFallback, $normalizeRefs, $partNumberIndex, $workOrderIndex, $hasIsReleased, $hasStatus, $hasProductionDateCompleted, $hasProductionQtyCompleted, &$linked, &$skipped) {
                         foreach ($orders as $order) {
                             $templateId = $order->template_route_id;
 
@@ -2406,22 +2374,22 @@ class WorkOrderService implements WorkOrderServiceInterface
         $query = WorkOrder::query()
             ->with(['templateRoute:id,template'])
             ->select([
-            'id',
-            'template_route_id',
-            'work_order_no',
-            'customer_code',
-            'customer_name',
-            'customer_part_number',
-            'order_date',
-            'production_start_date',
-            'production_due_date',
-            'requested_delivery_date',
-            'production_date_completed',
-            'status',
-            'priority',
-            'is_starred',
-            'metadata',
-        ]);
+                'id',
+                'template_route_id',
+                'work_order_no',
+                'customer_code',
+                'customer_name',
+                'customer_part_number',
+                'order_date',
+                'production_start_date',
+                'production_due_date',
+                'requested_delivery_date',
+                'production_date_completed',
+                'status',
+                'priority',
+                'is_starred',
+                'metadata',
+            ]);
 
         if ($workOrderNo = Arr::get($filters, 'work_order_no')) {
             $query->where('work_order_no', 'LIKE', "%{$workOrderNo}%");
@@ -2561,7 +2529,7 @@ class WorkOrderService implements WorkOrderServiceInterface
         }
 
         if ($view !== 'all') {
-            $items = array_values(array_filter($items, static fn ($item) => $item['bucket'] === $view));
+            $items = array_values(array_filter($items, static fn($item) => $item['bucket'] === $view));
         }
 
         $sortBy = in_array($sortBy, ['route_link', 'status'], true) ? $sortBy : '';
@@ -2763,7 +2731,7 @@ class WorkOrderService implements WorkOrderServiceInterface
         return [
             'as_of' => $asOf->toDateString(),
             'upcoming_days' => $upcomingDays,
-            'buckets' => array_map(static fn ($bucket) => [
+            'buckets' => array_map(static fn($bucket) => [
                 'key' => $bucket['key'],
                 'label' => $bucket['label'],
                 'min' => $bucket['min'],
@@ -3349,14 +3317,7 @@ class WorkOrderService implements WorkOrderServiceInterface
         $rows = [];
         $seen = [];
         $now = now();
-        $appendRow = function (
-            mixed $userId,
-            string $routeKey,
-            mixed $routeCode,
-            mixed $routeName,
-            mixed $orderSeq,
-            mixed $qty = null
-        ) use (&$rows, &$seen, $now, $workOrderId): void {
+        $appendRow = function (mixed $userId, string $routeKey, mixed $routeCode, mixed $routeName, mixed $orderSeq, mixed $qty = null) use (&$rows, &$seen, $now, $workOrderId): void {
             if (!$userId) {
                 return;
             }
@@ -3401,8 +3362,8 @@ class WorkOrderService implements WorkOrderServiceInterface
 
                     $appendRow(
                         Arr::get($operator, 'id')
-                            ?? Arr::get($operator, 'user_id')
-                            ?? Arr::get($operator, 'userId'),
+                        ?? Arr::get($operator, 'user_id')
+                        ?? Arr::get($operator, 'userId'),
                         $routeKey,
                         $routeCode,
                         $routeName,
@@ -3414,10 +3375,10 @@ class WorkOrderService implements WorkOrderServiceInterface
 
             $appendRow(
                 Arr::get($route, 'operator_id')
-                    ?? Arr::get($route, 'operatorId')
-                    ?? Arr::get($route, 'user_id')
-                    ?? Arr::get($route, 'metadata.machineOperatorId')
-                    ?? Arr::get($route, 'machineOperatorId'),
+                ?? Arr::get($route, 'operatorId')
+                ?? Arr::get($route, 'user_id')
+                ?? Arr::get($route, 'metadata.machineOperatorId')
+                ?? Arr::get($route, 'machineOperatorId'),
                 $routeKey,
                 $routeCode,
                 $routeName,
@@ -3438,22 +3399,22 @@ class WorkOrderService implements WorkOrderServiceInterface
 
                 $appendRow(
                     Arr::get($machine, 'operatorId')
-                        ?? Arr::get($machine, 'machineOperatorId')
-                        ?? Arr::get($machine, 'operator_id')
-                        ?? Arr::get($machine, 'user_id')
-                        ?? Arr::get($machine, 'machineDetails.operatorId')
-                        ?? Arr::get($machine, 'machineDetails.machineOperatorId')
-                        ?? Arr::get($machine, 'machine.operatorId')
-                        ?? Arr::get($machine, 'machine.machineOperatorId')
-                        ?? Arr::get($machine, 'metadata.operatorId')
-                        ?? Arr::get($machine, 'metadata.machineOperatorId'),
+                    ?? Arr::get($machine, 'machineOperatorId')
+                    ?? Arr::get($machine, 'operator_id')
+                    ?? Arr::get($machine, 'user_id')
+                    ?? Arr::get($machine, 'machineDetails.operatorId')
+                    ?? Arr::get($machine, 'machineDetails.machineOperatorId')
+                    ?? Arr::get($machine, 'machine.operatorId')
+                    ?? Arr::get($machine, 'machine.machineOperatorId')
+                    ?? Arr::get($machine, 'metadata.operatorId')
+                    ?? Arr::get($machine, 'metadata.machineOperatorId'),
                     $routeKey,
                     $routeCode,
                     $routeName,
                     $orderSeq,
                     Arr::get($machine, 'plannedQty')
-                        ?? Arr::get($machine, 'targetPrintedQty')
-                        ?? Arr::get($machine, 'quantity')
+                    ?? Arr::get($machine, 'targetPrintedQty')
+                    ?? Arr::get($machine, 'quantity')
                 );
             }
         }
@@ -3490,7 +3451,7 @@ class WorkOrderService implements WorkOrderServiceInterface
                 return $this->workOrderMetadataHasOperatorAssignment($workOrder->metadata, $operatorId);
             })
             ->pluck('id')
-            ->map(static fn ($id) => (int) $id)
+            ->map(static fn($id) => (int) $id)
             ->values()
             ->all();
     }
@@ -3905,8 +3866,8 @@ class WorkOrderService implements WorkOrderServiceInterface
 
         $availability =
             ($uptimeSeconds + $downtimeSeconds) > 0
-                ? $uptimeSeconds / ($uptimeSeconds + $downtimeSeconds)
-                : 0.0;
+            ? $uptimeSeconds / ($uptimeSeconds + $downtimeSeconds)
+            : 0.0;
         $performance = $performanceCount > 0
             ? $performanceSum / $performanceCount
             : ($targetTotal > 0 ? min(1, $producedTotal / $targetTotal) : 0.0);
@@ -4806,5 +4767,121 @@ class WorkOrderService implements WorkOrderServiceInterface
         }
 
         return $series;
+    }
+
+    protected function rebuildAssignmentSummary(array &$metadata): void
+    {
+        $routes = $metadata['routes'] ?? [];
+        $flattenedRoutes = [];
+
+        foreach ($routes as $entry) {
+            if (!is_array($entry)) {
+                continue;
+            }
+
+            if (isset($entry['routes']) && is_array($entry['routes'])) {
+                foreach ($entry['routes'] as $route) {
+                    if (is_array($route)) {
+                        $flattenedRoutes[] = $route;
+                    }
+                }
+            } else {
+                $flattenedRoutes[] = $entry;
+            }
+        }
+
+        $assignmentRoutes = [];
+        $allAssignees = [];
+
+        foreach ($flattenedRoutes as $route) {
+            $operatorMap = [];
+
+            $existingOperators = $route['operators'] ?? [];
+            if (is_array($existingOperators)) {
+                foreach ($existingOperators as $operator) {
+                    $id = data_get($operator, 'id')
+                        ?? data_get($operator, 'user_id')
+                        ?? data_get($operator, 'userId');
+
+                    if ($id !== null && $id !== '') {
+                        $operatorMap[(string) $id] = [
+                            'id' => (string) $id,
+                            'qty' => data_get($operator, 'qty'),
+                        ];
+                    }
+                }
+            }
+
+            $directOperatorId = data_get($route, 'operator_id')
+                ?? data_get($route, 'operatorId')
+                ?? data_get($route, 'user_id')
+                ?? data_get($route, 'metadata.machineOperatorId')
+                ?? data_get($route, 'machineOperatorId');
+
+            if ($directOperatorId !== null && $directOperatorId !== '') {
+                $operatorMap[(string) $directOperatorId] = [
+                    'id' => (string) $directOperatorId,
+                    'qty' => $operatorMap[(string) $directOperatorId]['qty'] ?? null,
+                ];
+            }
+
+            $timeEntries = data_get($route, 'metadata.timeTracker.entries', []);
+            if (is_array($timeEntries)) {
+                foreach ($timeEntries as $entry) {
+                    $timeOperatorId = data_get($entry, 'operator_id')
+                        ?? data_get($entry, 'operatorId')
+                        ?? data_get($entry, 'user_id');
+
+                    if ($timeOperatorId !== null && $timeOperatorId !== '') {
+                        $operatorMap[(string) $timeOperatorId] = [
+                            'id' => (string) $timeOperatorId,
+                            'qty' => $operatorMap[(string) $timeOperatorId]['qty'] ?? null,
+                        ];
+                    }
+                }
+            }
+
+            $additionalMachines = data_get($route, 'metadata.additionalMachines')
+                ?? data_get($route, 'additionalMachines')
+                ?? [];
+
+            if (is_array($additionalMachines)) {
+                foreach ($additionalMachines as $machine) {
+                    $machineOperatorId = data_get($machine, 'operatorId')
+                        ?? data_get($machine, 'machineOperatorId')
+                        ?? data_get($machine, 'operator_id')
+                        ?? data_get($machine, 'user_id')
+                        ?? data_get($machine, 'machineDetails.operatorId')
+                        ?? data_get($machine, 'machineDetails.machineOperatorId')
+                        ?? data_get($machine, 'machine.operatorId')
+                        ?? data_get($machine, 'machine.machineOperatorId')
+                        ?? data_get($machine, 'metadata.operatorId')
+                        ?? data_get($machine, 'metadata.machineOperatorId');
+
+                    if ($machineOperatorId !== null && $machineOperatorId !== '') {
+                        $operatorMap[(string) $machineOperatorId] = [
+                            'id' => (string) $machineOperatorId,
+                            'qty' => $operatorMap[(string) $machineOperatorId]['qty'] ?? null,
+                        ];
+                    }
+                }
+            }
+
+            $operators = array_values($operatorMap);
+
+            foreach ($operators as $operator) {
+                $allAssignees[(string) $operator['id']] = (string) $operator['id'];
+            }
+
+            $assignmentRoutes[] = [
+                'order_seq' => $route['order_seq'] ?? null,
+                'route' => $route['route'] ?? null,
+                'name' => $route['name'] ?? null,
+                'operators' => $operators,
+            ];
+        }
+
+        $metadata['assignments']['routes'] = $assignmentRoutes;
+        $metadata['state']['assignees'] = array_values($allAssignees);
     }
 }

@@ -241,7 +241,7 @@ class WorkOrderRepository extends BaseRepository implements WorkOrderRepositoryI
                 return $this->workOrderMetadataHasOperatorAssignment($workOrder->metadata, $operatorId);
             })
             ->pluck('id')
-            ->map(static fn ($id) => (int) $id)
+            ->map(static fn($id) => (int) $id)
             ->values()
             ->all();
     }
@@ -477,21 +477,21 @@ class WorkOrderRepository extends BaseRepository implements WorkOrderRepositoryI
         ];
 
         if ($driver === 'mysql') {
-            $values = array_values(array_unique(array_map(fn ($d) => $mysqlMap[$d], $tokens)));
+            $values = array_values(array_unique(array_map(fn($d) => $mysqlMap[$d], $tokens)));
             $query->whereNotNull($column)
                 ->whereIn(DB::raw("WEEKDAY({$column})"), $values);
             return;
         }
 
         if ($driver === 'pgsql') {
-            $values = array_values(array_unique(array_map(fn ($d) => $isoMap[$d], $tokens)));
+            $values = array_values(array_unique(array_map(fn($d) => $isoMap[$d], $tokens)));
             $query->whereNotNull($column)
                 ->whereIn(DB::raw("EXTRACT(DOW FROM {$column})"), $values);
             return;
         }
 
         if ($driver === 'sqlite') {
-            $values = array_values(array_unique(array_map(fn ($d) => $isoMap[$d], $tokens)));
+            $values = array_values(array_unique(array_map(fn($d) => $isoMap[$d], $tokens)));
             $query->whereNotNull($column)
                 ->whereIn(DB::raw("strftime('%w', {$column})"), $values);
             return;
