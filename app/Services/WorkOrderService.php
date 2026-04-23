@@ -3470,6 +3470,24 @@ class WorkOrderService implements WorkOrderServiceInterface
             if ($directOperatorId !== null && (string) $directOperatorId === $operatorId) {
                 return true;
             }
+
+            $additionalMachines = Arr::get($route, 'metadata.additionalMachines', []);
+            if (is_array($additionalMachines)) {
+                foreach ($additionalMachines as $machineAssignment) {
+                    if (!is_array($machineAssignment)) {
+                        continue;
+                    }
+
+                    $machineOperatorId = Arr::get($machineAssignment, 'operatorId')
+                        ?? Arr::get($machineAssignment, 'machineOperatorId')
+                        ?? Arr::get($machineAssignment, 'operator_id')
+                        ?? Arr::get($machineAssignment, 'user_id');
+
+                    if ($machineOperatorId !== null && (string) $machineOperatorId === $operatorId) {
+                        return true;
+                    }
+                }
+            }
         }
 
         return false;
