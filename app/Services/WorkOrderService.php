@@ -3349,6 +3349,36 @@ class WorkOrderService implements WorkOrderServiceInterface
         $rows = [];
         $seen = [];
         $now = now();
+        $appendRow = function (
+            mixed $userId,
+            string $routeKey,
+            mixed $routeCode,
+            mixed $routeName,
+            mixed $orderSeq,
+            mixed $qty = null
+        ) use (&$rows, &$seen, $now, $workOrderId): void {
+            if (!$userId) {
+                return;
+            }
+
+            $unique = "{$workOrderId}|{$userId}|{$routeKey}";
+            if (isset($seen[$unique])) {
+                return;
+            }
+            $seen[$unique] = true;
+
+            $rows[] = [
+                'work_order_id' => $workOrderId,
+                'user_id' => (int) $userId,
+                'route_key' => $routeKey,
+                'route_code' => $routeCode ? (string) $routeCode : null,
+                'route_name' => $routeName ? (string) $routeName : null,
+                'order_seq' => $orderSeq !== null ? (int) $orderSeq : null,
+                'assigned_qty' => ($qty === '' || $qty === null) ? null : (string) $qty,
+                'created_at' => $now,
+                'updated_at' => $now,
+            ];
+        };
 
         foreach ($routes as $idx => $route) {
             if (!is_array($route)) {
@@ -3363,40 +3393,68 @@ class WorkOrderService implements WorkOrderServiceInterface
             $routeKey = $this->buildAssignmentRouteKey($routeCode, $orderSeq, $idx);
             $operators = Arr::get($route, 'operators', []);
 
-            if (!is_array($operators)) {
+            if (is_array($operators)) {
+                foreach ($operators as $operator) {
+                    if (!is_array($operator)) {
+                        continue;
+                    }
+
+                    $appendRow(
+                        Arr::get($operator, 'id')
+                            ?? Arr::get($operator, 'user_id')
+                            ?? Arr::get($operator, 'userId'),
+                        $routeKey,
+                        $routeCode,
+                        $routeName,
+                        $orderSeq,
+                        Arr::get($operator, 'qty')
+                    );
+                }
+            }
+
+            $appendRow(
+                Arr::get($route, 'operator_id')
+                    ?? Arr::get($route, 'operatorId')
+                    ?? Arr::get($route, 'user_id')
+                    ?? Arr::get($route, 'metadata.machineOperatorId')
+                    ?? Arr::get($route, 'machineOperatorId'),
+                $routeKey,
+                $routeCode,
+                $routeName,
+                $orderSeq
+            );
+
+            $additionalMachines = Arr::get($route, 'metadata.additionalMachines')
+                ?? Arr::get($route, 'additionalMachines')
+                ?? [];
+            if (!is_array($additionalMachines)) {
                 continue;
             }
 
-            foreach ($operators as $operator) {
-                if (!is_array($operator)) {
+            foreach ($additionalMachines as $machine) {
+                if (!is_array($machine)) {
                     continue;
                 }
 
-                $userId = Arr::get($operator, 'id')
-                    ?? Arr::get($operator, 'user_id')
-                    ?? Arr::get($operator, 'userId');
-                if (!$userId) {
-                    continue;
-                }
-
-                $unique = "{$workOrderId}|{$userId}|{$routeKey}";
-                if (isset($seen[$unique])) {
-                    continue;
-                }
-                $seen[$unique] = true;
-
-                $qty = Arr::get($operator, 'qty');
-                $rows[] = [
-                    'work_order_id' => $workOrderId,
-                    'user_id' => (int) $userId,
-                    'route_key' => $routeKey,
-                    'route_code' => $routeCode ? (string) $routeCode : null,
-                    'route_name' => $routeName ? (string) $routeName : null,
-                    'order_seq' => $orderSeq !== null ? (int) $orderSeq : null,
-                    'assigned_qty' => ($qty === '' || $qty === null) ? null : (string) $qty,
-                    'created_at' => $now,
-                    'updated_at' => $now,
-                ];
+                $appendRow(
+                    Arr::get($machine, 'operatorId')
+                        ?? Arr::get($machine, 'machineOperatorId')
+                        ?? Arr::get($machine, 'operator_id')
+                        ?? Arr::get($machine, 'user_id')
+                        ?? Arr::get($machine, 'machineDetails.operatorId')
+                        ?? Arr::get($machine, 'machineDetails.machineOperatorId')
+                        ?? Arr::get($machine, 'machine.operatorId')
+                        ?? Arr::get($machine, 'machine.machineOperatorId')
+                        ?? Arr::get($machine, 'metadata.operatorId')
+                        ?? Arr::get($machine, 'metadata.machineOperatorId'),
+                    $routeKey,
+                    $routeCode,
+                    $routeName,
+                    $orderSeq,
+                    Arr::get($machine, 'plannedQty')
+                        ?? Arr::get($machine, 'targetPrintedQty')
+                        ?? Arr::get($machine, 'quantity')
+                );
             }
         }
 
