@@ -3368,6 +3368,7 @@ class WorkOrderService implements WorkOrderServiceInterface
                 $routeKey = $this->buildAssignmentRouteKey($routeCode, $orderSeq, $idx);
             }
             $operators = Arr::get($route, 'operators', []);
+            $hasExplicitOperators = array_key_exists('operators', $route);
 
             if (is_array($operators)) {
                 foreach ($operators as $operator) {
@@ -3388,17 +3389,19 @@ class WorkOrderService implements WorkOrderServiceInterface
                 }
             }
 
-            $appendRow(
-                Arr::get($route, 'operator_id')
-                ?? Arr::get($route, 'operatorId')
-                ?? Arr::get($route, 'user_id')
-                ?? Arr::get($route, 'metadata.machineOperatorId')
-                ?? Arr::get($route, 'machineOperatorId'),
-                $routeKey,
-                $routeCode,
-                $routeName,
-                $orderSeq
-            );
+            if (!$hasExplicitOperators) {
+                $appendRow(
+                    Arr::get($route, 'operator_id')
+                    ?? Arr::get($route, 'operatorId')
+                    ?? Arr::get($route, 'user_id')
+                    ?? Arr::get($route, 'metadata.machineOperatorId')
+                    ?? Arr::get($route, 'machineOperatorId'),
+                    $routeKey,
+                    $routeCode,
+                    $routeName,
+                    $orderSeq
+                );
+            }
 
             $additionalMachines = Arr::get($route, 'metadata.additionalMachines')
                 ?? Arr::get($route, 'additionalMachines')
@@ -3490,6 +3493,7 @@ class WorkOrderService implements WorkOrderServiceInterface
             }
 
             $operators = Arr::get($route, 'operators', []);
+            $hasExplicitOperators = array_key_exists('operators', $route);
             if (is_array($operators)) {
                 foreach ($operators as $operator) {
                     if ($this->operatorAssignmentMatches($operator, $operatorId)) {
@@ -3498,13 +3502,15 @@ class WorkOrderService implements WorkOrderServiceInterface
                 }
             }
 
-            $directOperatorId = Arr::get($route, 'operator_id')
-                ?? Arr::get($route, 'operatorId')
-                ?? Arr::get($route, 'user_id')
-                ?? Arr::get($route, 'metadata.machineOperatorId')
-                ?? Arr::get($route, 'machineOperatorId');
-            if ($directOperatorId !== null && (string) $directOperatorId === $operatorId) {
-                return true;
+            if (!$hasExplicitOperators) {
+                $directOperatorId = Arr::get($route, 'operator_id')
+                    ?? Arr::get($route, 'operatorId')
+                    ?? Arr::get($route, 'user_id')
+                    ?? Arr::get($route, 'metadata.machineOperatorId')
+                    ?? Arr::get($route, 'machineOperatorId');
+                if ($directOperatorId !== null && (string) $directOperatorId === $operatorId) {
+                    return true;
+                }
             }
 
             $additionalMachines = Arr::get($route, 'metadata.additionalMachines')
@@ -4870,6 +4876,8 @@ class WorkOrderService implements WorkOrderServiceInterface
             }
 
             $existingOperators = data_get($explicitAssignment, 'operators', $route['operators'] ?? []);
+            $hasExplicitOperators = is_array($explicitAssignment)
+                && array_key_exists('operators', $explicitAssignment);
             if (is_array($existingOperators)) {
                 foreach ($existingOperators as $operator) {
                     $id = data_get($operator, 'id')
@@ -4885,31 +4893,33 @@ class WorkOrderService implements WorkOrderServiceInterface
                 }
             }
 
-            $directOperatorId = data_get($route, 'operator_id')
-                ?? data_get($route, 'operatorId')
-                ?? data_get($route, 'user_id')
-                ?? data_get($route, 'metadata.machineOperatorId')
-                ?? data_get($route, 'machineOperatorId');
+            if (!$hasExplicitOperators) {
+                $directOperatorId = data_get($route, 'operator_id')
+                    ?? data_get($route, 'operatorId')
+                    ?? data_get($route, 'user_id')
+                    ?? data_get($route, 'metadata.machineOperatorId')
+                    ?? data_get($route, 'machineOperatorId');
 
-            if ($directOperatorId !== null && $directOperatorId !== '') {
-                $operatorMap[(string) $directOperatorId] = [
-                    'id' => (string) $directOperatorId,
-                    'qty' => $operatorMap[(string) $directOperatorId]['qty'] ?? null,
-                ];
-            }
+                if ($directOperatorId !== null && $directOperatorId !== '') {
+                    $operatorMap[(string) $directOperatorId] = [
+                        'id' => (string) $directOperatorId,
+                        'qty' => $operatorMap[(string) $directOperatorId]['qty'] ?? null,
+                    ];
+                }
 
-            $timeEntries = data_get($route, 'metadata.timeTracker.entries', []);
-            if (is_array($timeEntries)) {
-                foreach ($timeEntries as $entry) {
-                    $timeOperatorId = data_get($entry, 'operator_id')
-                        ?? data_get($entry, 'operatorId')
-                        ?? data_get($entry, 'user_id');
+                $timeEntries = data_get($route, 'metadata.timeTracker.entries', []);
+                if (is_array($timeEntries)) {
+                    foreach ($timeEntries as $entry) {
+                        $timeOperatorId = data_get($entry, 'operator_id')
+                            ?? data_get($entry, 'operatorId')
+                            ?? data_get($entry, 'user_id');
 
-                    if ($timeOperatorId !== null && $timeOperatorId !== '') {
-                        $operatorMap[(string) $timeOperatorId] = [
-                            'id' => (string) $timeOperatorId,
-                            'qty' => $operatorMap[(string) $timeOperatorId]['qty'] ?? null,
-                        ];
+                        if ($timeOperatorId !== null && $timeOperatorId !== '') {
+                            $operatorMap[(string) $timeOperatorId] = [
+                                'id' => (string) $timeOperatorId,
+                                'qty' => $operatorMap[(string) $timeOperatorId]['qty'] ?? null,
+                            ];
+                        }
                     }
                 }
             }
