@@ -7,6 +7,7 @@ use App\Services\MessageService;
 use App\Traits\ResponseTrait;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Validator;
 use Throwable;
 
 class MessageController extends Controller
@@ -92,24 +93,26 @@ class MessageController extends Controller
 
     public function store(Request $request): JsonResponse
     {
-        $data = $request->validate([
+        $data = Validator::make($request->all(), [
             'recipient_id' => ['required', 'integer', 'exists:users,id'],
-            'body' => ['required', 'string', 'max:2000'],
-        ]);
+            'body' => ['nullable', 'string', 'max:2000'],
+            'image' => ['nullable', 'file', 'mimes:jpeg,jpg,png,gif,webp', 'max:5120'],
+        ])->validate();
 
         $sender = $request->user();
         $recipientId = (int) $data['recipient_id'];
         if ($sender->id === $recipientId) {
             return $this->error('Cannot message yourself.', 422);
         }
-        $body = trim($data['body']);
-        if ($body === '') {
-            return $this->error('Message body is required.', 422);
+        $body = trim((string) ($data['body'] ?? ''));
+        $image = $request->file('image');
+        if ($body === '' && ! $image) {
+            return $this->error('Message body or image is required.', 422);
         }
 
         try {
             $recipient = User::query()->findOrFail($recipientId);
-            $message = $this->messageService->send($sender, $recipient, $body);
+            $message = $this->messageService->send($sender, $recipient, $body, $image);
             $message->load(['sender', 'recipient']);
 
             return $this->success('Message sent.', $this->messageService->serializeMessage($message, $sender->id));
@@ -120,19 +123,21 @@ class MessageController extends Controller
 
     public function storeGroup(Request $request, int $groupId): JsonResponse
     {
-        $data = $request->validate([
-            'body' => ['required', 'string', 'max:2000'],
-        ]);
+        $data = Validator::make($request->all(), [
+            'body' => ['nullable', 'string', 'max:2000'],
+            'image' => ['nullable', 'file', 'mimes:jpeg,jpg,png,gif,webp', 'max:5120'],
+        ])->validate();
 
         $sender = $request->user();
-        $body = trim($data['body']);
-        if ($body === '') {
-            return $this->error('Message body is required.', 422);
+        $body = trim((string) ($data['body'] ?? ''));
+        $image = $request->file('image');
+        if ($body === '' && ! $image) {
+            return $this->error('Message body or image is required.', 422);
         }
 
         try {
             $group = $this->messageService->groupForUser($sender, $groupId);
-            $message = $this->messageService->sendGroup($sender, $group, $body);
+            $message = $this->messageService->sendGroup($sender, $group, $body, $image);
             $message->load(['sender', 'recipient', 'group.participants']);
 
             return $this->success('Group message sent.', $this->messageService->serializeMessage($message, $sender->id));

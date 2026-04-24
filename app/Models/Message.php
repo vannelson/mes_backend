@@ -12,6 +12,9 @@ class Message extends Model
         'recipient_id',
         'group_id',
         'body',
+        'image_path',
+        'file_name',
+        'mime_type',
         'read_at',
     ];
 

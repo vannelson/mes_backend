@@ -5,9 +5,11 @@ namespace App\Services;
 use App\Models\Message;
 use App\Models\MessageGroup;
 use App\Models\User;
+use Illuminate\Http\UploadedFile;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Pagination\LengthAwarePaginator as Paginator;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 
 class MessageService
@@ -159,19 +161,37 @@ class MessageService
         return $directUnread + $groupUnread;
     }
 
-    public function send(User $sender, User $recipient, string $body): Message
+    public function send(
+        User $sender,
+        User $recipient,
+        string $body = '',
+        ?UploadedFile $image = null
+    ): Message
     {
-        $message = Message::query()->create([
-            'sender_id' => $sender->id,
-            'recipient_id' => $recipient->id,
-            'body' => $body,
-        ]);
+        $storedImage = $image ? $this->storeImage($image) : null;
+
+        try {
+            $message = Message::query()->create([
+                'sender_id' => $sender->id,
+                'recipient_id' => $recipient->id,
+                'body' => $body,
+                'image_path' => $storedImage['path'] ?? null,
+                'file_name' => $storedImage['file_name'] ?? null,
+                'mime_type' => $storedImage['mime_type'] ?? null,
+            ]);
+        } catch (\Throwable $e) {
+            if ($storedImage['path'] ?? null) {
+                Storage::disk('public')->delete($storedImage['path']);
+            }
+
+            throw $e;
+        }
 
         $this->firebaseRealtimeService->publishMessageUpdate([
             'message_id' => $message->id,
             'sender_id' => $sender->id,
             'recipient_id' => $recipient->id,
-            'preview' => Str::limit($body, 140),
+            'preview' => $this->buildPreview($body, $storedImage['path'] ?? null),
             'created_at' => $message->created_at?->toIso8601String(),
         ]);
 
@@ -199,14 +219,32 @@ class MessageService
         });
     }
 
-    public function sendGroup(User $sender, MessageGroup $group, string $body): Message
+    public function sendGroup(
+        User $sender,
+        MessageGroup $group,
+        string $body = '',
+        ?UploadedFile $image = null
+    ): Message
     {
-        $message = Message::query()->create([
-            'sender_id' => $sender->id,
-            'recipient_id' => $sender->id,
-            'group_id' => $group->id,
-            'body' => $body,
-        ]);
+        $storedImage = $image ? $this->storeImage($image) : null;
+
+        try {
+            $message = Message::query()->create([
+                'sender_id' => $sender->id,
+                'recipient_id' => $sender->id,
+                'group_id' => $group->id,
+                'body' => $body,
+                'image_path' => $storedImage['path'] ?? null,
+                'file_name' => $storedImage['file_name'] ?? null,
+                'mime_type' => $storedImage['mime_type'] ?? null,
+            ]);
+        } catch (\Throwable $e) {
+            if ($storedImage['path'] ?? null) {
+                Storage::disk('public')->delete($storedImage['path']);
+            }
+
+            throw $e;
+        }
 
         DB::table('message_group_participants')
             ->where('message_group_id', $group->id)
@@ -217,7 +255,7 @@ class MessageService
             'message_id' => $message->id,
             'sender_id' => $sender->id,
             'group_id' => $group->id,
-            'preview' => Str::limit($body, 140),
+            'preview' => $this->buildPreview($body, $storedImage['path'] ?? null),
             'created_at' => $message->created_at?->toIso8601String(),
         ]);
 
@@ -266,6 +304,10 @@ class MessageService
         return [
             'id' => $message->id,
             'body' => $message->body,
+            'image_path' => $message->image_path,
+            'image_url' => $this->resolveImageUrl($message->image_path),
+            'file_name' => $message->file_name,
+            'mime_type' => $message->mime_type,
             'sender_id' => $message->sender_id,
             'recipient_id' => $message->recipient_id,
             'group_id' => $message->group_id,
@@ -348,5 +390,49 @@ class MessageService
             'picture_url' => $user->picture_url ?? null,
             'role' => $user->role ?? null,
         ];
+    }
+
+    protected function storeImage(UploadedFile $image): array
+    {
+        $extension = strtolower($image->getClientOriginalExtension() ?: $image->extension() ?: 'png');
+        $path = $image->storeAs(
+            'message-images/' . now()->format('Y/m'),
+            Str::uuid()->toString() . '.' . $extension,
+            'public'
+        );
+
+        return [
+            'path' => $path,
+            'file_name' => $image->getClientOriginalName() ?: basename($path),
+            'mime_type' => $image->getMimeType() ?: null,
+        ];
+    }
+
+    protected function resolveImageUrl(?string $path): ?string
+    {
+        if (! $path) {
+            return null;
+        }
+
+        $clean = ltrim($path, '/');
+        if (str_starts_with($clean, 'images/')) {
+            $clean = substr($clean, strlen('images/'));
+        }
+
+        return url("/api/v1/images/{$clean}");
+    }
+
+    protected function buildPreview(string $body, ?string $imagePath = null): string
+    {
+        $text = trim($body);
+        if ($imagePath && $text !== '') {
+            return Str::limit("Photo: {$text}", 140);
+        }
+
+        if ($imagePath) {
+            return 'Photo';
+        }
+
+        return Str::limit($text, 140);
     }
 }
