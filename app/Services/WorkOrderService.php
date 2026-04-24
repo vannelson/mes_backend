@@ -4788,6 +4788,7 @@ class WorkOrderService implements WorkOrderServiceInterface
     {
         $routes = $metadata['routes'] ?? [];
         $flattenedRoutes = [];
+        $explicitAssignments = data_get($metadata, 'assignments.routes', []);
 
         foreach ($routes as $entry) {
             if (!is_array($entry)) {
@@ -4805,13 +4806,70 @@ class WorkOrderService implements WorkOrderServiceInterface
             }
         }
 
+        $explicitAssignments = is_array($explicitAssignments) ? $explicitAssignments : [];
         $assignmentRoutes = [];
         $allAssignees = [];
+        $matchedExplicitIndexes = [];
 
         foreach ($flattenedRoutes as $route) {
             $operatorMap = [];
+            $routeKey = trim((string) (
+                data_get($route, 'route_key')
+                ?? data_get($route, 'routeKey')
+                ?? ''
+            ));
+            $routeToken = $this->normalizeRouteToken(
+                data_get($route, 'route')
+                ?? data_get($route, 'key')
+                ?? null
+            );
+            $nameToken = $this->normalizeRouteToken(data_get($route, 'name'));
+            $orderSeq = data_get($route, 'order_seq') ?? data_get($route, 'orderSeq');
 
-            $existingOperators = $route['operators'] ?? [];
+            $explicitAssignment = null;
+            foreach ($explicitAssignments as $index => $assignment) {
+                if (!is_array($assignment)) {
+                    continue;
+                }
+
+                $assignmentRouteKey = trim((string) (
+                    data_get($assignment, 'route_key')
+                    ?? data_get($assignment, 'routeKey')
+                    ?? ''
+                ));
+                if ($routeKey !== '' && $assignmentRouteKey !== '' && $routeKey === $assignmentRouteKey) {
+                    $explicitAssignment = $assignment;
+                    $matchedExplicitIndexes[$index] = true;
+                    break;
+                }
+
+                $assignmentRouteToken = $this->normalizeRouteToken(
+                    data_get($assignment, 'route')
+                    ?? data_get($assignment, 'key')
+                    ?? null
+                );
+                if ($routeToken && $assignmentRouteToken && $routeToken === $assignmentRouteToken) {
+                    $explicitAssignment = $assignment;
+                    $matchedExplicitIndexes[$index] = true;
+                    break;
+                }
+
+                $assignmentNameToken = $this->normalizeRouteToken(data_get($assignment, 'name'));
+                if ($nameToken && $assignmentNameToken && $nameToken === $assignmentNameToken) {
+                    $explicitAssignment = $assignment;
+                    $matchedExplicitIndexes[$index] = true;
+                    break;
+                }
+
+                $assignmentOrderSeq = data_get($assignment, 'order_seq') ?? data_get($assignment, 'orderSeq');
+                if ($orderSeq !== null && $assignmentOrderSeq !== null && (string) $orderSeq === (string) $assignmentOrderSeq) {
+                    $explicitAssignment = $assignment;
+                    $matchedExplicitIndexes[$index] = true;
+                    break;
+                }
+            }
+
+            $existingOperators = data_get($explicitAssignment, 'operators', $route['operators'] ?? []);
             if (is_array($existingOperators)) {
                 foreach ($existingOperators as $operator) {
                     $id = data_get($operator, 'id')
@@ -4889,9 +4947,41 @@ class WorkOrderService implements WorkOrderServiceInterface
             }
 
             $assignmentRoutes[] = [
-                'order_seq' => $route['order_seq'] ?? null,
-                'route' => $route['route'] ?? null,
-                'name' => $route['name'] ?? null,
+                'route_key' => $routeKey !== '' ? $routeKey : data_get($explicitAssignment, 'route_key'),
+                'order_seq' => $route['order_seq'] ?? data_get($explicitAssignment, 'order_seq'),
+                'route' => $route['route'] ?? data_get($explicitAssignment, 'route'),
+                'name' => $route['name'] ?? data_get($explicitAssignment, 'name'),
+                'operators' => $operators,
+            ];
+        }
+
+        foreach ($explicitAssignments as $index => $assignment) {
+            if (isset($matchedExplicitIndexes[$index]) || !is_array($assignment)) {
+                continue;
+            }
+
+            $operators = is_array(data_get($assignment, 'operators'))
+                ? array_values(array_filter(
+                    data_get($assignment, 'operators'),
+                    static fn ($operator) => is_array($operator)
+                ))
+                : [];
+
+            foreach ($operators as $operator) {
+                $id = data_get($operator, 'id')
+                    ?? data_get($operator, 'user_id')
+                    ?? data_get($operator, 'userId');
+
+                if ($id !== null && $id !== '') {
+                    $allAssignees[(string) $id] = (string) $id;
+                }
+            }
+
+            $assignmentRoutes[] = [
+                'route_key' => data_get($assignment, 'route_key') ?? data_get($assignment, 'routeKey'),
+                'order_seq' => data_get($assignment, 'order_seq') ?? data_get($assignment, 'orderSeq'),
+                'route' => data_get($assignment, 'route') ?? data_get($assignment, 'key'),
+                'name' => data_get($assignment, 'name'),
                 'operators' => $operators,
             ];
         }
