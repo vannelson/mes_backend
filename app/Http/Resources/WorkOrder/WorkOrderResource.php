@@ -289,6 +289,7 @@ class WorkOrderResource extends JsonResource
             'material_3_code' => $this->material_3_code,
             'material_4_code' => $this->material_4_code,
             'customer_part_number' => $this->customer_part_number,
+            'item_code' => $this->item_code,
             'production_due_date' => $this->production_due_date,
             'production_start_date' => $this->production_start_date,
             'quantity_to_produce' => $this->quantity_to_produce,

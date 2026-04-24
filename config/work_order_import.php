@@ -11,6 +11,7 @@ return [
         'Material 3 Code' => 'material_3_code',
         'Material 4 Code' => 'material_4_code',
         'Customer Part Number' => 'customer_part_number',
+        'Item Code' => 'item_code',
         'Production Due Date' => 'production_due_date',
         'Quantity to Produce' => 'quantity_to_produce',
         'Quantity Produced' => 'quantity_produced',

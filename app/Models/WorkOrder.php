@@ -26,6 +26,7 @@ class WorkOrder extends Model
         'material_3_code',
         'material_4_code',
         'customer_part_number',
+        'item_code',
         'production_due_date',
         'quantity_to_produce',
         'quantity_produced',

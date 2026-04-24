@@ -28,6 +28,7 @@ class WorkOrderUpdateRequest extends FormRequest
             'material_3_code' => ['nullable', 'string', 'max:100'],
             'material_4_code' => ['nullable', 'string', 'max:100'],
             'customer_part_number' => ['nullable', 'string', 'max:120'],
+            'item_code' => ['nullable', 'string', 'max:120'],
             'production_due_date' => ['nullable', 'date'],
             'quantity_to_produce' => ['nullable', 'string', 'max:100'],
             'quantity_produced' => ['nullable', 'string', 'max:100'],
