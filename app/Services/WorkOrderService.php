@@ -225,6 +225,7 @@ class WorkOrderService implements WorkOrderServiceInterface
         try {
             if (array_key_exists('metadata', $data)) {
                 $data['metadata'] = $this->normalizeMetadata($data['metadata']);
+                $this->normalizeRouteFlowMetadata($data['metadata']);
                 $this->rebuildAssignmentSummary($data['metadata']);
             }
             $workOrder = $this->workOrderRepository->create($data)->load(['customer', 'templateRoute']);
@@ -427,6 +428,7 @@ class WorkOrderService implements WorkOrderServiceInterface
 
         if (array_key_exists('metadata', $data)) {
             $data['metadata'] = $this->normalizeMetadata($data['metadata']);
+            $this->normalizeRouteFlowMetadata($data['metadata']);
             $this->rebuildAssignmentSummary($data['metadata']);
         }
 
@@ -4206,6 +4208,74 @@ class WorkOrderService implements WorkOrderServiceInterface
         }
 
         return $this->numericValue($qty);
+    }
+
+    protected function normalizeRouteFlowMetadata(array &$metadata): void
+    {
+        $routesKey = $this->resolveRoutesKey($metadata);
+        $routes = $metadata[$routesKey] ?? [];
+        if (!is_array($routes)) {
+            return;
+        }
+
+        $sequence = 1;
+        foreach ($routes as $entryIndex => $entry) {
+            if (!is_array($entry)) {
+                continue;
+            }
+
+            if (isset($entry['routes']) && is_array($entry['routes'])) {
+                $normalizedRoutes = [];
+                foreach ($entry['routes'] as $route) {
+                    if (!is_array($route)) {
+                        continue;
+                    }
+                    $normalizedRoutes[] = $this->normalizeRouteFlowMetadataEntry($route, $sequence);
+                    $sequence++;
+                }
+                $entry['routes'] = $normalizedRoutes;
+                $routes[$entryIndex] = $entry;
+                continue;
+            }
+
+            $routes[$entryIndex] = $this->normalizeRouteFlowMetadataEntry($entry, $sequence);
+            $sequence++;
+        }
+
+        $metadata[$routesKey] = $routes;
+    }
+
+    protected function normalizeRouteFlowMetadataEntry(array $route, int $sequence): array
+    {
+        $routeKey = trim((string) (
+            $route['route_key']
+            ?? $route['routeKey']
+            ?? $route['key']
+            ?? $route['route']
+            ?? $route['name']
+            ?? ''
+        ));
+
+        if ($routeKey === '') {
+            $token = $this->normalizeRouteToken(
+                $route['route']
+                ?? $route['key']
+                ?? $route['name']
+                ?? null
+            );
+            $routeKey = $token !== null ? str_replace(' ', '_', $token) : 'route_' . $sequence;
+        }
+
+        $route['route_key'] = $routeKey;
+
+        $orderSeq = $route['order_seq'] ?? $route['orderSeq'] ?? $sequence;
+        $route['order_seq'] = (int) $orderSeq > 0 ? (int) $orderSeq : $sequence;
+
+        $routeMetadata = is_array($route['metadata'] ?? null) ? $route['metadata'] : [];
+        $routeMetadata['route_key'] = $routeMetadata['route_key'] ?? $routeKey;
+        $route['metadata'] = $routeMetadata;
+
+        return $route;
     }
 
     protected function resolveRouteScrap(array $route): float
