@@ -15,6 +15,7 @@ class WorkOrderAssignmentsRequest extends FormRequest
     {
         return [
             'routes' => ['required', 'array'],
+            'routes.*.route_key' => ['nullable', 'string', 'max:120'],
             'routes.*.order_seq' => ['nullable', 'integer'],
             'routes.*.route' => ['nullable', 'string', 'max:50'],
             'routes.*.name' => ['nullable', 'string', 'max:120'],

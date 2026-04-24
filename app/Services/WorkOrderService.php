@@ -3359,7 +3359,14 @@ class WorkOrderService implements WorkOrderServiceInterface
                 ?? ($idx + 1);
             $routeCode = Arr::get($route, 'route') ?? Arr::get($route, 'key');
             $routeName = Arr::get($route, 'name');
-            $routeKey = $this->buildAssignmentRouteKey($routeCode, $orderSeq, $idx);
+            $routeKey = trim((string) (
+                Arr::get($route, 'route_key')
+                ?? Arr::get($route, 'routeKey')
+                ?? ''
+            ));
+            if ($routeKey === '') {
+                $routeKey = $this->buildAssignmentRouteKey($routeCode, $orderSeq, $idx);
+            }
             $operators = Arr::get($route, 'operators', []);
 
             if (is_array($operators)) {
