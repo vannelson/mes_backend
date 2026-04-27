@@ -18,7 +18,7 @@ class AuditLogService
 
         $query = AuditLog::query();
 
-        if (!$this->isPrivileged($viewer) && $viewer?->id) {
+        if ($this->shouldRestrictToActor($viewer) && $viewer?->id) {
             $query->where('user_id', $viewer->id);
         }
 
@@ -253,6 +253,16 @@ class AuditLogService
     {
         $role = strtolower((string) ($user->user_type ?? ''));
         return in_array($role, ['manager', 'supervisor', 'admin', 'superadmin'], true);
+    }
+
+    protected function shouldRestrictToActor(?User $user): bool
+    {
+        if (!$user) {
+            return false;
+        }
+
+        $role = strtolower((string) ($user->user_type ?? ''));
+        return $role === 'operator';
     }
 
     protected function resolveActorName(?User $actor): ?string
