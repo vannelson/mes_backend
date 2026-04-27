@@ -259,7 +259,19 @@ class DashboardController extends Controller
 
     protected function buildCustomerSnapshot(int $limit): array
     {
-        $total = Customer::query()->count();
+        $total = (int) (
+            Customer::query()
+                ->selectRaw("
+                    COUNT(
+                        DISTINCT COALESCE(
+                            NULLIF(UPPER(TRIM(customer_code)), ''),
+                            NULLIF(UPPER(TRIM(customer_name)), ''),
+                            CONCAT('ID:', id)
+                        )
+                    ) as aggregate
+                ")
+                ->value('aggregate') ?? 0
+        );
         $statusBreakdown = Customer::query()
             ->select('status', DB::raw('COUNT(*) as total'))
             ->groupBy('status')
