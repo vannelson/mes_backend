@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Http\Requests\PackingChecklist\PackingChecklistStoreRequest;
 use App\Http\Requests\PackingChecklist\PackingChecklistUpdateRequest;
 use App\Models\WorkOrder;
+use App\Services\AuditLogService;
 use App\Services\Contracts\PackingChecklistServiceInterface;
 use App\Services\WorkOrderNotificationService;
 use App\Traits\ResponseTrait;
@@ -20,7 +21,8 @@ class PackingChecklistController extends Controller
 
     public function __construct(
         protected PackingChecklistServiceInterface $packingChecklistService,
-        protected WorkOrderNotificationService $notificationService
+        protected WorkOrderNotificationService $notificationService,
+        protected AuditLogService $auditLogService
     ) {
     }
 
@@ -69,6 +71,27 @@ class PackingChecklistController extends Controller
                     'checklist_type' => 'packing',
                 ]);
             }
+
+            $this->auditLogService->logChecklistAction(
+                'packing_checklist_save',
+                [
+                    'summary' => sprintf('Saved packing checklist for work order %s', $data['work_order_no'] ?? $data['wd_part_no'] ?? 'unknown'),
+                    'work_order_id' => $workOrder?->id,
+                    'work_order_no' => $workOrder?->work_order_no ?? ($data['work_order_no'] ?? null),
+                    'route_key' => 'packing_checklist',
+                    'context' => 'checklist',
+                    'entity_type' => 'packing_checklist',
+                    'entity_id' => $checklist['data']['id'] ?? $checklist['id'] ?? null,
+                ],
+                $request->user(),
+                [
+                    'wd_part_no' => $data['wd_part_no'] ?? null,
+                    'customer_name' => $data['customer_name'] ?? null,
+                    'inspector_name' => $data['inspector_name'] ?? null,
+                    'actual_qty' => $data['actual_qty'] ?? null,
+                    'verified' => $data['verified_by_pic_qc'] ?? null,
+                ]
+            );
 
             return $this->success('Packing checklist saved successfully!', $checklist, 201);
         // } catch (ValidationException $e) {
@@ -120,6 +143,29 @@ class PackingChecklistController extends Controller
                 $this->notificationService->notifyWorkOrder($workOrder, $request->user(), 'checklist', [
                     'checklist_type' => 'packing',
                 ]);
+            }
+
+            if (!empty($updated)) {
+                $this->auditLogService->logChecklistAction(
+                    'packing_checklist_update',
+                    [
+                        'summary' => sprintf('Updated packing checklist for work order %s', $workOrder?->work_order_no ?? ($data['work_order_no'] ?? 'unknown')),
+                        'work_order_id' => $workOrder?->id,
+                        'work_order_no' => $workOrder?->work_order_no ?? ($data['work_order_no'] ?? null),
+                        'route_key' => 'packing_checklist',
+                        'context' => 'checklist',
+                        'entity_type' => 'packing_checklist',
+                        'entity_id' => $id,
+                    ],
+                    $request->user(),
+                    [
+                        'wd_part_no' => $data['wd_part_no'] ?? null,
+                        'customer_name' => $data['customer_name'] ?? null,
+                        'inspector_name' => $data['inspector_name'] ?? null,
+                        'actual_qty' => $data['actual_qty'] ?? null,
+                        'verified' => $data['verified_by_pic_qc'] ?? null,
+                    ]
+                );
             }
 
             return !empty($updated)

@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\AuthController;
 use App\Http\Controllers\AiLabsController;
+use App\Http\Controllers\AuditLogController;
 use App\Http\Controllers\BatchLogController;
 use App\Http\Controllers\BomController;
 use App\Http\Controllers\CustomerController;
@@ -65,6 +66,7 @@ Route::prefix('v1')->group(function () {
         Route::get('batch-logs/{id}', [BatchLogController::class, 'show']);
         Route::put('batch-logs/{id}', [BatchLogController::class, 'update']);
         Route::delete('batch-logs/{id}', [BatchLogController::class, 'destroy']);
+        Route::get('audit-logs', [AuditLogController::class, 'index']);
 
         Route::get('work-orders', [WorkOrderController::class, 'index']);
         Route::get('notifications', [WorkOrderNotificationController::class, 'index']);

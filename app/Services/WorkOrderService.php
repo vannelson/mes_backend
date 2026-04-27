@@ -16,6 +16,7 @@ use App\Services\WorkOrderImportService;
 use App\Services\FirebaseRealtimeService;
 use App\Services\Contracts\OperationTriggerServiceInterface;
 use App\Services\WorkOrderNotificationService;
+use App\Services\AuditLogService;
 use Illuminate\Http\File;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\File as FileFacade;
@@ -40,7 +41,8 @@ class WorkOrderService implements WorkOrderServiceInterface
         protected WorkOrderImportService $workOrderImportService,
         protected FirebaseRealtimeService $firebaseRealtimeService,
         protected WorkOrderNotificationService $notificationService,
-        protected OperationTriggerServiceInterface $triggerService
+        protected OperationTriggerServiceInterface $triggerService,
+        protected AuditLogService $auditLogService
     ) {
     }
 
@@ -600,6 +602,24 @@ class WorkOrderService implements WorkOrderServiceInterface
             }
 
             try {
+                $this->auditLogService->logWorkOrderUpdate(
+                    $beforeOrder,
+                    $order,
+                    $changedFields,
+                    $actor,
+                    $notificationContext,
+                    $notificationMeta,
+                    $beforeMetadata,
+                    $metadataSnapshot
+                );
+            } catch (\Throwable $e) {
+                Log::warning('Failed to write work order audit log.', [
+                    'work_order_id' => $order->id,
+                    'message' => $e->getMessage(),
+                ]);
+            }
+
+            try {
                 $eventType = in_array('status', $changedFields, true)
                     ? 'work_order.status_changed'
                     : 'work_order.updated';
@@ -865,6 +885,15 @@ class WorkOrderService implements WorkOrderServiceInterface
             ]);
         } catch (\Throwable) {
             // Notifications should not block time tracker writes.
+        }
+
+        try {
+            $this->auditLogService->logTimeTracker($workOrder, $route, $entry, $actor, $payload);
+        } catch (\Throwable $e) {
+            Log::warning('Failed to write work order progress audit log.', [
+                'work_order_id' => $workOrder->id,
+                'message' => $e->getMessage(),
+            ]);
         }
 
         return [

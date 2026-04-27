@@ -5,6 +5,8 @@ namespace App\Http\Controllers;
 use App\Http\Requests\Packing\PackingBatchStoreRequest;
 use App\Http\Requests\Packing\PackingStoreRequest;
 use App\Http\Requests\Packing\PackingUpdateRequest;
+use App\Models\WorkOrder;
+use App\Services\AuditLogService;
 use App\Services\Contracts\PackingServiceInterface;
 use App\Traits\ResponseTrait;
 use Illuminate\Http\JsonResponse;
@@ -20,7 +22,8 @@ class PackingController extends Controller
     use ResponseTrait;
 
     public function __construct(
-        protected PackingServiceInterface $packingService
+        protected PackingServiceInterface $packingService,
+        protected AuditLogService $auditLogService
     ) {
     }
 
@@ -143,6 +146,27 @@ class PackingController extends Controller
                 $request->file('design')
             );
 
+            $workOrder = $this->resolveWorkOrder($data);
+            $this->auditLogService->logChecklistAction(
+                'packing_spec_create',
+                [
+                    'summary' => sprintf('Created packing spec for part %s', $data['wd_part_no'] ?? 'unknown'),
+                    'work_order_id' => $workOrder?->id,
+                    'work_order_no' => $workOrder?->work_order_no,
+                    'route_key' => 'packing_checklist',
+                    'context' => 'packing_spec',
+                    'entity_type' => 'packing',
+                    'entity_id' => $packing['data']['id'] ?? $packing['id'] ?? null,
+                ],
+                $request->user(),
+                [
+                    'wd_part_no' => $data['wd_part_no'] ?? null,
+                    'batch_number' => $data['batch_number'] ?? null,
+                    'customer_code' => $data['customer_code'] ?? null,
+                    'shipping_location' => $data['shipping_location'] ?? null,
+                ]
+            );
+
             return $this->success('Packing created successfully!', $packing, 201);
         } catch (ValidationException $e) {
             return $this->validationError($e);
@@ -235,6 +259,29 @@ class PackingController extends Controller
                 $request->file('design')
             );
 
+            $workOrder = $this->resolveWorkOrder($data);
+            if (!empty($updated)) {
+                $this->auditLogService->logChecklistAction(
+                    'packing_spec_update',
+                    [
+                        'summary' => sprintf('Updated packing spec for part %s', $data['wd_part_no'] ?? 'unknown'),
+                        'work_order_id' => $workOrder?->id,
+                        'work_order_no' => $workOrder?->work_order_no,
+                        'route_key' => 'packing_checklist',
+                        'context' => 'packing_spec',
+                        'entity_type' => 'packing',
+                        'entity_id' => $id,
+                    ],
+                    $request->user(),
+                    [
+                        'wd_part_no' => $data['wd_part_no'] ?? null,
+                        'batch_number' => $data['batch_number'] ?? null,
+                        'customer_code' => $data['customer_code'] ?? null,
+                        'shipping_location' => $data['shipping_location'] ?? null,
+                    ]
+                );
+            }
+
             return $updated
                 ? $this->success('Packing updated successfully!', $updated)
                 : $this->error('Nothing to update.', 422);
@@ -258,5 +305,24 @@ class PackingController extends Controller
         } catch (Throwable $e) {
             return $this->error('Failed to delete packing.', 500);
         }
+    }
+
+    protected function resolveWorkOrder(array $data): ?WorkOrder
+    {
+        $partNo = trim((string) ($data['wd_part_no'] ?? ''));
+        $batchNumber = trim((string) ($data['batch_number'] ?? ''));
+        if ($partNo === '' && $batchNumber === '') {
+            return null;
+        }
+
+        $query = WorkOrder::query();
+        if ($partNo !== '') {
+            $query->where('customer_part_number', $partNo);
+        }
+        if ($batchNumber !== '') {
+            $query->where('batch_number', $batchNumber);
+        }
+
+        return $query->first();
     }
 }

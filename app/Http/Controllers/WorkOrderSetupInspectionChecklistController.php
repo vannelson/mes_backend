@@ -3,6 +3,8 @@
 namespace App\Http\Controllers;
 
 use App\Models\WorkOrderSetupInspectionChecklistRecord;
+use App\Models\WorkOrder;
+use App\Services\AuditLogService;
 use App\Traits\ResponseTrait;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -15,6 +17,11 @@ class WorkOrderSetupInspectionChecklistController extends Controller
     use ResponseTrait;
 
     private const SAVE_LIMIT = 5;
+
+    public function __construct(
+        protected AuditLogService $auditLogService
+    ) {
+    }
 
     private function isPrivileged(?object $user): bool
     {
@@ -142,6 +149,39 @@ class WorkOrderSetupInspectionChecklistController extends Controller
             'slot' => $slot,
         ], $values);
 
+        $workOrderId = $this->resolveWorkOrderId($payload['work_order_no']);
+        $summary = sprintf(
+            'Saved setup inspection checklist for %s on work order %s',
+            $payload['route_name'] ?: $payload['route_key'],
+            $payload['work_order_no']
+        );
+        $this->auditLogService->logChecklistAction(
+            'setup_checklist_save',
+            [
+                'summary' => $summary,
+                'work_order_id' => $workOrderId,
+                'work_order_no' => $payload['work_order_no'],
+                'route_key' => $payload['route_key'],
+                'context' => 'checklist',
+                'entity_type' => 'setup_inspection_checklist',
+                'entity_id' => $model->id,
+            ],
+            $actor,
+            [
+                'route_name' => $payload['route_name'] ?? null,
+                'machine_id' => $payload['machine_id'] ?? null,
+                'machine_key' => $payload['machine_key'],
+                'machine_label' => $payload['machine_label'] ?? null,
+                'machine_type' => $payload['machine_type'],
+                'machine_no' => $payload['machine_no'] ?? null,
+                'date' => $date,
+                'slot' => $slot,
+                'entries_count' => is_array($payload['entries'] ?? null) ? count($payload['entries']) : 0,
+                'save_count' => (int) $model->save_count,
+                'is_locked' => (bool) $model->is_locked,
+            ]
+        );
+
         return $this->success('Checklist saved successfully!', [
             'id' => $model->id,
             'date' => $model->record_date?->format('Y-m-d'),
@@ -189,6 +229,32 @@ class WorkOrderSetupInspectionChecklistController extends Controller
         $model->approved_at = $data['status'] === 'pending' ? null : now();
         $model->save();
 
+        $this->auditLogService->logChecklistAction(
+            'setup_checklist_review',
+            [
+                'summary' => sprintf(
+                    'Updated setup inspection checklist review to %s for %s on work order %s',
+                    $data['status'],
+                    $model->route_name ?: $model->route_key,
+                    $model->work_order_no
+                ),
+                'work_order_id' => $this->resolveWorkOrderId($model->work_order_no),
+                'work_order_no' => $model->work_order_no,
+                'route_key' => $model->route_key,
+                'context' => 'checklist_review',
+                'entity_type' => 'setup_inspection_checklist',
+                'entity_id' => $model->id,
+            ],
+            $actor,
+            [
+                'route_name' => $model->route_name,
+                'machine_key' => $model->machine_key,
+                'date' => $date,
+                'slot' => $slot,
+                'approval_status' => $model->approval_status,
+            ]
+        );
+
         return $this->success('Checklist review updated successfully!', [
             'approvalStatus' => $model->approval_status,
             'approvedBy' => $model->approved_by,
@@ -232,11 +298,41 @@ class WorkOrderSetupInspectionChecklistController extends Controller
         $model->unlocked_at = now();
         $model->save();
 
+        $this->auditLogService->logChecklistAction(
+            'setup_checklist_unlock',
+            [
+                'summary' => sprintf(
+                    'Unlocked setup inspection checklist for %s on work order %s',
+                    $model->route_name ?: $model->route_key,
+                    $model->work_order_no
+                ),
+                'work_order_id' => $this->resolveWorkOrderId($model->work_order_no),
+                'work_order_no' => $model->work_order_no,
+                'route_key' => $model->route_key,
+                'context' => 'checklist_unlock',
+                'entity_type' => 'setup_inspection_checklist',
+                'entity_id' => $model->id,
+            ],
+            $actor,
+            [
+                'route_name' => $model->route_name,
+                'machine_key' => $model->machine_key,
+                'date' => $date,
+                'slot' => $slot,
+            ]
+        );
+
         return $this->success('Checklist unlocked successfully!', [
             'isLocked' => (bool) $model->is_locked,
             'unlockedBy' => $model->unlocked_by,
             'unlockedAt' => optional($model->unlocked_at)->toISOString(),
         ]);
     }
-}
 
+    protected function resolveWorkOrderId(string $workOrderNo): ?int
+    {
+        return WorkOrder::query()
+            ->where('work_order_no', $workOrderNo)
+            ->value('id');
+    }
+}
