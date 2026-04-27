@@ -17,6 +17,15 @@ class WorkOrderRepository extends BaseRepository implements WorkOrderRepositoryI
         parent::__construct($workOrder);
     }
 
+    public function update(int $id, array $data): int
+    {
+        $workOrder = $this->model->findOrFail($id);
+
+        $workOrder->fill($data);
+
+        return $workOrder->isDirty() && $workOrder->save() ? 1 : 0;
+    }
+
     public function listing(array $filters = [], array $order = [], int $limit = 10, int $page = 1): LengthAwarePaginator
     {
         $query = $this->model->newQuery()
