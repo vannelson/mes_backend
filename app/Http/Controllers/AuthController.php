@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Http\Resources\User\UserResource;
 use App\Services\Contracts\AuthServiceInterface;
 use App\Traits\ResponseTrait;
 use Illuminate\Http\JsonResponse;
@@ -30,9 +31,10 @@ class AuthController extends Controller
             ]);
 
             $authData = $this->authService->login($validated);
-            $userArray = is_array($authData['user'])
-                ? $authData['user']
-                : $authData['user']->toArray();
+            $user = $authData['user'];
+            $userArray = $user instanceof \App\Models\User
+                ? UserResource::make($user)->resolve()
+                : UserResource::make((object) $user)->resolve();
 
             return $this->successLogin($userArray, $authData['token']);
         // } catch (ValidationException $e) {
