@@ -7,6 +7,7 @@ use App\Models\WorkOrder;
 use App\Models\WorkOrderNotification;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Arr;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Log;
 
 class WorkOrderNotificationService
@@ -93,7 +94,7 @@ class WorkOrderNotificationService
             $checklistType
         );
 
-        $recipients = $this->resolveRecipients($actor);
+        $recipients = $this->resolveRecipients($workOrder, $actor);
         if ($recipients->isEmpty()) {
             return;
         }
@@ -144,9 +145,140 @@ class WorkOrderNotificationService
         ]);
     }
 
-    protected function resolveRecipients(?User $actor)
+    protected function resolveRecipients(WorkOrder $workOrder, ?User $actor): Collection
     {
-        return User::query()->select('id')->pluck('id');
+        $privilegedRoleIds = User::query()
+            ->whereIn('user_type', ['manager', 'supervisor'])
+            ->pluck('id');
+
+        $assignedOperatorIds = $this->resolveAssignedOperatorIds($workOrder);
+
+        return $privilegedRoleIds
+            ->merge($assignedOperatorIds)
+            ->filter(static fn ($id) => !is_null($id) && $id !== '')
+            ->map(static fn ($id) => (int) $id)
+            ->unique()
+            ->values();
+    }
+
+    protected function resolveAssignedOperatorIds(WorkOrder $workOrder): Collection
+    {
+        $workOrder->loadMissing('userAssignments');
+
+        $ids = collect($workOrder->userAssignments)
+            ->pluck('user_id')
+            ->filter();
+
+        foreach ($this->extractRoutes($workOrder->metadata) as $route) {
+            if (!is_array($route)) {
+                continue;
+            }
+
+            $operators = Arr::get($route, 'operators', []);
+            if (is_array($operators)) {
+                foreach ($operators as $operator) {
+                    $candidate = Arr::get($operator, 'id')
+                        ?? Arr::get($operator, 'user_id')
+                        ?? Arr::get($operator, 'userId');
+                    if ($candidate !== null && $candidate !== '') {
+                        $ids->push($candidate);
+                    }
+                }
+            }
+
+            $directOperatorId = Arr::get($route, 'operator_id')
+                ?? Arr::get($route, 'operatorId')
+                ?? Arr::get($route, 'user_id')
+                ?? Arr::get($route, 'metadata.machineOperatorId')
+                ?? Arr::get($route, 'machineOperatorId');
+            if ($directOperatorId !== null && $directOperatorId !== '') {
+                $ids->push($directOperatorId);
+            }
+
+            $additionalMachines = Arr::get($route, 'metadata.additionalMachines')
+                ?? Arr::get($route, 'additionalMachines')
+                ?? [];
+            if (!is_array($additionalMachines)) {
+                continue;
+            }
+
+            foreach ($additionalMachines as $machine) {
+                if (!is_array($machine)) {
+                    continue;
+                }
+
+                $machineOperatorId = Arr::get($machine, 'operatorId')
+                    ?? Arr::get($machine, 'machineOperatorId')
+                    ?? Arr::get($machine, 'operator_id')
+                    ?? Arr::get($machine, 'user_id')
+                    ?? Arr::get($machine, 'machineDetails.operatorId')
+                    ?? Arr::get($machine, 'machineDetails.machineOperatorId')
+                    ?? Arr::get($machine, 'machine.operatorId')
+                    ?? Arr::get($machine, 'machine.machineOperatorId')
+                    ?? Arr::get($machine, 'metadata.operatorId')
+                    ?? Arr::get($machine, 'metadata.machineOperatorId');
+                if ($machineOperatorId !== null && $machineOperatorId !== '') {
+                    $ids->push($machineOperatorId);
+                }
+            }
+        }
+
+        return $ids
+            ->map(static fn ($id) => (int) $id)
+            ->filter(static fn ($id) => $id > 0)
+            ->unique()
+            ->values();
+    }
+
+    protected function normalizeMetadata(mixed $metadata): array
+    {
+        if (is_array($metadata)) {
+            return $metadata;
+        }
+
+        if (is_string($metadata)) {
+            $decoded = json_decode($metadata, true);
+            if (json_last_error() === JSON_ERROR_NONE && is_array($decoded)) {
+                return $decoded;
+            }
+        }
+
+        return [];
+    }
+
+    protected function extractRoutes(mixed $metadata): array
+    {
+        $normalized = $this->normalizeMetadata($metadata);
+        $routes =
+            Arr::get($normalized, 'assignments.routes') ??
+            Arr::get($normalized, 'route_assignments') ??
+            Arr::get($normalized, 'routeAssignments') ??
+            Arr::get($normalized, 'routes') ??
+            Arr::get($normalized, 'steps') ??
+            Arr::get($normalized, 'data') ??
+            [];
+
+        if (is_array($routes) && Arr::has($routes, 'routes')) {
+            $routes = Arr::get($routes, 'routes', []);
+        }
+
+        $flattened = [];
+        foreach ((array) $routes as $entry) {
+            if (!is_array($entry)) {
+                continue;
+            }
+            if (isset($entry['routes']) && is_array($entry['routes'])) {
+                foreach ($entry['routes'] as $route) {
+                    if (is_array($route)) {
+                        $flattened[] = $route;
+                    }
+                }
+                continue;
+            }
+            $flattened[] = $entry;
+        }
+
+        return $flattened;
     }
 
     protected function normalizeContext(?string $context): string
