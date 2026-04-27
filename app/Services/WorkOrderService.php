@@ -1226,6 +1226,10 @@ class WorkOrderService implements WorkOrderServiceInterface
         array $order = []
     ): array {
         $this->assertVirtualizationRange($filters);
+        $activeOnly = filter_var(
+            Arr::get($filters, 'active_only', false),
+            FILTER_VALIDATE_BOOLEAN
+        );
 
         $baseQuery = WorkOrder::query()
             ->whereNotNull('template_route_id')
@@ -1233,24 +1237,29 @@ class WorkOrderService implements WorkOrderServiceInterface
 
         $this->applyWorkOrderFilters($baseQuery, $filters);
 
-        $total = (clone $baseQuery)->count();
-        $this->assertVirtualizationOrderLimit($total);
-
         $query = $baseQuery->with(['customer', 'templateRoute', 'userAssignments.user']);
 
         $this->applyWorkOrderOrdering($query, $order);
 
         $orders = $query->get();
+        if ($activeOnly) {
+            $filtered = $orders
+                ->map(fn(WorkOrder $workOrder) => $this->filterWorkOrderToActiveRoutesForVirtualization($workOrder))
+                ->filter()
+                ->values();
+            $this->assertVirtualizationOrderLimit($filtered->count());
+        } else {
+            $this->assertVirtualizationOrderLimit($orders->count());
+            $filtered = $orders->values();
+        }
 
-        $workOrderNos = $orders->pluck('work_order_no')->filter()->values();
+        $workOrderNos = $filtered->pluck('work_order_no')->filter()->values();
         $packingSet = $workOrderNos->isEmpty()
             ? collect()
             : PackingChecklist::query()
                 ->whereIn('work_order_no', $workOrderNos)
                 ->pluck('work_order_no')
                 ->flip();
-
-        $filtered = $orders->values();
 
         $groups = $filtered->groupBy(function (WorkOrder $order) {
             $template = $order->templateRoute;
@@ -1335,6 +1344,7 @@ class WorkOrderService implements WorkOrderServiceInterface
             'selected_template_route_id' => $selectedKey,
             'summary' => $summary,
             'work_orders' => $workOrders,
+            'active_only' => $activeOnly,
             'generated_at' => now()->toIso8601String(),
         ];
     }
@@ -4461,6 +4471,60 @@ class WorkOrderService implements WorkOrderServiceInterface
         }
 
         return null;
+    }
+
+    protected function routeHasTrackedProgress(array $route, array $metadata = []): bool
+    {
+        $timeTracker = $this->resolveRouteTimeTracker($route);
+        $entries = $this->normalizeTimeTrackerEntries($timeTracker['entries'] ?? []);
+        if (!empty($entries)) {
+            return true;
+        }
+
+        $progressPct = $this->resolveRouteMonitorProgressPct($route, $metadata, $entries);
+        if ($progressPct !== null && $progressPct > 0) {
+            return true;
+        }
+
+        $printedQty = $this->resolvePrintedQty($entries);
+        return $printedQty !== null && $printedQty > 0;
+    }
+
+    protected function isRouteActiveForVirtualization(array $route, array $metadata = []): bool
+    {
+        $timeTracker = $this->resolveRouteTimeTracker($route);
+        $entries = $this->normalizeTimeTrackerEntries($timeTracker['entries'] ?? []);
+        $status = $this->resolveTimeTrackerStatus($this->resolveLastTimeEntry($entries));
+
+        return in_array($status, ['running', 'paused', 'stopped'], true)
+            && $this->routeHasTrackedProgress($route, $metadata);
+    }
+
+    protected function filterWorkOrderToActiveRoutesForVirtualization(WorkOrder $order): ?WorkOrder
+    {
+        $metadata = $this->normalizeMetadata($order->metadata);
+        $routes = $this->extractRoutes($metadata);
+        if (empty($routes)) {
+            return null;
+        }
+
+        $activeRoutes = array_values(array_filter(
+            $routes,
+            fn($route) => is_array($route) && $this->isRouteActiveForVirtualization($route, $metadata)
+        ));
+
+        if (empty($activeRoutes)) {
+            return null;
+        }
+
+        $routesKey = $this->resolveRoutesKey($metadata);
+        $metadata[$routesKey] = $activeRoutes;
+        if ($routesKey !== 'routes') {
+            $metadata['routes'] = $activeRoutes;
+        }
+
+        $order->metadata = $metadata;
+        return $order;
     }
 
     protected function resolvePerformanceRatio(?float $produced, ?float $target, array $entries): ?float
