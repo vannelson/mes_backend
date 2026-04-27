@@ -33,7 +33,7 @@ use Throwable;
 class WorkOrderService implements WorkOrderServiceInterface
 {
     private const VIRTUALIZATION_MAX_RANGE_DAYS = 7;
-    private const VIRTUALIZATION_MAX_ORDERS = 128;
+    private const VIRTUALIZATION_MAX_ORDERS = 512;
 
     public function __construct(
         protected WorkOrderRepositoryInterface $workOrderRepository,
