@@ -16,7 +16,7 @@ class AuditLogService
         $limit = max(1, min($limit, 100));
         $page = max(1, $page);
 
-        $query = AuditLog::query()->with(['user:id,name,email,user_type']);
+        $query = AuditLog::query();
 
         if (!$this->isPrivileged($viewer) && $viewer?->id) {
             $query->where('user_id', $viewer->id);
