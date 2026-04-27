@@ -388,7 +388,10 @@ class WorkOrderController extends Controller
             );
 
             if (!$updated) {
-                return $this->error('Nothing to update.', 422);
+                return $this->success(
+                    'Work order already up to date.',
+                    $this->workOrderService->detail($id)
+                );
             }
 
             $workOrder = (is_array($updated) || is_object($updated))
