@@ -151,6 +151,25 @@ class WorkOrderController extends Controller
         }
     }
 
+    public function activeRoutesMonitor(Request $request): JsonResponse
+    {
+        $role = strtolower(trim((string) ($request->user()?->role ?? $request->user()?->user_type ?? '')));
+        if (!in_array($role, ['supervisor', 'manager', 'admin'], true)) {
+            return $this->error('Forbidden.', 403);
+        }
+
+        $limit = (int) $request->get('limit', 12);
+        $limit = max(1, min($limit, 25));
+
+        try {
+            $data = $this->workOrderService->activeRoutesMonitor($limit);
+
+            return $this->success('Active route monitor retrieved successfully!', $data);
+        } catch (Throwable $e) {
+            return $this->error('Failed to load active route monitor.', 500);
+        }
+    }
+
     public function summary(Request $request): JsonResponse
     {
         $options = $request->only(['on_time_days', 'throughput_days', 'due_soon_days']);

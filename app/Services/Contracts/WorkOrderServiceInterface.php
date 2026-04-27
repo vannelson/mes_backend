@@ -82,6 +82,11 @@ interface WorkOrderServiceInterface
     ): array;
 
     /**
+     * Provide a compact realtime monitor of active route progress.
+     */
+    public function activeRoutesMonitor(int $limit = 12): array;
+
+    /**
      * Paginated list of work orders filtered by batch number.
      */
     public function listByBatch(string $batchNumber, int $limit = 10, int $page = 1): array;

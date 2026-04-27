@@ -108,6 +108,7 @@ Route::prefix('v1')->group(function () {
         Route::get('work-orders/options', [WorkOrderController::class, 'options']);
         Route::get('work-orders/with-template-routes', [WorkOrderController::class, 'withActiveTemplateRoutes']);
         Route::get('work-orders/virtualization', [WorkOrderController::class, 'virtualization']);
+        Route::get('work-orders/active-routes-monitor', [WorkOrderController::class, 'activeRoutesMonitor']);
         Route::put('work-orders/bulk-update', [WorkOrderController::class, 'bulkUpdateByCustomer']);
         Route::get('work-orders/{id}', [WorkOrderController::class, 'show'])->whereNumber('id');
         Route::put('work-orders/{id}', [WorkOrderController::class, 'update']);

@@ -72,6 +72,112 @@ class WorkOrderService implements WorkOrderServiceInterface
         ];
     }
 
+    public function activeRoutesMonitor(int $limit = 12): array
+    {
+        $limit = max(1, min($limit, 25));
+
+        $orders = WorkOrder::query()
+            ->select([
+                'id',
+                'work_order_no',
+                'customer_name',
+                'customer_part_number',
+                'metadata',
+                'updated_at',
+            ])
+            ->whereNotNull('metadata')
+            ->orderByDesc('updated_at')
+            ->get();
+
+        $items = [];
+        $counts = [
+            'running' => 0,
+            'paused' => 0,
+            'stopped' => 0,
+        ];
+
+        foreach ($orders as $order) {
+            $metadata = $this->normalizeMetadata($order->metadata);
+            $statusRaw = strtolower(trim((string) Arr::get($metadata, 'state.status', '')));
+            if (in_array($statusRaw, ['completed', 'complete', 'done'], true)) {
+                continue;
+            }
+
+            $routes = $this->extractRoutes($metadata);
+            if (empty($routes)) {
+                continue;
+            }
+
+            foreach ($routes as $routeIndex => $route) {
+                if (!is_array($route)) {
+                    continue;
+                }
+
+                $timeTracker = $this->resolveRouteTimeTracker($route);
+                $entries = $this->normalizeTimeTrackerEntries($timeTracker['entries'] ?? []);
+                $lastEntry = $this->resolveLastTimeEntry($entries);
+                $status = $this->resolveTimeTrackerStatus($lastEntry);
+                $progressPct = $this->resolveRouteMonitorProgressPct($route, $metadata, $entries);
+                $printedQty = $this->resolvePrintedQty($entries);
+
+                $hasTrackedProgress = !empty($entries)
+                    || ($progressPct !== null && $progressPct > 0)
+                    || ($printedQty !== null && $printedQty > 0);
+
+                if (!in_array($status, ['running', 'paused', 'stopped'], true) || !$hasTrackedProgress) {
+                    continue;
+                }
+
+                $counts[$status]++;
+                $lastActivityAt = $lastEntry['at'] ?? $timeTracker['updated_at'] ?? $order->updated_at?->toIso8601String();
+
+                $items[] = [
+                    'work_order_id' => $order->id,
+                    'work_order_no' => $order->work_order_no,
+                    'customer_name' => $order->customer_name,
+                    'customer_part_number' => $order->customer_part_number,
+                    'route_index' => $routeIndex,
+                    'route_key' => $route['route_key'] ?? $route['routeKey'] ?? $route['route'] ?? $route['key'] ?? null,
+                    'route_name' => $route['name'] ?? $route['route'] ?? $route['key'] ?? ('Route ' . ($routeIndex + 1)),
+                    'route_order_seq' => $route['order_seq'] ?? $route['orderSeq'] ?? ($routeIndex + 1),
+                    'machine_label' => $this->resolveRouteMonitorMachineLabel($route),
+                    'status' => $status,
+                    'progress_pct' => $progressPct,
+                    'printed_qty' => $printedQty,
+                    'target_qty' => $this->resolveTargetPrintedQty($entries, $metadata),
+                    'operator_id' => $this->extractOperatorId($lastEntry),
+                    'last_activity_at' => $lastActivityAt,
+                ];
+            }
+        }
+
+        usort($items, static function (array $a, array $b): int {
+            $priority = ['running' => 0, 'paused' => 1, 'stopped' => 2];
+            $aPriority = $priority[$a['status'] ?? 'stopped'] ?? 3;
+            $bPriority = $priority[$b['status'] ?? 'stopped'] ?? 3;
+            if ($aPriority !== $bPriority) {
+                return $aPriority <=> $bPriority;
+            }
+
+            $aTs = strtotime((string) ($a['last_activity_at'] ?? '')) ?: 0;
+            $bTs = strtotime((string) ($b['last_activity_at'] ?? '')) ?: 0;
+            if ($aTs !== $bTs) {
+                return $bTs <=> $aTs;
+            }
+
+            return (int) (($b['work_order_id'] ?? 0) <=> ($a['work_order_id'] ?? 0));
+        });
+
+        return [
+            'count' => count($items),
+            'running' => $counts['running'],
+            'paused' => $counts['paused'],
+            'stopped' => $counts['stopped'],
+            'items' => array_slice($items, 0, $limit),
+            'updated_at' => now()->toIso8601String(),
+        ];
+    }
+
     public function listWip(
         array $filters = [],
         int $limit = 10,
@@ -4282,6 +4388,79 @@ class WorkOrderService implements WorkOrderServiceInterface
     {
         $scrap = $route['scrap'] ?? 0;
         return is_numeric($scrap) ? (float) $scrap : 0.0;
+    }
+
+    protected function resolveRouteMonitorProgressPct(array $route, array $metadata, array $entries): ?float
+    {
+        foreach ($entries as $entry) {
+            if (!is_array($entry)) {
+                continue;
+            }
+            $value = $entry['route_progress_pct']
+                ?? $entry['routeProgressPct']
+                ?? $entry['operator_progress_pct']
+                ?? $entry['operatorProgressPct']
+                ?? null;
+            if ($value === null || $value === '') {
+                continue;
+            }
+
+            return max(0, min(100, $this->numericValue($value)));
+        }
+
+        $direct = $this->resolveRouteProgressFallback($route);
+        if ($direct !== null) {
+            return $direct;
+        }
+
+        $produced = $this->resolvePrintedQty($entries);
+        $target = $this->resolveTargetPrintedQty($entries, $metadata);
+        if ($produced !== null && $target !== null && $target > 0) {
+            return max(0, min(100, ($produced / $target) * 100));
+        }
+
+        return null;
+    }
+
+    protected function resolveRouteMonitorMachineLabel(array $route): ?string
+    {
+        $machine = $route['machine'] ?? Arr::get($route, 'metadata.machine') ?? null;
+        if (is_array($machine)) {
+            $name = trim((string) (
+                $machine['machine_name']
+                ?? $machine['name']
+                ?? $machine['machine_type']
+                ?? $machine['type']
+                ?? $machine['label']
+                ?? ''
+            ));
+            $number = trim((string) (
+                $machine['machine_no']
+                ?? $machine['machineNo']
+                ?? $machine['number']
+                ?? $machine['no']
+                ?? $machine['machine_code']
+                ?? $machine['code']
+                ?? ''
+            ));
+
+            if ($name !== '' && $number !== '') {
+                return "{$name} #{$number}";
+            }
+            if ($name !== '') {
+                return $name;
+            }
+            if ($number !== '') {
+                return "Machine #{$number}";
+            }
+        }
+
+        if (is_string($machine)) {
+            $trimmed = trim($machine);
+            return $trimmed !== '' ? $trimmed : null;
+        }
+
+        return null;
     }
 
     protected function resolvePerformanceRatio(?float $produced, ?float $target, array $entries): ?float
