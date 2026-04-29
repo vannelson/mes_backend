@@ -4053,15 +4053,26 @@ class WorkOrderService implements WorkOrderServiceInterface
                 'value' => $availability,
                 'uptime_seconds' => $uptimeSeconds,
                 'downtime_seconds' => $downtimeSeconds,
+                'tracked_seconds' => $uptimeSeconds + $downtimeSeconds,
             ],
             'performance' => [
                 'value' => $performance,
+                'produced_units' => $producedTotal,
+                'target_units' => $targetTotal,
+                'measured_routes' => $performanceCount,
+                'is_capped' => true,
             ],
             'quality' => [
                 'value' => $quality,
+                'produced_units' => $producedTotal,
+                'scrap_units' => $scrapTotal,
+                'good_units' => max(0, $producedTotal - $scrapTotal),
             ],
             'oee' => [
                 'value' => $oee,
+                'availability' => $availability,
+                'performance' => $performance,
+                'quality' => $quality,
             ],
             'cards' => [
                 'total_active_work_orders' => $activeWorkOrders,
