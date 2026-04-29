@@ -4413,11 +4413,13 @@ class WorkOrderService implements WorkOrderServiceInterface
 
         $route['route_key'] = $routeKey;
 
-        $orderSeq = $route['order_seq'] ?? $route['orderSeq'] ?? $sequence;
-        $route['order_seq'] = (int) $orderSeq > 0 ? (int) $orderSeq : $sequence;
+        // Treat the submitted array order as canonical so route reorders persist
+        // even if stale order_seq values are still present in the payload.
+        $route['order_seq'] = $sequence;
 
         $routeMetadata = is_array($route['metadata'] ?? null) ? $route['metadata'] : [];
         $routeMetadata['route_key'] = $routeMetadata['route_key'] ?? $routeKey;
+        $routeMetadata['order_seq'] = $sequence;
         $route['metadata'] = $routeMetadata;
 
         return $route;
