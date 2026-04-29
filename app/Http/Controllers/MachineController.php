@@ -52,7 +52,23 @@ class MachineController extends Controller
     public function store(MachineStoreRequest $request): JsonResponse
     {
         try {
-            $machine = $this->machineService->create($request->validated());
+            $data = $request->validated();
+            unset($data['image']);
+
+            $machine = $this->machineService->create($data);
+            $machineId = (int) Arr::get($machine, 'data.id');
+
+            if ($machineId && $request->hasFile('image')) {
+                $metadata = is_array(Arr::get($machine, 'data.metadata'))
+                    ? Arr::get($machine, 'data.metadata')
+                    : [];
+
+                $this->machineService->update($machineId, [
+                    'metadata' => $this->storeMachineImage($request, $machineId, $metadata),
+                ]);
+
+                $machine = $this->machineService->detail($machineId);
+            }
 
             return $this->success('Machine created successfully!', $machine);
         } catch (ValidationException $e) {
@@ -79,16 +95,6 @@ class MachineController extends Controller
             $data = $request->validated();
 
             if ($request->hasFile('image')) {
-                $image = $request->file('image');
-                $extension = $image->getClientOriginalExtension() ?: $image->guessExtension() ?: 'jpg';
-                $filename = sprintf('machine_%s_%s.%s', $id, Str::uuid(), $extension);
-                $targetDir = public_path('images/machines');
-
-                if (! File::isDirectory($targetDir)) {
-                    File::makeDirectory($targetDir, 0755, true);
-                }
-
-                $image->move($targetDir, $filename);
                 unset($data['image']);
 
                 $metadata = $data['metadata'] ?? null;
@@ -96,11 +102,7 @@ class MachineController extends Controller
                     $existing = Machine::find($id);
                     $metadata = is_array($existing?->metadata) ? $existing->metadata : [];
                 }
-                $publicPath = "/api/v1/images/machines/{$filename}";
-                $metadata['image_filename'] = $filename;
-                $metadata['image_url'] = $publicPath;
-                $metadata['urlpath'] = $publicPath;
-                $data['metadata'] = $metadata;
+                $data['metadata'] = $this->storeMachineImage($request, $id, $metadata);
             }
 
             $updated = $this->machineService->update($id, $data);
@@ -113,6 +115,27 @@ class MachineController extends Controller
         } catch (Throwable $e) {
             return $this->error('Failed to update machine.', 500);
         }
+    }
+
+    protected function storeMachineImage(Request $request, int $id, array $metadata = []): array
+    {
+        $image = $request->file('image');
+        $extension = $image->getClientOriginalExtension() ?: $image->guessExtension() ?: 'jpg';
+        $filename = sprintf('machine_%s_%s.%s', $id, Str::uuid(), $extension);
+        $targetDir = public_path('images/machines');
+
+        if (! File::isDirectory($targetDir)) {
+            File::makeDirectory($targetDir, 0755, true);
+        }
+
+        $image->move($targetDir, $filename);
+
+        $publicPath = "/images/machines/{$filename}";
+        $metadata['image_filename'] = $filename;
+        $metadata['image_url'] = $publicPath;
+        $metadata['urlpath'] = $publicPath;
+
+        return $metadata;
     }
 
     public function destroy(int $id): JsonResponse
