@@ -21,6 +21,10 @@ interface TemplateRouteRepositoryInterface extends RepositoryInterface
 
     public function findByTemplate(string $template): ?\App\Models\TemplateRoute;
 
+    public function findLatestActiveByCustomerPartNo(string $customerPartNo): ?\App\Models\TemplateRoute;
+
+    public function listVersionsByCustomerPartNo(string $customerPartNo): Collection;
+
     public function orderedByWorkOrders(int $limit = 10, int $page = 1): LengthAwarePaginator;
 
     public function deleteByBatch(string $batchNumber): int;

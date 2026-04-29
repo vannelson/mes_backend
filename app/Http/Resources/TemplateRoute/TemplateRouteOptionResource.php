@@ -12,6 +12,9 @@ class TemplateRouteOptionResource extends JsonResource
         return [
             'id' => $this->id,
             'template' => $this->template,
+            'customer_part_no' => $this->customer_part_no,
+            'template_route_version' => (int) ($this->template_route_version ?? 1),
+            'is_active' => (bool) ($this->is_active ?? true),
             'batch_number' => $this->batch_number,
             'sheet' => $this->sheet,
             'route_name_sequence_key' => $this->route_name_sequence_key,

@@ -419,58 +419,33 @@ class TemplateRouteImportService
             ];
         }
 
-        $templatesMap = [];
+        $templates = [];
+        $records = [];
         foreach ($parts as $part) {
             $sequence = $part['route_types'];
             if ($sequence === '') {
                 continue;
             }
-            if (!isset($templatesMap[$sequence])) {
-                $templatesMap[$sequence] = [
-                    'sequence' => $sequence,
-                    'parts' => [],
-                    'lines' => [],
-                    'wod_refs' => [],
-                    'historicaldata' => [],
-                ];
-            }
-            $templatesMap[$sequence]['parts'][] = $part['customer_part_number'];
-            $templatesMap[$sequence]['lines'][] = $part;
-            if (!empty($part['wod_refs'])) {
-                $templatesMap[$sequence]['wod_refs'] = array_merge(
-                    $templatesMap[$sequence]['wod_refs'],
-                    $part['wod_refs']
-                );
-            }
-            if (!empty($part['historicaldata'])) {
-                $templatesMap[$sequence]['historicaldata'] = array_merge(
-                    $templatesMap[$sequence]['historicaldata'],
-                    $part['historicaldata']
-                );
-            }
-        }
-
-        $templates = [];
-        $records = [];
-        foreach ($templatesMap as $sequence => $data) {
-            $customerParts = array_values(array_unique($data['parts']));
-            sort($customerParts, SORT_STRING);
-            $lines = $data['lines'];
+            $customerPartNo = $part['customer_part_number'];
+            $lines = [$part];
             $canonicalSteps = $this->buildCanonicalSteps($lines);
             $stepCount = count($canonicalSteps);
             $routeSequenceWithMachines = $this->buildRouteWithMachines($canonicalSteps);
-            $wodRef = $this->formatWodRefs($data['wod_refs'] ?? []);
-            $historicalData = $this->normalizeHistoricalData($data['historicaldata'] ?? []);
+            $wodRef = $this->formatWodRefs($part['wod_refs'] ?? []);
+            $historicalData = $this->normalizeHistoricalData($part['historicaldata'] ?? []);
+            $templateRouteVersion = $this->nextTemplateRouteVersion($customerPartNo);
 
             $templates[] = [
                 'template_name' => $sequence,
                 'template' => $sequence,
                 'sequence' => $sequence,
+                'customer_part_no' => $customerPartNo,
+                'template_route_version' => $templateRouteVersion,
                 'route_sequence_with_machines' => $routeSequenceWithMachines,
                 'step_count' => $stepCount,
-                'parts_count' => count($customerParts),
+                'parts_count' => 1,
                 'wod_ref' => $wodRef,
-                'customer_part_numbers' => $customerParts,
+                'customer_part_numbers' => [$customerPartNo],
                 'lines' => $this->formatCanonicalLineForResponse($lines, $canonicalSteps),
             ];
 
@@ -478,8 +453,10 @@ class TemplateRouteImportService
                 $records[] = [
                     'template' => $sequence,
                     'sequence' => $sequence,
+                    'customer_part_no' => $customerPartNo,
+                    'template_route_version' => $templateRouteVersion,
                     'route_sequence_with_machines' => $routeSequenceWithMachines,
-                    'customer_part_numbers' => $customerParts,
+                    'customer_part_numbers' => [$customerPartNo],
                     'wod_ref' => $wodRef,
                     'metadata' => $this->formatLinesForMetadata($lines, $canonicalSteps, $historicalData),
                 ];
@@ -884,66 +861,45 @@ class TemplateRouteImportService
             $batchNumber = $batchNumber !== '' ? $batchNumber : null;
             $sheetLabel = $sheetLabel !== '' ? $sheetLabel : null;
 
-            if ($batchNumber && $sheetLabel) {
-                $existingCount = TemplateRoute::query()
-                    ->where('batch_number', $batchNumber)
-                    ->where(function ($query) use ($sheetLabel) {
-                        $query->where('sheet', $sheetLabel)
-                            ->orWhereNull('sheet')
-                            ->orWhere('sheet', '');
-                    })
-                    ->count();
-
-                if ($existingCount > 0) {
-                    TemplateRoute::query()
-                        ->where('batch_number', $batchNumber)
-                        ->where(function ($query) use ($sheetLabel) {
-                            $query->where('sheet', $sheetLabel)
-                                ->orWhereNull('sheet')
-                                ->orWhere('sheet', '');
-                        })
-                        ->delete();
-                } else {
-                    TemplateRoute::query()
-                        ->where(function ($query) use ($sheetLabel) {
-                            $query->where('sheet', $sheetLabel)
-                                ->orWhereNull('sheet')
-                                ->orWhere('sheet', '');
-                        })
-                        ->delete();
-                }
-            } elseif ($batchNumber) {
-                TemplateRoute::query()
-                    ->where('batch_number', $batchNumber)
-                    ->delete();
-            } elseif ($sheetLabel) {
-                TemplateRoute::query()
-                    ->where(function ($query) use ($sheetLabel) {
-                        $query->where('sheet', $sheetLabel)
-                            ->orWhereNull('sheet')
-                            ->orWhere('sheet', '');
-                    })
-                    ->delete();
-            } else {
-                TemplateRoute::query()->delete();
-            }
-
             foreach ($records as $record) {
                 $customerParts = $record['customer_part_numbers'] ?? [];
                 $customerPartNumberRef = !empty($customerParts) ? implode(', ', $customerParts) : null;
+                $customerPartNo = strtoupper(trim((string) ($record['customer_part_no'] ?? ($customerParts[0] ?? ''))));
 
-                TemplateRoute::create([
+                $created = TemplateRoute::create([
                     'uuid' => (string) Str::uuid(),
                     'template' => $record['sequence'],
                     'wod_ref' => $record['wod_ref'] ?? null,
                     'customer_part_number_ref' => $customerPartNumberRef,
+                    'customer_part_no' => $customerPartNo !== '' ? $customerPartNo : null,
+                    'template_route_version' => $this->nextTemplateRouteVersion($customerPartNo),
+                    'is_active' => true,
                     'batch_number' => $batchNumber,
                     'sheet' => $sheetLabel,
                     'user_id' => $userId,
                     'metadata' => $record['metadata'],
                 ]);
+
+                if ($customerPartNo !== '') {
+                    TemplateRoute::query()
+                        ->where('customer_part_no', $customerPartNo)
+                        ->where('id', '!=', $created->id)
+                        ->update(['is_active' => false]);
+                }
             }
         });
+    }
+
+    private function nextTemplateRouteVersion(string $customerPartNo): int
+    {
+        $normalized = strtoupper(trim($customerPartNo));
+        if ($normalized === '') {
+            return 1;
+        }
+
+        return (int) TemplateRoute::query()
+            ->where('customer_part_no', $normalized)
+            ->max('template_route_version') + 1;
     }
 
     private function buildRouteTypes(array $steps): string

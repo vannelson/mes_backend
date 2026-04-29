@@ -1855,8 +1855,15 @@ class WorkOrderService implements WorkOrderServiceInterface
             $templatesQuery->where('batch_number', $templateBatchNumber);
         }
 
-        // newest first (so first match wins)
-        $templates = $templatesQuery->orderByDesc('created_at')->get();
+        if (Schema::hasColumn('template_routes', 'is_active')) {
+            $templatesQuery->orderByDesc('is_active');
+        }
+        if (Schema::hasColumn('template_routes', 'template_route_version')) {
+            $templatesQuery->orderByDesc('template_route_version');
+        }
+        $templates = $templatesQuery
+            ->orderByDesc('created_at')
+            ->get();
 
         if ($templates->isEmpty()) {
             $result = [

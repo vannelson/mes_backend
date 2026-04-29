@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Http\Resources\TemplateRoute\TemplateRouteOptionResource;
 use App\Http\Resources\TemplateRoute\TemplateRouteResource;
+use App\Models\TemplateRoute;
 use App\Models\WorkOrder;
 use App\Repositories\Contracts\TemplateRouteRepositoryInterface;
 use App\Services\Contracts\TemplateRouteServiceInterface;
@@ -126,14 +127,17 @@ class TemplateRouteService implements TemplateRouteServiceInterface
 
     public function create(array $data): array
     {
+        $data = $this->prepareVersionedPayload($data);
         $data['uuid'] = $data['uuid'] ?? (string) Str::uuid();
         $templateRoute = $this->templateRouteRepository->create($data);
+        $this->activateVersion($templateRoute);
 
         return (new TemplateRouteResource($templateRoute->load('manager')))->response()->getData(true);
     }
 
     public function update(int $id, array $data): array
     {
+        $data = $this->prepareVersionedPayload($data, $id, false);
         $updated = (bool) $this->templateRouteRepository->update($id, $data);
 
         if (! $updated) {
@@ -145,6 +149,26 @@ class TemplateRouteService implements TemplateRouteServiceInterface
         return (new TemplateRouteResource($templateRoute))->response()->getData(true);
     }
 
+    public function createVersion(int $id, array $data): array
+    {
+        $existing = $this->templateRouteRepository->findById($id);
+        $base = $existing->toArray();
+        unset($base['id'], $base['created_at'], $base['updated_at']);
+
+        $payload = array_merge($base, $data, [
+            'uuid' => (string) Str::uuid(),
+            'parent_template_route_id' => $existing->parent_template_route_id ?: $existing->id,
+            'created_from_template_route_id' => $existing->id,
+            'user_id' => Arr::get($data, 'user_id', $existing->user_id),
+        ]);
+        $payload = $this->prepareVersionedPayload($payload, null, true);
+
+        $created = $this->templateRouteRepository->create($payload);
+        $this->activateVersion($created);
+
+        return (new TemplateRouteResource($created->load('manager')))->response()->getData(true);
+    }
+
     public function delete(int $id): bool
     {
         return $this->templateRouteRepository->delete($id);
@@ -154,49 +178,34 @@ class TemplateRouteService implements TemplateRouteServiceInterface
     {
         $deduped = $this->dedupeTemplates($templates);
         $created = 0;
-        $updated = 0;
         $result = [];
 
         foreach ($deduped as $sequenceKey => $template) {
             $templateName = $template['template'] ?: $this->labelFromSequence($sequenceKey);
             $templateName = Str::limit($templateName, 250, '');
             $customerPartNumberRefs = $this->resolveCustomerPartNumberRefs($template);
-            $customerPartNumberRef = !empty($customerPartNumberRefs)
-                ? $this->stringifyRefs($customerPartNumberRefs)
-                : null;
             $batchNumber = Arr::get($template, 'batch_number');
             $sheet = Arr::get($template, 'sheet');
+            $targetParts = !empty($customerPartNumberRefs)
+                ? $customerPartNumberRefs
+                : [null];
 
-            $payload = [
-                'template' => $templateName,
-                'metadata' => $template['metadata'] ?? [],
-                'customer_part_number_ref' => $customerPartNumberRef,
-                'batch_number' => $batchNumber,
-                'sheet' => $sheet,
-                'user_id' => $userId,
-            ];
+            foreach ($targetParts as $customerPartNo) {
+                $payload = [
+                    'template' => $templateName,
+                    'metadata' => $template['metadata'] ?? [],
+                    'customer_part_number_ref' => $customerPartNo,
+                    'customer_part_no' => $customerPartNo,
+                    'batch_number' => $batchNumber,
+                    'sheet' => $sheet,
+                    'user_id' => $userId,
+                    'uuid' => (string) Str::uuid(),
+                ];
+                $payload = $this->prepareVersionedPayload($payload);
 
-            $existing = $this->templateRouteRepository->findByTemplate($templateName);
-
-            if ($existing) {
-                $mergedRefs = $this->mergeRefs(
-                    $this->splitRefs((string) $existing->customer_part_number_ref),
-                    $customerPartNumberRefs
-                );
-
-                $updatePayload = $payload;
-                $updatePayload['customer_part_number_ref'] = !empty($mergedRefs)
-                    ? $this->stringifyRefs($mergedRefs)
-                    : null;
-                $updatePayload['user_id'] = $existing->user_id ?: $userId;
-
-                $this->templateRouteRepository->update($existing->id, $updatePayload);
-                $model = $this->templateRouteRepository->findById($existing->id)->load('manager');
-                $result[] = (new TemplateRouteResource($model))->resolve();
-                $updated++;
-            } else {
-                $payload['uuid'] = (string) Str::uuid();
-                $createdModel = $this->templateRouteRepository->create($payload)->load('manager');
+                $createdModel = $this->templateRouteRepository->create($payload);
+                $this->activateVersion($createdModel);
+                $createdModel->load('manager');
                 $result[] = (new TemplateRouteResource($createdModel))->resolve();
                 $created++;
             }
@@ -204,8 +213,8 @@ class TemplateRouteService implements TemplateRouteServiceInterface
 
         return [
             'created' => $created,
-            'updated' => $updated,
-            'total' => count($deduped),
+            'updated' => 0,
+            'total' => $created,
             'templates' => $result,
         ];
     }
@@ -221,7 +230,6 @@ class TemplateRouteService implements TemplateRouteServiceInterface
 
     public function replaceBatch(string $batchNumber, array $templates): array
     {
-        $deleted = $this->templateRouteRepository->deleteByBatch($batchNumber);
         $created = [];
 
         foreach ($templates as $template) {
@@ -233,23 +241,34 @@ class TemplateRouteService implements TemplateRouteServiceInterface
                 'template' => $template['template'],
                 'wod_ref' => $template['wod_ref'] ?? null,
                 'customer_part_number_ref' => $customerPartNumberRef,
+                'customer_part_no' => $template['customer_part_no'] ?? $this->resolvePrimaryCustomerPartNo($customerPartNumberRefs, $customerPartNumberRef),
                 'batch_number' => $batchNumber,
                 'sheet' => $template['sheet'] ?? null,
                 'user_id' => $template['user_id'],
                 'metadata' => $template['metadata'] ?? [],
                 'uuid' => $template['uuid'] ?? (string) Str::uuid(),
             ];
+            $payload = $this->prepareVersionedPayload($payload);
 
-            $model = $this->templateRouteRepository->create($payload)->load('manager');
+            $model = $this->templateRouteRepository->create($payload);
+            $this->activateVersion($model);
+            $model->load('manager');
             $created[] = (new TemplateRouteResource($model))->resolve();
         }
 
         return [
             'batch_number' => $batchNumber,
-            'deleted' => $deleted,
+            'deleted' => 0,
             'created' => count($created),
             'templates' => $created,
         ];
+    }
+
+    public function listVersionsByCustomerPartNo(string $customerPartNo): array
+    {
+        $versions = $this->templateRouteRepository->listVersionsByCustomerPartNo($customerPartNo);
+
+        return TemplateRouteResource::collection($versions)->resolve();
     }
 
     protected function dedupeTemplates(array $templates): array
@@ -441,5 +460,71 @@ class TemplateRouteService implements TemplateRouteServiceInterface
         $normalized = $this->normalizeRefs($refs);
 
         return implode(', ', $normalized);
+    }
+
+    protected function prepareVersionedPayload(array $data, ?int $currentId = null, bool $forceNewVersion = true): array
+    {
+        $refs = $this->resolveCustomerPartNumberRefs($data);
+        $primaryCustomerPartNo = $data['customer_part_no']
+            ?? $this->resolvePrimaryCustomerPartNo($refs, (string) ($data['customer_part_number_ref'] ?? ''));
+
+        if ($primaryCustomerPartNo !== null) {
+            $data['customer_part_no'] = $primaryCustomerPartNo;
+            $data['customer_part_number_ref'] = $data['customer_part_number_ref'] ?? $primaryCustomerPartNo;
+        }
+
+        if (!$primaryCustomerPartNo) {
+            return $data;
+        }
+
+        if ($forceNewVersion || empty($data['template_route_version'])) {
+            $data['template_route_version'] = $this->nextTemplateRouteVersion($primaryCustomerPartNo, $currentId);
+        }
+
+        if (!array_key_exists('is_active', $data)) {
+            $data['is_active'] = true;
+        }
+
+        return $data;
+    }
+
+    protected function resolvePrimaryCustomerPartNo(array $refs, string $fallbackRef = ''): ?string
+    {
+        $normalized = $this->normalizeRefs($refs, $this->splitRefs($fallbackRef));
+        if (empty($normalized)) {
+            return null;
+        }
+
+        sort($normalized, SORT_STRING);
+
+        return $normalized[0];
+    }
+
+    protected function nextTemplateRouteVersion(string $customerPartNo, ?int $exceptId = null): int
+    {
+        $query = TemplateRoute::query()->where('customer_part_no', $customerPartNo);
+        if ($exceptId) {
+            $query->where('id', '!=', $exceptId);
+        }
+
+        return (int) $query->max('template_route_version') + 1;
+    }
+
+    protected function activateVersion(TemplateRoute $templateRoute): void
+    {
+        $customerPartNo = strtoupper(trim((string) ($templateRoute->customer_part_no ?? '')));
+        if ($customerPartNo === '') {
+            return;
+        }
+
+        TemplateRoute::query()
+            ->where('customer_part_no', $customerPartNo)
+            ->where('id', '!=', $templateRoute->id)
+            ->update(['is_active' => false]);
+
+        if (!$templateRoute->is_active) {
+            $templateRoute->is_active = true;
+            $templateRoute->save();
+        }
     }
 }

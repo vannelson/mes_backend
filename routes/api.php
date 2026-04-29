@@ -165,12 +165,14 @@ Route::prefix('v1')->group(function () {
         Route::get('template-routes', [TemplateRouteController::class, 'index']);
         Route::get('template-routes/top', [TemplateRouteController::class, 'top']);
         Route::get('template-routes/options', [TemplateRouteController::class, 'options']);
+        Route::get('template-routes/versions', [TemplateRouteController::class, 'versionsByCustomerPart']);
         Route::get('template-routes/ordered-by-work-orders', [TemplateRouteController::class, 'orderedByWorkOrders']);
         Route::post('template-routes/import', [TemplateRouteController::class, 'import']);
         Route::post('template-routes/batch/replace', [TemplateRouteController::class, 'replaceBatch']);
         Route::post('template-routes', [TemplateRouteController::class, 'store']);
         Route::get('template-routes/{id}', [TemplateRouteController::class, 'show'])->whereNumber('id');
         Route::put('template-routes/{id}', [TemplateRouteController::class, 'update']);
+        Route::post('template-routes/{id}/version', [TemplateRouteController::class, 'createVersion'])->whereNumber('id');
         Route::delete('template-routes/{id}', [TemplateRouteController::class, 'destroy']);
 
         Route::get('machines', [MachineController::class, 'index']);

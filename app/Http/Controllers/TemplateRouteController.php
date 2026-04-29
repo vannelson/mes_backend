@@ -36,6 +36,12 @@ class TemplateRouteController extends Controller
         if ($request->filled('batch_number')) {
             $filters['batch_number'] = $request->get('batch_number');
         }
+        if ($request->filled('customer_part_no')) {
+            $filters['customer_part_no'] = $request->get('customer_part_no');
+        }
+        if ($request->has('is_active')) {
+            $filters['is_active'] = $request->get('is_active');
+        }
         if ($request->has('unique_route_sequence')) {
             $filters['unique_route_sequence'] = filter_var(
                 $request->get('unique_route_sequence'),
@@ -64,6 +70,12 @@ class TemplateRouteController extends Controller
         $search = trim((string) $request->get('search', ''));
         if ($search !== '') {
             $filters['template'] = $search;
+        }
+        if ($request->filled('customer_part_no')) {
+            $filters['customer_part_no'] = $request->get('customer_part_no');
+        }
+        if ($request->has('is_active')) {
+            $filters['is_active'] = $request->get('is_active');
         }
         if (!array_key_exists('with_work_orders', $filters) && $request->has('with_work_orders')) {
             $filters['with_work_orders'] = $request->get('with_work_orders');
@@ -206,6 +218,19 @@ class TemplateRouteController extends Controller
         }
     }
 
+    public function createVersion(TemplateRouteUpdateRequest $request, int $id): JsonResponse
+    {
+        try {
+            $templateRoute = $this->templateRouteService->createVersion($id, $request->validated());
+
+            return $this->success('Template route version created successfully!', $templateRoute);
+        } catch (ValidationException $e) {
+            return $this->validationError($e);
+        } catch (Throwable $e) {
+            return $this->error('Failed to create template route version.', 500);
+        }
+    }
+
     public function destroy(int $id): JsonResponse
     {
         try {
@@ -228,6 +253,22 @@ class TemplateRouteController extends Controller
             return $this->successPagination('Template routes ordered by work order usage retrieved successfully!', $data);
         } catch (Throwable $e) {
             return $this->error('Failed to load template routes ordered by work orders.', 500);
+        }
+    }
+
+    public function versionsByCustomerPart(Request $request): JsonResponse
+    {
+        $customerPartNo = trim((string) $request->get('customer_part_no', ''));
+        if ($customerPartNo === '') {
+            return $this->error('Customer part number is required.', 422);
+        }
+
+        try {
+            $data = $this->templateRouteService->listVersionsByCustomerPartNo($customerPartNo);
+
+            return $this->success('Template route versions retrieved successfully!', $data);
+        } catch (Throwable $e) {
+            return $this->error('Failed to load template route versions.', 500);
         }
     }
 

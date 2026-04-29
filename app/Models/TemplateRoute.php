@@ -16,6 +16,11 @@ class TemplateRoute extends Model
         'template',
         'wod_ref',
         'customer_part_number_ref',
+        'customer_part_no',
+        'template_route_version',
+        'is_active',
+        'parent_template_route_id',
+        'created_from_template_route_id',
         'batch_number',
         'sheet',
         'user_id',
@@ -24,6 +29,8 @@ class TemplateRoute extends Model
 
     protected $casts = [
         'metadata' => 'array',
+        'template_route_version' => 'integer',
+        'is_active' => 'boolean',
     ];
 
     public function getRouteNameSequenceKeyAttribute(): string
@@ -304,5 +311,20 @@ class TemplateRoute extends Model
     public function workOrders(): HasMany
     {
         return $this->hasMany(WorkOrder::class);
+    }
+
+    public function parentTemplateRoute(): BelongsTo
+    {
+        return $this->belongsTo(self::class, 'parent_template_route_id');
+    }
+
+    public function createdFromTemplateRoute(): BelongsTo
+    {
+        return $this->belongsTo(self::class, 'created_from_template_route_id');
+    }
+
+    public function childVersions(): HasMany
+    {
+        return $this->hasMany(self::class, 'parent_template_route_id');
     }
 }

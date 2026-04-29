@@ -41,6 +41,9 @@ class TemplateRouteRepository extends BaseRepository implements TemplateRouteRep
             ->select([
                 'id',
                 'template',
+                'customer_part_no',
+                'template_route_version',
+                'is_active',
                 'batch_number',
                 'sheet',
                 'metadata',
@@ -69,6 +72,32 @@ class TemplateRouteRepository extends BaseRepository implements TemplateRouteRep
     public function findByTemplate(string $template): ?TemplateRoute
     {
         return $this->model->newQuery()->where('template', $template)->first();
+    }
+
+    public function findLatestActiveByCustomerPartNo(string $customerPartNo): ?TemplateRoute
+    {
+        return $this->model->newQuery()
+            ->where('customer_part_no', strtoupper(trim($customerPartNo)))
+            ->orderByDesc('is_active')
+            ->orderByDesc('template_route_version')
+            ->orderByDesc('created_at')
+            ->first();
+    }
+
+    public function listVersionsByCustomerPartNo(string $customerPartNo): Collection
+    {
+        $normalized = strtoupper(trim($customerPartNo));
+
+        return $this->model->newQuery()
+            ->where(function ($query) use ($normalized) {
+                $query->where('customer_part_no', $normalized)
+                    ->orWhere('customer_part_number_ref', 'LIKE', '%' . $normalized . '%');
+            })
+            ->with('manager')
+            ->orderByDesc('is_active')
+            ->orderByDesc('template_route_version')
+            ->orderByDesc('created_at')
+            ->get();
     }
 
     public function orderedByWorkOrders(int $limit = 10, int $page = 1): LengthAwarePaginator
@@ -116,6 +145,18 @@ class TemplateRouteRepository extends BaseRepository implements TemplateRouteRep
 
         if ($template = Arr::get($filters, 'template')) {
             $query->where('template', 'LIKE', "%{$template}%");
+        }
+
+        if ($customerPartNo = Arr::get($filters, 'customer_part_no')) {
+            $normalized = strtoupper(trim((string) $customerPartNo));
+            $query->where(function ($nested) use ($normalized) {
+                $nested->where('customer_part_no', $normalized)
+                    ->orWhere('customer_part_number_ref', 'LIKE', '%' . $normalized . '%');
+            });
+        }
+
+        if (!is_null(Arr::get($filters, 'is_active'))) {
+            $query->where('is_active', filter_var(Arr::get($filters, 'is_active'), FILTER_VALIDATE_BOOLEAN));
         }
 
         if ($userId = Arr::get($filters, 'user_id')) {
