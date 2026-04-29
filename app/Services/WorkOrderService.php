@@ -993,15 +993,10 @@ class WorkOrderService implements WorkOrderServiceInterface
             return true;
         }
 
-        if ($orderSeq !== null && $orderSeq !== '') {
-            $routeOrder = $route['order_seq'] ?? $route['orderSeq'] ?? null;
-            if ($routeOrder !== null && (string) $routeOrder === (string) $orderSeq) {
-                return true;
-            }
-        }
-
         if ($routeKey) {
             $candidates = [
+                $route['route_key'] ?? null,
+                $route['routeKey'] ?? null,
                 $route['route'] ?? null,
                 $route['key'] ?? null,
                 $route['name'] ?? null,
@@ -1010,6 +1005,13 @@ class WorkOrderService implements WorkOrderServiceInterface
                 if ($this->normalizeRouteToken($candidate) === $routeKey) {
                     return true;
                 }
+            }
+        }
+
+        if ($orderSeq !== null && $orderSeq !== '') {
+            $routeOrder = $route['order_seq'] ?? $route['orderSeq'] ?? null;
+            if ($routeOrder !== null && (string) $routeOrder === (string) $orderSeq) {
+                return true;
             }
         }
 
