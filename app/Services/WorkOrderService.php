@@ -91,12 +91,7 @@ class WorkOrderService implements WorkOrderServiceInterface
             ->orderByDesc('updated_at')
             ->get();
 
-        $items = [];
-        $counts = [
-            'running' => 0,
-            'paused' => 0,
-            'stopped' => 0,
-        ];
+        $itemsByRoute = [];
 
         foreach ($orders as $order) {
             $metadata = $this->normalizeMetadata($order->metadata);
@@ -130,10 +125,9 @@ class WorkOrderService implements WorkOrderServiceInterface
                     continue;
                 }
 
-                $counts[$status]++;
                 $lastActivityAt = $lastEntry['at'] ?? $timeTracker['updated_at'] ?? $order->updated_at?->toIso8601String();
 
-                $items[] = [
+                $item = [
                     'work_order_id' => $order->id,
                     'work_order_no' => $order->work_order_no,
                     'customer_name' => $order->customer_name,
@@ -150,8 +144,16 @@ class WorkOrderService implements WorkOrderServiceInterface
                     'operator_id' => $this->extractOperatorId($lastEntry),
                     'last_activity_at' => $lastActivityAt,
                 ];
+
+                $routeIdentity = $this->resolveActiveRouteMonitorIdentity($order->id, $route, $routeIndex);
+                $existing = $itemsByRoute[$routeIdentity] ?? null;
+                if ($existing === null || $this->shouldReplaceActiveRouteMonitorItem($item, $existing)) {
+                    $itemsByRoute[$routeIdentity] = $item;
+                }
             }
         }
+
+        $items = array_values($itemsByRoute);
 
         usort($items, static function (array $a, array $b): int {
             $priority = ['running' => 0, 'paused' => 1, 'stopped' => 2];
@@ -170,6 +172,18 @@ class WorkOrderService implements WorkOrderServiceInterface
             return (int) (($b['work_order_id'] ?? 0) <=> ($a['work_order_id'] ?? 0));
         });
 
+        $counts = [
+            'running' => 0,
+            'paused' => 0,
+            'stopped' => 0,
+        ];
+        foreach ($items as $item) {
+            $status = strtolower((string) ($item['status'] ?? ''));
+            if (array_key_exists($status, $counts)) {
+                $counts[$status]++;
+            }
+        }
+
         return [
             'count' => count($items),
             'running' => $counts['running'],
@@ -178,6 +192,39 @@ class WorkOrderService implements WorkOrderServiceInterface
             'items' => array_slice($items, 0, $limit),
             'updated_at' => now()->toIso8601String(),
         ];
+    }
+
+    protected function resolveActiveRouteMonitorIdentity(int $workOrderId, array $route, int $routeIndex): string
+    {
+        $routeKey = trim((string) (
+            $route['route_key']
+            ?? $route['routeKey']
+            ?? $route['key']
+            ?? $route['route']
+            ?? $route['name']
+            ?? ''
+        ));
+
+        if ($routeKey === '') {
+            $routeKey = (string) ($route['order_seq'] ?? $route['orderSeq'] ?? $routeIndex);
+        }
+
+        return $workOrderId . '|' . strtolower($routeKey);
+    }
+
+    protected function shouldReplaceActiveRouteMonitorItem(array $candidate, array $current): bool
+    {
+        $candidateTs = strtotime((string) ($candidate['last_activity_at'] ?? '')) ?: 0;
+        $currentTs = strtotime((string) ($current['last_activity_at'] ?? '')) ?: 0;
+        if ($candidateTs !== $currentTs) {
+            return $candidateTs > $currentTs;
+        }
+
+        $priority = ['running' => 3, 'paused' => 2, 'stopped' => 1];
+        $candidatePriority = $priority[strtolower((string) ($candidate['status'] ?? ''))] ?? 0;
+        $currentPriority = $priority[strtolower((string) ($current['status'] ?? ''))] ?? 0;
+
+        return $candidatePriority > $currentPriority;
     }
 
     public function listWip(
@@ -1327,6 +1374,9 @@ class WorkOrderService implements WorkOrderServiceInterface
             $selectedKey = $matched?->templateRoute?->route_name_sequence_key
                 ?: $matched?->templateRoute?->template
                 ?: null;
+        }
+        if (!$selectedKey && $activeOnly && !empty($groupList)) {
+            $selectedKey = 'all';
         }
         if (!$selectedKey && !empty($groupList)) {
             $selectedKey = $groupList[0]['id'];
