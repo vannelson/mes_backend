@@ -13,8 +13,19 @@ class PackingBatchStoreRequest extends FormRequest
         if (is_string($packings)) {
             $decoded = json_decode($packings, true);
             if (json_last_error() === JSON_ERROR_NONE) {
-                $this->merge(['packings' => $decoded]);
+                $packings = $decoded;
             }
+        }
+
+        if (is_array($packings)) {
+            $this->merge([
+                'packings' => array_map(
+                    fn ($packing) => is_array($packing)
+                        ? $this->normalizePackingPayload($packing)
+                        : $packing,
+                    $packings
+                ),
+            ]);
         }
     }
 
@@ -49,5 +60,56 @@ class PackingBatchStoreRequest extends FormRequest
     protected function makeOptional(array $rules): array
     {
         return array_values(array_filter($rules, static fn ($rule) => $rule !== 'required'));
+    }
+
+    protected function normalizePackingPayload(array $packing): array
+    {
+        $stringFields = [
+            'wd_part_no',
+            'material',
+            'description',
+            'batch_number',
+            'image',
+            'design',
+            'shipping_location',
+            'customer_code',
+            'box_size',
+            'qty_per_box',
+            'qty_per_roll',
+            'rolls_per_box',
+            'core_label_left',
+            'core_label_right',
+            'hm_no',
+            'ul_label_no',
+            'cas',
+            'important',
+            'code_1',
+            'underline_code',
+            'colour_code',
+            'wd_revision',
+            'revised_by_pic',
+            'remarks',
+        ];
+
+        foreach ($stringFields as $field) {
+            if (!array_key_exists($field, $packing)) {
+                continue;
+            }
+
+            if ($packing[$field] === null || $packing[$field] === '') {
+                continue;
+            }
+
+            if (is_bool($packing[$field])) {
+                $packing[$field] = $packing[$field] ? '1' : '0';
+                continue;
+            }
+
+            if (is_scalar($packing[$field])) {
+                $packing[$field] = trim((string) $packing[$field]);
+            }
+        }
+
+        return $packing;
     }
 }

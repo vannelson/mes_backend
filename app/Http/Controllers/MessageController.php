@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\User;
 use App\Services\MessageService;
 use App\Traits\ResponseTrait;
+use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
@@ -64,6 +65,8 @@ class MessageController extends Controller
             });
 
             return $this->successPagination('Group conversation retrieved.', $messages);
+        } catch (ModelNotFoundException $e) {
+            return $this->error('Message group is unavailable for this user.', 403);
         } catch (Throwable $e) {
             return $this->error('Failed to load group conversation.', 500);
         }
@@ -141,6 +144,8 @@ class MessageController extends Controller
             $message->load(['sender', 'recipient', 'group.participants']);
 
             return $this->success('Group message sent.', $this->messageService->serializeMessage($message, $sender->id));
+        } catch (ModelNotFoundException $e) {
+            return $this->error('Message group is unavailable for this user.', 403);
         } catch (Throwable $e) {
             return $this->error('Failed to send group message.', 500);
         }
@@ -192,6 +197,8 @@ class MessageController extends Controller
             return $this->success('Group messages marked as read.', [
                 'updated' => $updated,
             ]);
+        } catch (ModelNotFoundException $e) {
+            return $this->error('Message group is unavailable for this user.', 403);
         } catch (Throwable $e) {
             return $this->error('Failed to mark group messages read.', 500);
         }

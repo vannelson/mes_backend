@@ -49,6 +49,8 @@ class PackingChecklistUpdateRequest extends FormRequest
             'quantity_verification.verified' => ['nullable', 'boolean'],
             'quantity_verification.inspector_name' => ['nullable', 'string', 'max:255'],
             'quantity_verification.sign_off_name' => ['nullable', 'string', 'max:255'],
+            'quantity_verification.step_statuses' => ['nullable', 'array'],
+            'quantity_verification.step_statuses.*' => ['nullable', 'string', 'max:50'],
             'roll_per_box' => ['nullable', 'boolean'],
             'ul_label_image' => ['nullable', 'image', 'mimes:jpg,jpeg,png,webp', 'max:1048576'],
             'product_image' => ['nullable', 'image', 'mimes:jpg,jpeg,png,webp', 'max:1048576'],
