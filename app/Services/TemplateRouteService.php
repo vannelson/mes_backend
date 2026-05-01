@@ -264,8 +264,20 @@ class TemplateRouteService implements TemplateRouteServiceInterface
         ];
     }
 
-    public function listVersionsByCustomerPartNo(string $customerPartNo): array
+    public function listVersionsByCustomerPartNo(string $customerPartNo, bool $latestOnly = false): array
     {
+        if ($latestOnly) {
+            $latest = $this->templateRouteRepository->findLatestActiveByCustomerPartNo($customerPartNo);
+
+            if (!$latest) {
+                return [];
+            }
+
+            $latest->loadMissing('manager');
+
+            return [(new TemplateRouteResource($latest))->resolve()];
+        }
+
         $versions = $this->templateRouteRepository->listVersionsByCustomerPartNo($customerPartNo);
 
         return TemplateRouteResource::collection($versions)->resolve();

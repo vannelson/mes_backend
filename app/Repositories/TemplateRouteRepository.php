@@ -76,8 +76,13 @@ class TemplateRouteRepository extends BaseRepository implements TemplateRouteRep
 
     public function findLatestActiveByCustomerPartNo(string $customerPartNo): ?TemplateRoute
     {
+        $normalized = strtoupper(trim($customerPartNo));
+
         return $this->model->newQuery()
-            ->where('customer_part_no', strtoupper(trim($customerPartNo)))
+            ->where(function ($query) use ($normalized) {
+                $query->where('customer_part_no', $normalized)
+                    ->orWhere('customer_part_number_ref', 'LIKE', '%' . $normalized . '%');
+            })
             ->orderByDesc('is_active')
             ->orderByDesc('template_route_version')
             ->orderByDesc('created_at')

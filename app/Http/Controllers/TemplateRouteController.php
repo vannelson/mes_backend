@@ -262,9 +262,14 @@ class TemplateRouteController extends Controller
         if ($customerPartNo === '') {
             return $this->error('Customer part number is required.', 422);
         }
+        $latestOnly = filter_var(
+            $request->get('latest_only'),
+            FILTER_VALIDATE_BOOLEAN,
+            FILTER_NULL_ON_FAILURE
+        ) ?? false;
 
         try {
-            $data = $this->templateRouteService->listVersionsByCustomerPartNo($customerPartNo);
+            $data = $this->templateRouteService->listVersionsByCustomerPartNo($customerPartNo, $latestOnly);
 
             return $this->success('Template route versions retrieved successfully!', $data);
         } catch (Throwable $e) {

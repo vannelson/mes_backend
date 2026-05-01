@@ -32,5 +32,5 @@ interface TemplateRouteServiceInterface
 
     public function replaceBatch(string $batchNumber, array $templates): array;
 
-    public function listVersionsByCustomerPartNo(string $customerPartNo): array;
+    public function listVersionsByCustomerPartNo(string $customerPartNo, bool $latestOnly = false): array;
 }
