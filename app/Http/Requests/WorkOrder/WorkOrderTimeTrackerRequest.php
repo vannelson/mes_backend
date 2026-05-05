@@ -15,7 +15,7 @@ class WorkOrderTimeTrackerRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'action' => ['required', 'string', Rule::in(['start', 'pause', 'stop', 'progress'])],
+            'action' => ['required', 'string', Rule::in(['start', 'resume', 'pause', 'stop', 'progress', 'note', 'correction', 'override'])],
             'route_key' => ['required_without_all:route_index,order_seq', 'string', 'max:120'],
             'route_index' => ['required_without_all:route_key,order_seq', 'integer', 'min:0'],
             'order_seq' => ['required_without_all:route_key,route_index', 'integer', 'min:1'],
@@ -29,6 +29,7 @@ class WorkOrderTimeTrackerRequest extends FormRequest
             'pause_reason' => ['required_if:action,pause', 'string', 'max:120'],
             'pause_reason_key' => ['nullable', 'string', 'max:60'],
             'pause_note' => ['nullable', 'string', 'max:255'],
+            'note' => ['required_if:action,note,correction,override', 'string', 'max:500'],
         ];
     }
 }

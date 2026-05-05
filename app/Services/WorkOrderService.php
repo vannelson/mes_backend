@@ -796,6 +796,7 @@ class WorkOrderService implements WorkOrderServiceInterface
         $pauseReason = $payload['pause_reason'] ?? $payload['pauseReason'] ?? null;
         $pauseReasonKey = $payload['pause_reason_key'] ?? $payload['pauseReasonKey'] ?? null;
         $pauseNote = $payload['pause_note'] ?? $payload['pauseNote'] ?? null;
+        $note = $payload['note'] ?? null;
 
         $lastPrinted = $this->lastTimeTrackerPrintedQty($entries, $operatorId);
         if ($printedQty !== null && $lastPrinted !== null) {
@@ -834,6 +835,9 @@ class WorkOrderService implements WorkOrderServiceInterface
         }
         if (is_string($pauseNote) && trim($pauseNote) !== '') {
             $entry['pause_note'] = trim($pauseNote);
+        }
+        if (is_string($note) && trim($note) !== '') {
+            $entry['note'] = trim($note);
         }
 
         $entries[] = $entry;
@@ -1093,7 +1097,7 @@ class WorkOrderService implements WorkOrderServiceInterface
     protected function lastTimeTrackerAction(array $entries, int $operatorId): ?string
     {
         $last = null;
-        $statefulActions = ['start', 'pause', 'stop'];
+        $statefulActions = ['start', 'resume', 'pause', 'stop'];
         foreach ($entries as $entry) {
             if (!is_array($entry)) {
                 continue;
@@ -1136,17 +1140,30 @@ class WorkOrderService implements WorkOrderServiceInterface
         $action = strtolower(trim($action));
         $lastAction = strtolower(trim((string) $lastAction));
 
-        if ($action === 'start' && $lastAction === 'start') {
+        if (in_array($action, ['note', 'correction', 'override', 'progress'], true)) {
+            return;
+        }
+        if (in_array($action, ['start', 'resume'], true) && in_array($lastAction, ['start', 'resume'], true)) {
             throw ValidationException::withMessages([
                 'action' => 'Timer is already running.',
             ]);
         }
-        if ($action === 'pause' && $lastAction !== 'start') {
+        if ($action === 'resume' && $lastAction !== 'pause') {
+            throw ValidationException::withMessages([
+                'action' => 'Timer must be paused before resuming.',
+            ]);
+        }
+        if ($action === 'start' && !in_array($lastAction, ['', 'pause', 'stop'], true)) {
+            throw ValidationException::withMessages([
+                'action' => 'Timer state is invalid for starting.',
+            ]);
+        }
+        if ($action === 'pause' && !in_array($lastAction, ['start', 'resume'], true)) {
             throw ValidationException::withMessages([
                 'action' => 'Timer must be running before pausing.',
             ]);
         }
-        if ($action === 'stop' && !in_array($lastAction, ['start', 'pause'], true)) {
+        if ($action === 'stop' && !in_array($lastAction, ['start', 'resume', 'pause'], true)) {
             throw ValidationException::withMessages([
                 'action' => 'Timer must be started before stopping.',
             ]);
