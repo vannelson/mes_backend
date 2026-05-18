@@ -51,6 +51,7 @@ class WorkOrderMetadataRepairService
             'source_payload' => $sourcePayload,
             'suggested_payload' => $suggestedPayload,
             'issues' => $issues,
+            'repair_checklist' => $this->buildRepairChecklist($sourcePayload, $suggestedPayload, $issues),
             'changed_paths' => $changedPaths,
             'can_apply' => true,
             'selection_required' => false,
@@ -358,6 +359,73 @@ class WorkOrderMetadataRepairService
         return $merged;
     }
 
+    protected function buildRepairChecklist(array $sourcePayload, array $suggestedPayload, array $issues): array
+    {
+        $sourceRoutes = is_array(data_get($sourcePayload, 'metadata.routes'))
+            ? data_get($sourcePayload, 'metadata.routes')
+            : [];
+        $sourceAssignments = is_array(data_get($sourcePayload, 'metadata.assignments.routes'))
+            ? data_get($sourcePayload, 'metadata.assignments.routes')
+            : [];
+
+        $duplicateRouteKeys = $this->duplicateRouteKeys($sourceRoutes);
+        $hasPendingRoutes = $this->firstIncompleteRouteIndex($sourceRoutes) !== null;
+        $topLevelCompleted = strtolower(trim((string) ($sourcePayload['status'] ?? ''))) === 'completed'
+            || ! empty($sourcePayload['completed_at'])
+            || ! empty($sourcePayload['production_date_completed'])
+            || ! empty($sourcePayload['production_qty_completed'])
+            || strtolower(trim((string) data_get($sourcePayload, 'metadata.state.status', ''))) === 'completed';
+        $tmpIssues = [];
+        $normalizedAssignments = $this->buildAssignmentsFromRoutes(
+            $sourceRoutes,
+            $sourcePayload['metadata'] ?? [],
+            $tmpIssues
+        );
+        $hasAssignmentDuplicates = count($sourceAssignments) > count($normalizedAssignments);
+        $hasRouteIdentityMismatch = $this->hasRouteIdentityMismatch($sourceRoutes);
+
+        $completionBlockerApplicable =
+            ! empty($duplicateRouteKeys) ||
+            $hasAssignmentDuplicates ||
+            $hasRouteIdentityMismatch ||
+            ($topLevelCompleted && $hasPendingRoutes);
+
+        if (! $completionBlockerApplicable) {
+            return [];
+        }
+
+        $details = [];
+        if (! empty($duplicateRouteKeys)) {
+            $details[] = 'Duplicate route keys: ' . implode(', ', $duplicateRouteKeys);
+        }
+        if ($hasRouteIdentityMismatch) {
+            $details[] = 'One or more routes use the wrong canonical route key/code.';
+        }
+        if ($hasAssignmentDuplicates) {
+            $details[] = 'Duplicate assignment rows detected.';
+        }
+        if ($topLevelCompleted && $hasPendingRoutes) {
+            $details[] = 'Work order is marked completed while downstream routes are still pending.';
+        }
+
+        return [[
+            'code' => 'cant_be_completed',
+            'title' => "Can't be completed",
+            'description' => 'Repairs route identity conflicts and workflow state mismatches that prevent a route from completing normally.',
+            'details' => $details,
+            'recommended' => true,
+            'fields' => [
+                'status',
+                'production_date_completed',
+                'production_qty_completed',
+                'completed_at',
+                'metadata.routes',
+                'metadata.state',
+                'metadata.assignments.routes',
+            ],
+        ]];
+    }
+
     protected function normalizeMetadata(mixed $metadata): array
     {
         if (is_array($metadata)) {
@@ -400,6 +468,47 @@ class WorkOrderMetadataRepairService
 
         $raw = trim((string) ($route['route'] ?? $route['name'] ?? $canonicalRouteKey));
         return $raw !== '' ? $raw : $canonicalRouteKey;
+    }
+
+    protected function hasRouteIdentityMismatch(array $routes): bool
+    {
+        foreach ($routes as $index => $route) {
+            if (! is_array($route)) {
+                continue;
+            }
+
+            $sequence = $index + 1;
+            $canonicalRouteKey = $this->canonicalRouteKey($route, $sequence);
+            $canonicalRouteCode = $this->canonicalRouteCode($route, $canonicalRouteKey);
+
+            $routeKey = trim((string) ($route['route_key'] ?? $route['metadata']['route_key'] ?? ''));
+            $routeCode = trim((string) ($route['route'] ?? ''));
+
+            if ($routeKey !== $canonicalRouteKey || $routeCode !== $canonicalRouteCode) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    protected function duplicateRouteKeys(array $routes): array
+    {
+        $counts = [];
+        foreach ($routes as $route) {
+            if (! is_array($route)) {
+                continue;
+            }
+
+            $routeKey = trim((string) ($route['route_key'] ?? $route['metadata']['route_key'] ?? ''));
+            if ($routeKey === '') {
+                continue;
+            }
+
+            $counts[$routeKey] = ($counts[$routeKey] ?? 0) + 1;
+        }
+
+        return array_keys(array_filter($counts, static fn (int $count): bool => $count > 1));
     }
 
     protected function normalizeToken(mixed $value): ?string
