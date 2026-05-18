@@ -34,6 +34,7 @@ use App\Http\Controllers\WorkOrderCommentController;
 use App\Http\Controllers\WorkOrderEvidenceController;
 use App\Http\Controllers\WorkOrderNotificationController;
 use App\Http\Controllers\WorkOrderSetupInspectionChecklistController;
+use App\Http\Controllers\WorkOrderMetadataFixController;
 use Illuminate\Support\Facades\Route;
 
 Route::prefix('v1')->group(function () {
@@ -211,6 +212,8 @@ Route::prefix('v1')->group(function () {
         Route::get('dashboard/overview', [DashboardController::class, 'overview']);
 
         Route::get('ai-labs/context', [AiLabsController::class, 'context']);
+        Route::post('labs/work-order-metadata/examine', [WorkOrderMetadataFixController::class, 'examine']);
+        Route::post('labs/work-order-metadata/apply', [WorkOrderMetadataFixController::class, 'apply']);
 
         // Virtual Screens
         Route::get('virtual-screens', [VirtualScreenController::class, 'index']);
