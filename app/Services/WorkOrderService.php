@@ -4354,7 +4354,7 @@ class WorkOrderService implements WorkOrderServiceInterface
                 continue;
             }
             $action = strtolower(trim((string) ($entry['action'] ?? '')));
-            if ($action !== '' && !in_array($action, ['start', 'pause', 'stop'], true)) {
+            if ($action !== '' && !in_array($action, ['start', 'resume', 'pause', 'stop'], true)) {
                 continue;
             }
             $timestamp = $this->parseTimeTrackerTimestamp($entry['at'] ?? null);
@@ -4381,7 +4381,7 @@ class WorkOrderService implements WorkOrderServiceInterface
             return 'idle';
         }
         $action = strtolower(trim((string) ($entry['action'] ?? '')));
-        if ($action === 'start') {
+        if ($action === 'start' || $action === 'resume') {
             return 'running';
         }
         if ($action === 'pause') {
@@ -4741,6 +4741,7 @@ class WorkOrderService implements WorkOrderServiceInterface
         $normalized = strtolower(trim($action));
         return match ($normalized) {
             'start' => 'running',
+            'resume' => 'running',
             'pause' => 'paused',
             'stop' => 'stopped',
             default => null,
