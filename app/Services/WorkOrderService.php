@@ -156,17 +156,17 @@ class WorkOrderService implements WorkOrderServiceInterface
         $items = array_values($itemsByRoute);
 
         usort($items, static function (array $a, array $b): int {
+            $aTs = strtotime((string) ($a['last_activity_at'] ?? '')) ?: 0;
+            $bTs = strtotime((string) ($b['last_activity_at'] ?? '')) ?: 0;
+            if ($aTs !== $bTs) {
+                return $bTs <=> $aTs;
+            }
+
             $priority = ['running' => 0, 'paused' => 1, 'stopped' => 2];
             $aPriority = $priority[$a['status'] ?? 'stopped'] ?? 3;
             $bPriority = $priority[$b['status'] ?? 'stopped'] ?? 3;
             if ($aPriority !== $bPriority) {
                 return $aPriority <=> $bPriority;
-            }
-
-            $aTs = strtotime((string) ($a['last_activity_at'] ?? '')) ?: 0;
-            $bTs = strtotime((string) ($b['last_activity_at'] ?? '')) ?: 0;
-            if ($aTs !== $bTs) {
-                return $bTs <=> $aTs;
             }
 
             return (int) (($b['work_order_id'] ?? 0) <=> ($a['work_order_id'] ?? 0));
@@ -4163,8 +4163,22 @@ class WorkOrderService implements WorkOrderServiceInterface
     protected function resolveRouteTimeTracker(array $route): array
     {
         $metadata = is_array($route['metadata'] ?? null) ? $route['metadata'] : [];
-        $timeTracker = $metadata['timeTracker'] ?? $metadata['time_tracker'] ?? [];
-        if (is_array($timeTracker)) {
+        $candidates = [
+            $metadata['timeTracker'] ?? null,
+            $metadata['time_tracker'] ?? null,
+            $route['timeTracker'] ?? null,
+            $route['time_tracker'] ?? null,
+        ];
+
+        foreach ($candidates as $timeTracker) {
+            if (!is_array($timeTracker)) {
+                continue;
+            }
+
+            if (array_is_list($timeTracker)) {
+                return ['entries' => $timeTracker];
+            }
+
             return $timeTracker;
         }
 
@@ -4520,6 +4534,7 @@ class WorkOrderService implements WorkOrderServiceInterface
 
     protected function resolveRouteMonitorProgressPct(array $route, array $metadata, array $entries): ?float
     {
+        $latestProgress = null;
         foreach ($entries as $entry) {
             if (!is_array($entry)) {
                 continue;
@@ -4533,7 +4548,11 @@ class WorkOrderService implements WorkOrderServiceInterface
                 continue;
             }
 
-            return max(0, min(100, $this->numericValue($value)));
+            $latestProgress = max(0, min(100, $this->numericValue($value)));
+        }
+
+        if ($latestProgress !== null) {
+            return $latestProgress;
         }
 
         $direct = $this->resolveRouteProgressFallback($route);
