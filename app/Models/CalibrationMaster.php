@@ -1,0 +1,40 @@
+<?php
+
+namespace App\Models;
+
+use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\Model;
+
+class CalibrationMaster extends Model
+{
+    use HasFactory;
+
+    protected $fillable = [
+        'sheet_name',
+        'sheet_order',
+        'source_row',
+        'reference_no',
+        'name_type',
+        'function',
+        'image',
+        'identification_number',
+        'measurement_range',
+        'inherent_accuracy',
+        'usage_accuracy',
+        'owner_location',
+        'frequency_label',
+        'frequency_interval_months',
+        'last_calibration_date',
+        'next_calibration_date',
+        'metadata',
+    ];
+
+    protected $casts = [
+        'sheet_order' => 'integer',
+        'source_row' => 'integer',
+        'frequency_interval_months' => 'integer',
+        'last_calibration_date' => 'date',
+        'next_calibration_date' => 'date',
+        'metadata' => 'array',
+    ];
+}

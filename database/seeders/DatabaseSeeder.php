@@ -19,6 +19,7 @@ class DatabaseSeeder extends Seeder
             WorkOrderSeeder::class,
             MachineSeeder::class,
             MachineImageSeeder::class,
+            CalibrationMasterSeeder::class,
             DiecutTypeSeeder::class,
             DiecutIntegrationSeeder::class,
             RouteChecklistConfigurationSeeder::class,

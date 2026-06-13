@@ -4,6 +4,7 @@ use App\Http\Controllers\AuthController;
 use App\Http\Controllers\AiLabsController;
 use App\Http\Controllers\AuditLogController;
 use App\Http\Controllers\BatchLogController;
+use App\Http\Controllers\CalibrationMasterController;
 use App\Http\Controllers\BomController;
 use App\Http\Controllers\CustomerController;
 use App\Http\Controllers\DashboardController;
@@ -68,6 +69,12 @@ Route::prefix('v1')->group(function () {
         Route::put('batch-logs/{id}', [BatchLogController::class, 'update']);
         Route::delete('batch-logs/{id}', [BatchLogController::class, 'destroy']);
         Route::get('audit-logs', [AuditLogController::class, 'index']);
+        Route::get('calibration-masters', [CalibrationMasterController::class, 'index']);
+        Route::get('calibration-masters/insights', [CalibrationMasterController::class, 'insights']);
+        Route::post('calibration-masters', [CalibrationMasterController::class, 'store']);
+        Route::get('calibration-masters/{id}', [CalibrationMasterController::class, 'show'])->whereNumber('id');
+        Route::put('calibration-masters/{id}', [CalibrationMasterController::class, 'update'])->whereNumber('id');
+        Route::delete('calibration-masters/{id}', [CalibrationMasterController::class, 'destroy'])->whereNumber('id');
 
         Route::get('work-orders', [WorkOrderController::class, 'index']);
         Route::get('notifications', [WorkOrderNotificationController::class, 'index']);
