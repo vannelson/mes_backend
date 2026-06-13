@@ -24,6 +24,8 @@ class CalibrationMasterResource extends JsonResource
             'name_type' => $this->name_type,
             'function' => $this->function,
             'image' => $this->image,
+            'images' => CalibrationMasterImageResource::collection($this->whenLoaded('images')),
+            'image_count' => $this->whenCounted('images', fn () => $this->images_count),
             'identification_number' => $this->identification_number,
             'measurement_range' => $this->measurement_range,
             'inherent_accuracy' => $this->inherent_accuracy,

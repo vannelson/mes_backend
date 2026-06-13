@@ -4,6 +4,7 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class CalibrationMaster extends Model
 {
@@ -37,4 +38,9 @@ class CalibrationMaster extends Model
         'next_calibration_date' => 'date',
         'metadata' => 'array',
     ];
+
+    public function images(): HasMany
+    {
+        return $this->hasMany(CalibrationMasterImage::class)->orderBy('sort_order');
+    }
 }

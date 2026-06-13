@@ -40,7 +40,7 @@ class CalibrationMasterService implements CalibrationMasterServiceInterface
     public function detail(int $id): array
     {
         return (new CalibrationMasterResource(
-            $this->calibrationMasterRepository->findById($id)
+            $this->calibrationMasterRepository->findById($id)->load(['images'])->loadCount('images')
         ))->response()->getData(true);
     }
 
@@ -48,7 +48,7 @@ class CalibrationMasterService implements CalibrationMasterServiceInterface
     {
         $record = $this->calibrationMasterRepository->create($this->normalizePayload($data));
 
-        return (new CalibrationMasterResource($record))->response()->getData(true);
+        return (new CalibrationMasterResource($record->load(['images'])->loadCount('images')))->response()->getData(true);
     }
 
     public function update(int $id, array $data): array
@@ -60,7 +60,7 @@ class CalibrationMasterService implements CalibrationMasterServiceInterface
         }
 
         return (new CalibrationMasterResource(
-            $this->calibrationMasterRepository->findById($id)
+            $this->calibrationMasterRepository->findById($id)->load(['images'])->loadCount('images')
         ))->response()->getData(true);
     }
 

@@ -17,7 +17,7 @@ class CalibrationMasterRepository extends BaseRepository implements CalibrationM
 
     public function listing(array $filters = [], array $order = [], int $limit = 10, int $page = 1): LengthAwarePaginator
     {
-        $query = $this->model->newQuery();
+        $query = $this->model->newQuery()->with(['images'])->withCount('images');
 
         if ($search = Arr::get($filters, 'q')) {
             $query->where(function ($builder) use ($search) {
