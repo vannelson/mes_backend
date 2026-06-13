@@ -23,6 +23,7 @@ use App\Http\Controllers\PackingController;
 use App\Http\Controllers\PlaylistItemController;
 use App\Http\Controllers\PublicMediaController;
 use App\Http\Controllers\RouteChecklistConfigurationController;
+use App\Http\Controllers\QualityManagementController;
 use App\Http\Controllers\PublicScreenController;
 use App\Http\Controllers\ScreenMediaController;
 use App\Http\Controllers\SupplierChangeControlController;
@@ -75,6 +76,19 @@ Route::prefix('v1')->group(function () {
         Route::get('calibration-masters/{id}', [CalibrationMasterController::class, 'show'])->whereNumber('id');
         Route::put('calibration-masters/{id}', [CalibrationMasterController::class, 'update'])->whereNumber('id');
         Route::delete('calibration-masters/{id}', [CalibrationMasterController::class, 'destroy'])->whereNumber('id');
+        Route::get('quality/dashboard', [QualityManagementController::class, 'dashboard']);
+        Route::get('quality/filters', [QualityManagementController::class, 'filterOptions']);
+        Route::get('quality/issues', [QualityManagementController::class, 'issues']);
+        Route::post('quality/issues', [QualityManagementController::class, 'storeIssue']);
+        Route::put('quality/issues/{id}', [QualityManagementController::class, 'updateIssue'])->whereNumber('id');
+        Route::get('quality/8d-reports', [QualityManagementController::class, 'eightDReports']);
+        Route::post('quality/8d-reports', [QualityManagementController::class, 'storeEightDReport']);
+        Route::put('quality/8d-reports/{id}', [QualityManagementController::class, 'updateEightDReport'])->whereNumber('id');
+        Route::get('quality/vpd-claims', [QualityManagementController::class, 'vpdClaims']);
+        Route::post('quality/vpd-claims', [QualityManagementController::class, 'storeVpdClaim']);
+        Route::put('quality/vpd-claims/{id}', [QualityManagementController::class, 'updateVpdClaim'])->whereNumber('id');
+        Route::get('quality/aoi-measurements', [QualityManagementController::class, 'aoiMeasurements']);
+        Route::post('quality/aoi-import', [QualityManagementController::class, 'importAoi']);
 
         Route::get('work-orders', [WorkOrderController::class, 'index']);
         Route::get('notifications', [WorkOrderNotificationController::class, 'index']);
