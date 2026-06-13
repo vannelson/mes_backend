@@ -286,10 +286,31 @@ class QualityManagementService
 
     public function filterOptions(): array
     {
+        $completedWorkOrders = WorkOrder::query()
+            ->select(['id', 'work_order_no', 'customer_name', 'customer_part_number', 'batch_number', 'production_date_completed', 'status'])
+            ->where(function ($query) {
+                $query->whereNotNull('production_date_completed')
+                    ->orWhereNotNull('completed_at')
+                    ->orWhereRaw("LOWER(TRIM(COALESCE(status, ''))) = ?", ['completed']);
+            })
+            ->orderByDesc('production_date_completed')
+            ->orderByDesc('completed_at')
+            ->orderByDesc('id')
+            ->get();
+
         return [
             'customers' => Customer::query()->orderBy('customer_name')->pluck('customer_name')->filter()->values(),
             'suppliers' => Supplier::query()->orderBy('supplier_name')->pluck('supplier_name')->filter()->values(),
-            'work_orders' => WorkOrder::query()->orderBy('work_order_no')->pluck('work_order_no')->filter()->unique()->values(),
+            'work_orders' => $completedWorkOrders->pluck('work_order_no')->filter()->unique()->values(),
+            'completed_work_orders' => $completedWorkOrders->map(fn (WorkOrder $order) => [
+                'id' => $order->id,
+                'work_order_no' => $order->work_order_no,
+                'customer_name' => $order->customer_name,
+                'part_number' => $order->customer_part_number,
+                'batch_number' => $order->batch_number,
+                'production_date_completed' => $order->production_date_completed?->toDateString(),
+                'status' => $order->status,
+            ])->values(),
             'machines' => Machine::query()->orderBy('machine_name')->pluck('machine_name')->filter()->values(),
             'operators' => User::query()->orderBy('firstname')->get()->map(fn (User $user) => trim(($user->firstname ?? '') . ' ' . ($user->lastname ?? '')))->filter()->values(),
             'severities' => QualityIssue::query()->select('severity')->distinct()->orderBy('severity')->pluck('severity')->filter()->values(),
@@ -301,6 +322,11 @@ class QualityManagementService
     {
         $issueDate = CalibrationSchedule::parseDate($data['date_issue'] ?? null);
         $closureDate = CalibrationSchedule::parseDate($data['closure_date'] ?? null);
+        $workOrder = null;
+        $resolvedWorkOrderId = $this->resolveWorkOrderId($data);
+        if ($resolvedWorkOrderId) {
+            $workOrder = WorkOrder::query()->find($resolvedWorkOrderId);
+        }
 
         return [
             'issue_type' => strtolower((string) ($data['issue_type'] ?? 'customer')),
@@ -309,18 +335,18 @@ class QualityManagementService
             'month_label' => trim((string) ($data['month_label'] ?? ($issueDate ? $issueDate->format('M-y') : ''))),
             'tracking_number' => $data['tracking_number'] ?? null,
             'external_tracking_number' => $data['external_tracking_number'] ?? null,
-            'customer_id' => $this->resolveCustomerId($data),
+            'customer_id' => $workOrder?->customer_id ?: $this->resolveCustomerId($data),
             'supplier_id' => $this->resolveSupplierId($data),
-            'customer_name' => $data['customer_name'] ?? null,
+            'customer_name' => $workOrder?->customer_name ?: ($data['customer_name'] ?? null),
             'supplier_name' => $data['supplier_name'] ?? null,
             'severity' => $data['severity'] ?? null,
-            'work_order_id' => $this->resolveWorkOrderId($data),
-            'work_order_no' => $data['work_order_no'] ?? null,
-            'part_number' => $data['part_number'] ?? null,
+            'work_order_id' => $resolvedWorkOrderId,
+            'work_order_no' => $workOrder?->work_order_no ?: ($data['work_order_no'] ?? null),
+            'part_number' => $workOrder?->customer_part_number ?: ($data['part_number'] ?? null),
             'part_name' => $data['part_name'] ?? null,
             'material_code' => $data['material_code'] ?? null,
             'material_name' => $data['material_name'] ?? null,
-            'lot_number' => $data['lot_number'] ?? null,
+            'lot_number' => $data['lot_number'] ?? ($workOrder?->batch_number ?: null),
             'problem_statement' => $data['problem_statement'] ?? null,
             'reject_rate' => $data['reject_rate'] ?? null,
             'pic' => $data['pic'] ?? null,
@@ -756,7 +782,16 @@ class QualityManagementService
     protected function resolveWorkOrderId(array $data): ?int
     {
         if (! empty($data['work_order_id'])) {
-            return (int) $data['work_order_id'];
+            $candidate = WorkOrder::query()
+                ->whereKey((int) $data['work_order_id'])
+                ->where(function ($query) {
+                    $query->whereNotNull('production_date_completed')
+                        ->orWhereNotNull('completed_at')
+                        ->orWhereRaw("LOWER(TRIM(COALESCE(status, ''))) = ?", ['completed']);
+                })
+                ->value('id');
+
+            return $candidate ? (int) $candidate : null;
         }
 
         $workOrderNo = trim((string) ($data['work_order_no'] ?? ''));
@@ -766,6 +801,11 @@ class QualityManagementService
 
         return WorkOrder::query()
             ->where('work_order_no', $workOrderNo)
+            ->where(function ($query) {
+                $query->whereNotNull('production_date_completed')
+                    ->orWhereNotNull('completed_at')
+                    ->orWhereRaw("LOWER(TRIM(COALESCE(status, ''))) = ?", ['completed']);
+            })
             ->value('id');
     }
 
