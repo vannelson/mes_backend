@@ -27,6 +27,7 @@ use Illuminate\Support\Arr;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\File;
+use Illuminate\Validation\ValidationException;
 use PhpOffice\PhpSpreadsheet\IOFactory;
 
 class QualityManagementService
@@ -228,12 +229,13 @@ class QualityManagementService
     {
         return DB::transaction(function () use ($data, $id, $actor): array {
             $claim = $id ? VpdClaim::query()->findOrFail($id) : new VpdClaim();
+            $materialCode = $this->resolveKnownMaterialCode($data['material_code'] ?? null);
             $claim->fill([
                 'vpd_number' => $data['vpd_number'] ?? ($claim->vpd_number ?: $this->nextVpdNumber()),
                 'claim_date' => CalibrationSchedule::parseDate($data['claim_date'] ?? null)?->toDateString(),
                 'supplier_id' => $this->resolveSupplierId($data),
                 'vendor_name' => $data['vendor_name'] ?? null,
-                'material_code' => $data['material_code'] ?? null,
+                'material_code' => $materialCode,
                 'description' => $data['description'] ?? null,
                 'defect_type' => $data['defect_type'] ?? null,
                 'sqm' => $data['sqm'] ?? null,
@@ -323,7 +325,20 @@ class QualityManagementService
     public function filterOptions(): array
     {
         $completedWorkOrders = WorkOrder::query()
-            ->select(['id', 'work_order_no', 'customer_name', 'customer_part_number', 'batch_number', 'production_date_completed', 'status'])
+            ->select([
+                'id',
+                'work_order_no',
+                'customer_name',
+                'customer_part_number',
+                'batch_number',
+                'production_date_completed',
+                'status',
+                'item_code',
+                'material_1_code',
+                'material_2_code',
+                'material_3_code',
+                'material_4_code',
+            ])
             ->where(function ($query) {
                 $query->whereNotNull('production_date_completed')
                     ->orWhereNotNull('completed_at')
@@ -334,9 +349,26 @@ class QualityManagementService
             ->orderByDesc('id')
             ->get();
 
+        $materialCodes = $completedWorkOrders
+            ->flatMap(function (WorkOrder $order): array {
+                return array_values(array_filter([
+                    $order->item_code,
+                    $order->material_1_code,
+                    $order->material_2_code,
+                    $order->material_3_code,
+                    $order->material_4_code,
+                ]));
+            })
+            ->map(fn ($code) => trim((string) $code))
+            ->filter()
+            ->unique()
+            ->sort()
+            ->values();
+
         return [
             'customers' => Customer::query()->orderBy('customer_name')->pluck('customer_name')->filter()->values(),
             'suppliers' => Supplier::query()->orderBy('supplier_name')->pluck('supplier_name')->filter()->values(),
+            'material_codes' => $materialCodes,
             'work_orders' => $completedWorkOrders->pluck('work_order_no')->filter()->unique()->values(),
             'completed_work_orders' => $completedWorkOrders->map(fn (WorkOrder $order) => [
                 'id' => $order->id,
@@ -344,8 +376,22 @@ class QualityManagementService
                 'customer_name' => $order->customer_name,
                 'part_number' => $order->customer_part_number,
                 'batch_number' => $order->batch_number,
+                'item_code' => $order->item_code,
+                'material_codes' => array_values(array_filter([
+                    $order->item_code,
+                    $order->material_1_code,
+                    $order->material_2_code,
+                    $order->material_3_code,
+                    $order->material_4_code,
+                ])),
                 'production_date_completed' => $order->production_date_completed?->toDateString(),
                 'status' => $order->status,
+                'search_label' => trim(implode(' · ', array_filter([
+                    $order->work_order_no,
+                    $order->customer_name,
+                    $order->customer_part_number,
+                    $order->batch_number ? 'Lot ' . $order->batch_number : null,
+                ]))),
             ])->values(),
             'machines' => Machine::query()->orderBy('machine_name')->pluck('machine_name')->filter()->values(),
             'operators' => User::query()->orderBy('firstname')->get()->map(fn (User $user) => trim(($user->firstname ?? '') . ' ' . ($user->lastname ?? '')))->filter()->values(),
@@ -369,7 +415,7 @@ class QualityManagementService
             'serial_no' => $data['serial_no'] ?? null,
             'date_issue' => $issueDate?->toDateString(),
             'month_label' => trim((string) ($data['month_label'] ?? ($issueDate ? $issueDate->format('M-y') : ''))),
-            'tracking_number' => $data['tracking_number'] ?? null,
+            'tracking_number' => $data['tracking_number'] ?: $this->nextIssueTrackingNumber(strtolower((string) ($data['issue_type'] ?? 'customer'))),
             'external_tracking_number' => $data['external_tracking_number'] ?? null,
             'customer_id' => $workOrder?->customer_id ?: $this->resolveCustomerId($data),
             'supplier_id' => $this->resolveSupplierId($data),
@@ -775,6 +821,20 @@ class QualityManagementService
         return sprintf('%s-%04d', $prefix, $next);
     }
 
+    protected function nextIssueTrackingNumber(string $issueType): string
+    {
+        $normalizedType = strtolower(trim($issueType));
+        $prefix = ($normalizedType === 'supplier' ? 'SR' : 'ER') . '-' . Carbon::now()->format('Ym');
+        $last = QualityIssue::query()
+            ->where('tracking_number', 'like', $prefix . '-%')
+            ->orderByDesc('tracking_number')
+            ->value('tracking_number');
+
+        $next = $last ? ((int) substr((string) $last, -4)) + 1 : 1;
+
+        return sprintf('%s-%04d', $prefix, $next);
+    }
+
     protected function nextVpdNumber(): string
     {
         $prefix = 'VPD-' . Carbon::now()->format('Y');
@@ -786,6 +846,43 @@ class QualityManagementService
         $next = $last ? ((int) substr((string) $last, -4)) + 1 : 1;
 
         return sprintf('%s-%04d', $prefix, $next);
+    }
+
+    protected function resolveKnownMaterialCode(mixed $value): ?string
+    {
+        $code = trim((string) $value);
+        if ($code === '') {
+            return null;
+        }
+
+        $knownCodes = WorkOrder::query()
+            ->select(['item_code', 'material_1_code', 'material_2_code', 'material_3_code', 'material_4_code'])
+            ->where(function ($query) {
+                $query->whereNotNull('production_date_completed')
+                    ->orWhereNotNull('completed_at')
+                    ->orWhereRaw("LOWER(TRIM(COALESCE(status, ''))) = ?", ['completed']);
+            })
+            ->get()
+            ->flatMap(fn (WorkOrder $order) => [
+                $order->item_code,
+                $order->material_1_code,
+                $order->material_2_code,
+                $order->material_3_code,
+                $order->material_4_code,
+            ])
+            ->filter(fn ($item) => filled($item))
+            ->map(fn ($item) => trim((string) $item))
+            ->unique()
+            ->values();
+
+        $matched = $knownCodes->first(fn (string $knownCode) => strcasecmp($knownCode, $code) === 0);
+        if ($matched) {
+            return $matched;
+        }
+
+        throw ValidationException::withMessages([
+            'material_code' => 'Material code must match an existing completed-work-order material code.',
+        ]);
     }
 
     protected function resolveCustomerId(array $data): ?int
