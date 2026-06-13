@@ -231,7 +231,10 @@ return new class extends Migration
         Schema::create('aoi_measurement_details', function (Blueprint $table) {
             $table->id();
             $table->foreignId('aoi_measurement_header_id')->constrained('aoi_measurement_headers')->cascadeOnDelete();
-            $table->foreignId('measurement_characteristic_spec_id')->nullable()->constrained('measurement_characteristic_specs')->nullOnDelete();
+            $table->foreignId('measurement_characteristic_spec_id')
+                ->nullable()
+                ->constrained('measurement_characteristic_specs', indexName: 'aoi_det_spec_fk')
+                ->nullOnDelete();
             $table->string('characteristic_code', 120)->index();
             $table->string('characteristic_name', 255)->nullable();
             $table->decimal('numeric_value', 18, 6)->nullable();
