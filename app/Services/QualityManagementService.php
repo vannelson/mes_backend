@@ -1039,6 +1039,7 @@ class QualityManagementService
             $workOrderNo = trim((string) ($this->valueFromSpreadsheetRow($record, ['Work Order', 'Work Order No', 'WO']) ?? ''));
             $customerName = trim((string) ($this->valueFromSpreadsheetRow($record, ['Customer']) ?? ''));
             $machineNumber = trim((string) ($this->valueFromSpreadsheetRow($record, ['Machine Number', 'Machine No', 'Machine']) ?? ''));
+            $machineName = trim((string) ($this->valueFromSpreadsheetRow($record, ['Machine Name']) ?? ''));
             $operatorName = trim((string) ($this->valueFromSpreadsheetRow($record, ['Operator', 'Operator Name', 'Name']) ?? ''));
 
             $header = AoiMeasurementHeader::query()->create([
@@ -1049,14 +1050,14 @@ class QualityManagementService
                 'serial_counter' => $serialCounter !== '' ? $serialCounter : null,
                 'operator_name' => $operatorName !== '' ? $operatorName : null,
                 'roll_id' => trim((string) ($this->valueFromSpreadsheetRow($record, ['Roll ID', 'Roll']) ?? '')) ?: null,
-                'machine_number' => $machineNumber !== '' ? $machineNumber : null,
+                'machine_number' => $machineNumber !== '' ? $machineNumber : ($machineName !== '' ? $machineName : null),
                 'computer_name' => trim((string) ($this->valueFromSpreadsheetRow($record, ['Computer Name', 'Computer']) ?? '')) ?: null,
                 'program_name' => $programName !== '' ? $programName : null,
                 'work_order_id' => $workOrderNo !== '' ? WorkOrder::query()->where('work_order_no', $workOrderNo)->value('id') : null,
                 'work_order_no' => $workOrderNo !== '' ? $workOrderNo : null,
                 'customer_id' => $customerName !== '' ? Customer::query()->where('customer_name', $customerName)->value('id') : null,
                 'customer_name' => $customerName !== '' ? $customerName : null,
-                'machine_id' => $machineNumber !== '' ? Machine::query()->where('machine_name', $machineNumber)->orWhere('machine_code', $machineNumber)->value('id') : null,
+                'machine_id' => $this->resolveAoiMachineId($machineNumber, $machineName),
                 'shift_name' => trim((string) ($this->valueFromSpreadsheetRow($record, ['Shift']) ?? '')) ?: null,
                 'part_number' => trim((string) ($this->valueFromSpreadsheetRow($record, ['Part Number', 'Part No']) ?? '')) ?: null,
                 'batch_number' => trim((string) ($this->valueFromSpreadsheetRow($record, ['Batch Number', 'Batch']) ?? '')) ?: null,
@@ -1148,5 +1149,30 @@ class QualityManagementService
         }
 
         return CalibrationSchedule::parseDate($value);
+    }
+
+    protected function resolveAoiMachineId(string $machineNumber, string $machineName = ''): ?int
+    {
+        $machineNumber = trim($machineNumber);
+        $machineName = trim($machineName);
+
+        if ($machineNumber === '' && $machineName === '') {
+            return null;
+        }
+
+        return Machine::query()
+            ->when($machineNumber !== '', function ($query) use ($machineNumber) {
+                $query->where('machine_no', $machineNumber)
+                    ->orWhere('machine_name', $machineNumber);
+            })
+            ->when($machineName !== '', function ($query) use ($machineName, $machineNumber) {
+                if ($machineNumber !== '') {
+                    $query->orWhere('machine_name', $machineName);
+                    return;
+                }
+
+                $query->where('machine_name', $machineName);
+            })
+            ->value('id');
     }
 }
