@@ -110,6 +110,15 @@ class QualityManagementService
         });
     }
 
+    public function deleteIssue(int $id): void
+    {
+        DB::transaction(function () use ($id): void {
+            $issue = QualityIssue::query()->with(['attachments', 'followUpLots'])->findOrFail($id);
+            $this->purgeAttachments($issue->attachments);
+            $issue->delete();
+        });
+    }
+
     public function listEightDReports(array $filters = [], int $limit = 25, int $page = 1): array
     {
         $paginator = EightDReport::query()
@@ -192,6 +201,15 @@ class QualityManagementService
         });
     }
 
+    public function deleteEightDReport(int $id): void
+    {
+        DB::transaction(function () use ($id): void {
+            $report = EightDReport::query()->with(['attachments', 'steps'])->findOrFail($id);
+            $this->purgeAttachments($report->attachments);
+            $report->delete();
+        });
+    }
+
     public function listVpdClaims(array $filters = [], int $limit = 25, int $page = 1): array
     {
         $paginator = VpdClaim::query()
@@ -244,6 +262,15 @@ class QualityManagementService
         });
     }
 
+    public function deleteVpdClaim(int $id): void
+    {
+        DB::transaction(function () use ($id): void {
+            $claim = VpdClaim::query()->with('attachments')->findOrFail($id);
+            $this->purgeAttachments($claim->attachments);
+            $claim->delete();
+        });
+    }
+
     public function listAoiMeasurements(array $filters = [], int $limit = 50, int $page = 1): array
     {
         $paginator = $this->applyAoiFilters(AoiMeasurementHeader::query()->with(['details', 'attachments']), $filters)
@@ -282,6 +309,15 @@ class QualityManagementService
         ]);
 
         return ['batch_id' => $batch->id] + Arr::except($stats, ['mapping']);
+    }
+
+    public function deleteAoiMeasurement(int $id): void
+    {
+        DB::transaction(function () use ($id): void {
+            $header = AoiMeasurementHeader::query()->with(['attachments', 'details'])->findOrFail($id);
+            $this->purgeAttachments($header->attachments);
+            $header->delete();
+        });
     }
 
     public function filterOptions(): array
@@ -713,6 +749,17 @@ class QualityManagementService
             'file_size' => $file->getSize(),
             'uploaded_by_user_id' => $actor?->id,
         ]);
+    }
+
+    protected function purgeAttachments(Collection $attachments): void
+    {
+        $attachments->each(function (QualityAttachment $attachment): void {
+            $path = public_path(ltrim((string) $attachment->file_path, '/'));
+            if ($attachment->file_path && File::exists($path)) {
+                File::delete($path);
+            }
+            $attachment->delete();
+        });
     }
 
     protected function nextReportNumber(): string

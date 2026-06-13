@@ -81,13 +81,17 @@ Route::prefix('v1')->group(function () {
         Route::get('quality/issues', [QualityManagementController::class, 'issues']);
         Route::post('quality/issues', [QualityManagementController::class, 'storeIssue']);
         Route::put('quality/issues/{id}', [QualityManagementController::class, 'updateIssue'])->whereNumber('id');
+        Route::delete('quality/issues/{id}', [QualityManagementController::class, 'destroyIssue'])->whereNumber('id');
         Route::get('quality/8d-reports', [QualityManagementController::class, 'eightDReports']);
         Route::post('quality/8d-reports', [QualityManagementController::class, 'storeEightDReport']);
         Route::put('quality/8d-reports/{id}', [QualityManagementController::class, 'updateEightDReport'])->whereNumber('id');
+        Route::delete('quality/8d-reports/{id}', [QualityManagementController::class, 'destroyEightDReport'])->whereNumber('id');
         Route::get('quality/vpd-claims', [QualityManagementController::class, 'vpdClaims']);
         Route::post('quality/vpd-claims', [QualityManagementController::class, 'storeVpdClaim']);
         Route::put('quality/vpd-claims/{id}', [QualityManagementController::class, 'updateVpdClaim'])->whereNumber('id');
+        Route::delete('quality/vpd-claims/{id}', [QualityManagementController::class, 'destroyVpdClaim'])->whereNumber('id');
         Route::get('quality/aoi-measurements', [QualityManagementController::class, 'aoiMeasurements']);
+        Route::delete('quality/aoi-measurements/{id}', [QualityManagementController::class, 'destroyAoiMeasurement'])->whereNumber('id');
         Route::post('quality/aoi-import', [QualityManagementController::class, 'importAoi']);
 
         Route::get('work-orders', [WorkOrderController::class, 'index']);

@@ -73,6 +73,20 @@ class QualityManagementController extends Controller
         }
     }
 
+    public function destroyIssue(Request $request, int $id): JsonResponse
+    {
+        if (! $this->canManage($request)) {
+            return $this->error('Forbidden.', 403);
+        }
+
+        try {
+            $this->qualityManagementService->deleteIssue($id);
+            return $this->success('Quality issue deleted successfully!');
+        } catch (Throwable $e) {
+            return $this->error('Failed to delete quality issue.', 500);
+        }
+    }
+
     public function eightDReports(Request $request): JsonResponse
     {
         try {
@@ -117,6 +131,20 @@ class QualityManagementController extends Controller
             ));
         } catch (Throwable $e) {
             return $this->error('Failed to update 8D report.', 500);
+        }
+    }
+
+    public function destroyEightDReport(Request $request, int $id): JsonResponse
+    {
+        if (! $this->canManage($request)) {
+            return $this->error('Forbidden.', 403);
+        }
+
+        try {
+            $this->qualityManagementService->deleteEightDReport($id);
+            return $this->success('8D report deleted successfully!');
+        } catch (Throwable $e) {
+            return $this->error('Failed to delete 8D report.', 500);
         }
     }
 
@@ -167,6 +195,20 @@ class QualityManagementController extends Controller
         }
     }
 
+    public function destroyVpdClaim(Request $request, int $id): JsonResponse
+    {
+        if (! $this->canManage($request)) {
+            return $this->error('Forbidden.', 403);
+        }
+
+        try {
+            $this->qualityManagementService->deleteVpdClaim($id);
+            return $this->success('VPD claim deleted successfully!');
+        } catch (Throwable $e) {
+            return $this->error('Failed to delete VPD claim.', 500);
+        }
+    }
+
     public function aoiMeasurements(Request $request): JsonResponse
     {
         try {
@@ -195,6 +237,20 @@ class QualityManagementController extends Controller
             return $this->success('AOI import completed successfully!', $this->qualityManagementService->importAoiWorkbook($file, $request->user()));
         } catch (Throwable $e) {
             return $this->error('Failed to import AOI workbook.', 500);
+        }
+    }
+
+    public function destroyAoiMeasurement(Request $request, int $id): JsonResponse
+    {
+        if (! $this->canManage($request)) {
+            return $this->error('Forbidden.', 403);
+        }
+
+        try {
+            $this->qualityManagementService->deleteAoiMeasurement($id);
+            return $this->success('AOI measurement deleted successfully!');
+        } catch (Throwable $e) {
+            return $this->error('Failed to delete AOI measurement.', 500);
         }
     }
 
