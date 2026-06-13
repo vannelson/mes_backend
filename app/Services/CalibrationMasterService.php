@@ -80,15 +80,13 @@ class CalibrationMasterService implements CalibrationMasterServiceInterface
         $frequencyIntervalMonths = CalibrationSchedule::parseFrequencyIntervalMonths($frequencyLabel);
         $lastCalibrationDate = CalibrationSchedule::parseDate($data['last_calibration_date'] ?? null);
         $nextCalibrationDate = CalibrationSchedule::computeNextCalibrationDate($lastCalibrationDate, $frequencyIntervalMonths);
-
-        return [
+        $payload = [
             'sheet_name' => CalibrationSchedule::clean($data['sheet_name'] ?? null),
             'sheet_order' => $data['sheet_order'] ?? 0,
             'source_row' => $data['source_row'] ?? null,
             'reference_no' => CalibrationSchedule::clean($data['reference_no'] ?? null),
             'name_type' => CalibrationSchedule::clean($data['name_type'] ?? null),
             'function' => CalibrationSchedule::clean($data['function'] ?? null),
-            'image' => CalibrationSchedule::clean($data['image'] ?? null),
             'identification_number' => CalibrationSchedule::clean($data['identification_number'] ?? null),
             'measurement_range' => CalibrationSchedule::clean($data['measurement_range'] ?? null),
             'inherent_accuracy' => CalibrationSchedule::clean($data['inherent_accuracy'] ?? null),
@@ -100,5 +98,11 @@ class CalibrationMasterService implements CalibrationMasterServiceInterface
             'next_calibration_date' => $nextCalibrationDate?->toDateString(),
             'metadata' => is_array($data['metadata'] ?? null) ? $data['metadata'] : null,
         ];
+
+        if (array_key_exists('image', $data)) {
+            $payload['image'] = CalibrationSchedule::clean($data['image'] ?? null);
+        }
+
+        return $payload;
     }
 }

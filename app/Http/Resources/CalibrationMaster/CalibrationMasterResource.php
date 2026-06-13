@@ -14,6 +14,11 @@ class CalibrationMasterResource extends JsonResource
         $today = Carbon::today();
         $nextCalibrationDate = $this->next_calibration_date ? Carbon::parse($this->next_calibration_date) : null;
         $daysUntilDue = $nextCalibrationDate ? $today->diffInDays($nextCalibrationDate, false) : null;
+        $primaryImagePath = $this->image;
+
+        if (! $primaryImagePath && $this->relationLoaded('images')) {
+            $primaryImagePath = $this->images->first()?->file_path;
+        }
 
         return [
             'id' => $this->id,
@@ -23,7 +28,7 @@ class CalibrationMasterResource extends JsonResource
             'reference_no' => $this->reference_no,
             'name_type' => $this->name_type,
             'function' => $this->function,
-            'image' => $this->image,
+            'image' => $primaryImagePath,
             'images' => CalibrationMasterImageResource::collection($this->whenLoaded('images')),
             'image_count' => $this->whenCounted('images', fn () => $this->images_count),
             'identification_number' => $this->identification_number,

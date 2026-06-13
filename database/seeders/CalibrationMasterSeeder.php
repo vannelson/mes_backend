@@ -8,7 +8,6 @@ use App\Support\CalibrationSchedule;
 use Illuminate\Database\Seeder;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\File;
-use Illuminate\Support\Str;
 use PhpOffice\PhpSpreadsheet\Cell\Coordinate;
 use PhpOffice\PhpSpreadsheet\IOFactory;
 use PhpOffice\PhpSpreadsheet\Worksheet\BaseDrawing;
@@ -18,7 +17,7 @@ use PhpOffice\PhpSpreadsheet\Worksheet\Worksheet;
 
 class CalibrationMasterSeeder extends Seeder
 {
-    protected const HEADER_ROW = 4;
+    protected const HEADER_ROW = 5;
 
     public function run(): void
     {
@@ -30,11 +29,13 @@ class CalibrationMasterSeeder extends Seeder
 
         $spreadsheet = IOFactory::load($filePath);
         $imageTargetDir = public_path('images/calibration-masters');
-        if (! File::isDirectory($imageTargetDir)) {
-            File::makeDirectory($imageTargetDir, 0755, true);
+        if (File::isDirectory($imageTargetDir)) {
+            foreach (File::files($imageTargetDir) as $file) {
+                File::delete($file->getPathname());
+            }
+        } else {
+            File::makeDirectory($imageTargetDir, 0755, true, true);
         }
-
-        File::cleanDirectory($imageTargetDir);
 
         DB::transaction(function () use ($spreadsheet, $imageTargetDir): void {
             CalibrationMasterImage::query()->delete();
@@ -53,7 +54,6 @@ class CalibrationMasterSeeder extends Seeder
         $context = [
             'name_type' => null,
             'function' => null,
-            'image' => null,
             'owner_location' => null,
             'frequency_label' => null,
             'last_calibration_date' => null,
@@ -86,7 +86,7 @@ class CalibrationMasterSeeder extends Seeder
                 continue;
             }
 
-            foreach (['name_type', 'function', 'image', 'owner_location', 'frequency_label'] as $carryField) {
+            foreach (['name_type', 'function', 'owner_location', 'frequency_label'] as $carryField) {
                 if ($cells[$carryField]) {
                     $context[$carryField] = $cells[$carryField];
                 } elseif ($context[$carryField]) {
@@ -107,6 +107,7 @@ class CalibrationMasterSeeder extends Seeder
 
             $frequencyIntervalMonths = CalibrationSchedule::parseFrequencyIntervalMonths($cells['frequency_label']);
             $nextCalibrationDate = CalibrationSchedule::computeNextCalibrationDate($lastCalibrationDate, $frequencyIntervalMonths);
+            $primaryImagePath = $anchoredImages[0]['file_path'] ?? CalibrationSchedule::clean($cells['image']);
 
             $record = CalibrationMaster::query()->create([
                 'sheet_name' => $worksheet->getTitle(),
@@ -115,7 +116,7 @@ class CalibrationMasterSeeder extends Seeder
                 'reference_no' => $cells['reference_no'],
                 'name_type' => $cells['name_type'],
                 'function' => $cells['function'],
-                'image' => ! empty($anchoredImages) ? 'embedded' : $cells['image'],
+                'image' => $primaryImagePath,
                 'identification_number' => $cells['identification_number'],
                 'measurement_range' => $cells['measurement_range'],
                 'inherent_accuracy' => $cells['inherent_accuracy'],
@@ -128,6 +129,7 @@ class CalibrationMasterSeeder extends Seeder
                 'metadata' => [
                     'workbook' => 'Calibration Master List.xlsx',
                     'sheet_title' => $worksheet->getTitle(),
+                    'image_count' => count($anchoredImages),
                 ],
             ]);
 
@@ -197,10 +199,11 @@ class CalibrationMasterSeeder extends Seeder
             };
         } elseif ($drawing instanceof Drawing) {
             $path = $drawing->getPath();
-            if ($path && is_file($path)) {
+            if ($path && (is_file($path) || str_starts_with($path, 'zip://'))) {
                 $binary = file_get_contents($path) ?: null;
-                $extension = strtolower(pathinfo($path, PATHINFO_EXTENSION)) ?: 'jpg';
-                $mimeType = File::mimeType($path) ?: null;
+                $sourceName = str_contains($path, '#') ? substr($path, (int) strrpos($path, '#') + 1) : $path;
+                $extension = strtolower(pathinfo($sourceName, PATHINFO_EXTENSION)) ?: 'jpg';
+                $mimeType = $this->resolveMimeTypeFromExtension($extension);
             }
         }
 
@@ -208,8 +211,8 @@ class CalibrationMasterSeeder extends Seeder
             return null;
         }
 
-        $safeSheet = Str::slug($sheetTitle) ?: 'sheet';
-        $fileName = sprintf('calibration_%s_r%s_%s_%s.%s', $safeSheet, $row, $drawingCounter, Str::lower(Str::random(6)), $extension);
+        $safeSheet = str($sheetTitle)->slug()->value() ?: 'sheet';
+        $fileName = sprintf('calibration_%s_r%s_%s.%s', $safeSheet, $row, $drawingCounter, $extension);
         File::put($imageTargetDir . DIRECTORY_SEPARATOR . $fileName, $binary);
 
         return [
@@ -231,5 +234,17 @@ class CalibrationMasterSeeder extends Seeder
         ob_start();
         call_user_func($drawing->getRenderingFunction(), $resource);
         return ob_get_clean() ?: null;
+    }
+
+    protected function resolveMimeTypeFromExtension(string $extension): ?string
+    {
+        return match (strtolower($extension)) {
+            'jpg', 'jpeg' => 'image/jpeg',
+            'png' => 'image/png',
+            'gif' => 'image/gif',
+            'bmp' => 'image/bmp',
+            'webp' => 'image/webp',
+            default => null,
+        };
     }
 }
