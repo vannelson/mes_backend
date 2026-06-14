@@ -395,6 +395,9 @@ class QualityManagementService
             ])->values(),
             'machines' => Machine::query()->orderBy('machine_name')->pluck('machine_name')->filter()->values(),
             'operators' => User::query()->orderBy('firstname')->get()->map(fn (User $user) => trim(($user->firstname ?? '') . ' ' . ($user->lastname ?? '')))->filter()->values(),
+            'characteristics' => AoiMeasurementDetail::query()->select('characteristic_code')->distinct()->orderBy('characteristic_code')->pluck('characteristic_code')->filter()->values(),
+            'shifts' => AoiMeasurementHeader::query()->select('shift_name')->distinct()->orderBy('shift_name')->pluck('shift_name')->filter()->values(),
+            'inspection_results' => AoiMeasurementHeader::query()->select('result_status')->distinct()->orderBy('result_status')->pluck('result_status')->filter()->values(),
             'severities' => QualityIssue::query()->select('severity')->distinct()->orderBy('severity')->pluck('severity')->filter()->values(),
             'statuses' => QualityIssue::query()->select('status')->distinct()->orderBy('status')->pluck('status')->filter()->values(),
         ];
@@ -449,7 +452,7 @@ class QualityManagementService
         ];
     }
 
-    protected function applyIssueFilters($query, array $filters)
+    public function applyIssueFilters($query, array $filters)
     {
         return $query
             ->when($filters['issue_type'] ?? null, fn ($q, $v) => $q->where('issue_type', strtolower((string) $v)))
@@ -474,14 +477,18 @@ class QualityManagementService
             });
     }
 
-    protected function applyAoiFilters($query, array $filters)
+    public function applyAoiFilters($query, array $filters)
     {
         return $query
             ->when($filters['customer'] ?? null, fn ($q, $v) => $q->where('customer_name', 'like', '%' . $v . '%'))
             ->when($filters['work_order_no'] ?? null, fn ($q, $v) => $q->where('work_order_no', 'like', '%' . $v . '%'))
             ->when($filters['part_number'] ?? null, fn ($q, $v) => $q->where('part_number', 'like', '%' . $v . '%'))
+            ->when($filters['lot_number'] ?? null, fn ($q, $v) => $q->where('lot_number', 'like', '%' . $v . '%'))
+            ->when($filters['batch_number'] ?? null, fn ($q, $v) => $q->where('batch_number', 'like', '%' . $v . '%'))
             ->when($filters['machine'] ?? null, fn ($q, $v) => $q->where('machine_number', 'like', '%' . $v . '%'))
             ->when($filters['operator'] ?? null, fn ($q, $v) => $q->where('operator_name', 'like', '%' . $v . '%'))
+            ->when($filters['shift'] ?? null, fn ($q, $v) => $q->where('shift_name', 'like', '%' . $v . '%'))
+            ->when($filters['inspection_result'] ?? null, fn ($q, $v) => $q->where('result_status', $v))
             ->when($filters['date_from'] ?? null, fn ($q, $v) => $q->whereDate('measurement_time', '>=', $v))
             ->when($filters['date_to'] ?? null, fn ($q, $v) => $q->whereDate('measurement_time', '<=', $v));
     }

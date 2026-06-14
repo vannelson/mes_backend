@@ -90,6 +90,7 @@ Route::prefix('v1')->group(function () {
         Route::post('quality/vpd-claims', [QualityManagementController::class, 'storeVpdClaim']);
         Route::put('quality/vpd-claims/{id}', [QualityManagementController::class, 'updateVpdClaim'])->whereNumber('id');
         Route::delete('quality/vpd-claims/{id}', [QualityManagementController::class, 'destroyVpdClaim'])->whereNumber('id');
+        Route::get('quality/analytics', [QualityManagementController::class, 'analytics']);
         Route::get('quality/aoi-measurements', [QualityManagementController::class, 'aoiMeasurements']);
         Route::delete('quality/aoi-measurements/{id}', [QualityManagementController::class, 'destroyAoiMeasurement'])->whereNumber('id');
         Route::post('quality/aoi-import', [QualityManagementController::class, 'importAoi']);
