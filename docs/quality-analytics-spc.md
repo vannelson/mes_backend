@@ -25,7 +25,7 @@ This enhancement adds an analytics layer on top of the existing Quality Assuranc
 1. `GET /api/v1/quality/analytics`
    - Collects filtered quality data from the existing tables.
    - Builds an AOI/SPC payload only from numeric repeated measurements.
-   - Invokes the Python Matplotlib engine in `scripts/quality_analytics_engine.py`.
+   - Runs a native Laravel/PHP analytics engine and persists the chart payloads and SPC results.
    - Persists chart metadata, capability metrics, rule violations, and source links.
 2. Background refresh
    - `RecalculateQualityAnalyticsJob` is dispatched after AOI imports and after create/update/delete actions for quality issues, 8D reports, VPD claims, and AOI measurement deletions.
@@ -77,9 +77,8 @@ The persisted dashboard analytics currently include:
 
 ## Environment Notes
 
-- The Laravel service uses `QUALITY_ANALYTICS_PYTHON_BIN` if defined, otherwise `python`.
-- Generated chart PNG files are stored under:
-  - `public/uploads/quality/analytics/run_<id>/`
+- No external Python runtime is required.
+- Persisted analytics now store chart payloads directly. If image artifacts are generated in future, they can still be attached to the same chart records.
 
 ## Traceability
 

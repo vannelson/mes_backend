@@ -14,17 +14,17 @@ use App\Models\QualityIssue;
 use App\Models\SupplierChangeControl;
 use App\Models\User;
 use App\Models\VpdClaim;
+use App\Support\QualityAnalyticsNativeEngine;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\File;
-use RuntimeException;
 use Throwable;
 
 class QualityAnalyticsService
 {
     public function __construct(
-        protected QualityManagementService $qualityManagementService
+        protected QualityManagementService $qualityManagementService,
+        protected QualityAnalyticsNativeEngine $nativeEngine
     ) {
     }
 
@@ -40,7 +40,7 @@ class QualityAnalyticsService
         $normalizedFilters = $this->normalizeFilters($filters);
         $run = QualityAnalyticsRun::query()->create([
             'scope' => 'quality_reporting',
-            'engine_name' => 'matplotlib-spc-engine',
+            'engine_name' => 'native-php-spc-engine',
             'engine_version' => 'pending',
             'status' => 'processing',
             'requested_by_user_id' => $actor?->id,
@@ -153,46 +153,7 @@ class QualityAnalyticsService
 
     protected function executeAnalytics(QualityAnalyticsRun $run, array $filters): array
     {
-        $outputDir = public_path('uploads/quality/analytics/run_' . $run->id);
-        File::ensureDirectoryExists($outputDir);
-
-        $inputPath = storage_path('app/quality_analytics_run_' . $run->id . '.json');
-        File::put($inputPath, json_encode($this->buildPayload($filters), JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
-
-        $python = env('QUALITY_ANALYTICS_PYTHON_BIN', 'python');
-        $scriptPath = base_path('scripts/quality_analytics_engine.py');
-        $command = sprintf('"%s" "%s" "%s" "%s"', $python, $scriptPath, $inputPath, $outputDir);
-
-        $descriptorSpec = [
-            0 => ['pipe', 'r'],
-            1 => ['pipe', 'w'],
-            2 => ['pipe', 'w'],
-        ];
-
-        $process = proc_open($command, $descriptorSpec, $pipes, base_path());
-        if (! is_resource($process)) {
-            throw new RuntimeException('Unable to start the quality analytics engine.');
-        }
-
-        fclose($pipes[0]);
-        $stdout = stream_get_contents($pipes[1]);
-        fclose($pipes[1]);
-        $stderr = stream_get_contents($pipes[2]);
-        fclose($pipes[2]);
-        $exitCode = proc_close($process);
-
-        File::delete($inputPath);
-
-        if ($exitCode !== 0) {
-            throw new RuntimeException(trim($stderr) ?: 'The quality analytics engine exited with an error.');
-        }
-
-        $decoded = json_decode($stdout, true);
-        if (! is_array($decoded)) {
-            throw new RuntimeException('The quality analytics engine returned an invalid response.');
-        }
-
-        return $decoded;
+        return $this->nativeEngine->generate($this->buildPayload($filters));
     }
 
     protected function persistRunResult(QualityAnalyticsRun $run, array $result): void
@@ -203,7 +164,7 @@ class QualityAnalyticsService
             $run->sourceLinks()->delete();
 
             $run->update([
-                'engine_name' => $result['engine_name'] ?? 'matplotlib-spc-engine',
+                'engine_name' => $result['engine_name'] ?? 'native-php-spc-engine',
                 'engine_version' => $result['engine_version'] ?? '1.0.0',
                 'status' => 'completed',
                 'completed_at' => now(),
@@ -217,14 +178,19 @@ class QualityAnalyticsService
             $moduleSections = $result['modules'] ?? [];
             foreach ($moduleSections as $moduleKey => $moduleSection) {
                 foreach (($moduleSection['charts'] ?? []) as $chartPayload) {
+                    $relativePath = ! empty($chartPayload['filename'])
+                        ? '/uploads/quality/analytics/run_' . $run->id . '/' . $chartPayload['filename']
+                        : null;
+                    $absolutePath = $relativePath ? public_path(ltrim($relativePath, '/')) : null;
+
                     $chart = $run->charts()->create([
                         'module_key' => $moduleKey,
                         'chart_key' => $chartPayload['chart_key'],
                         'chart_type' => $chartPayload['chart_type'] ?? 'chart',
                         'title' => $chartPayload['title'] ?? $chartPayload['chart_key'],
-                        'image_path' => '/uploads/quality/analytics/run_' . $run->id . '/' . ($chartPayload['filename'] ?? ''),
-                        'mime_type' => 'image/png',
-                        'file_size' => $this->fileSizeOrNull(public_path('uploads/quality/analytics/run_' . $run->id . '/' . ($chartPayload['filename'] ?? ''))),
+                        'image_path' => $relativePath,
+                        'mime_type' => $absolutePath ? $this->mimeTypeForPath($absolutePath) : null,
+                        'file_size' => $absolutePath ? $this->fileSizeOrNull($absolutePath) : null,
                         'is_spc' => (bool) ($chartPayload['is_spc'] ?? false),
                         'filters' => $run->filters ?? [],
                         'series_payload' => $chartPayload['series_payload'] ?? [],
@@ -323,6 +289,11 @@ class QualityAnalyticsService
     protected function fileSizeOrNull(string $path): ?int
     {
         return is_file($path) ? filesize($path) ?: null : null;
+    }
+
+    protected function mimeTypeForPath(string $path): string
+    {
+        return str_ends_with(strtolower($path), '.svg') ? 'image/svg+xml' : 'image/png';
     }
 
     protected function buildAoiDetailQuery(array $filters)
