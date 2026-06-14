@@ -28,7 +28,9 @@ return new class extends Migration
 
         Schema::create('quality_analytics_charts', function (Blueprint $table) {
             $table->id();
-            $table->foreignId('quality_analytics_run_id')->constrained('quality_analytics_runs')->cascadeOnDelete();
+            $table->foreignId('quality_analytics_run_id')
+                ->constrained('quality_analytics_runs', indexName: 'qa_charts_run_fk')
+                ->cascadeOnDelete();
             $table->string('module_key', 80)->index();
             $table->string('chart_key', 120)->index();
             $table->string('chart_type', 80)->index();
@@ -46,8 +48,13 @@ return new class extends Migration
 
         Schema::create('quality_analytics_rule_violations', function (Blueprint $table) {
             $table->id();
-            $table->foreignId('quality_analytics_run_id')->constrained('quality_analytics_runs')->cascadeOnDelete();
-            $table->foreignId('quality_analytics_chart_id')->nullable()->constrained('quality_analytics_charts')->nullOnDelete();
+            $table->foreignId('quality_analytics_run_id')
+                ->constrained('quality_analytics_runs', indexName: 'qa_rule_run_fk')
+                ->cascadeOnDelete();
+            $table->foreignId('quality_analytics_chart_id')
+                ->nullable()
+                ->constrained('quality_analytics_charts', indexName: 'qa_rule_chart_fk')
+                ->nullOnDelete();
             $table->string('module_key', 80)->index();
             $table->string('rule_code', 80)->index();
             $table->string('severity', 40)->default('info')->index();
@@ -58,8 +65,13 @@ return new class extends Migration
 
         Schema::create('quality_analytics_source_links', function (Blueprint $table) {
             $table->id();
-            $table->foreignId('quality_analytics_run_id')->constrained('quality_analytics_runs')->cascadeOnDelete();
-            $table->foreignId('quality_analytics_chart_id')->nullable()->constrained('quality_analytics_charts')->nullOnDelete();
+            $table->foreignId('quality_analytics_run_id')
+                ->constrained('quality_analytics_runs', indexName: 'qa_src_run_fk')
+                ->cascadeOnDelete();
+            $table->foreignId('quality_analytics_chart_id')
+                ->nullable()
+                ->constrained('quality_analytics_charts', indexName: 'qa_src_chart_fk')
+                ->nullOnDelete();
             $table->string('source_module', 80)->index();
             $table->string('source_type', 160)->index();
             $table->unsignedBigInteger('source_id')->index();
