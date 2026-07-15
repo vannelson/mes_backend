@@ -1,16 +1,21 @@
 <?php
 
 use Illuminate\Database\Migrations\Migration;
-use Illuminate\Support\Facades\DB;
+use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\Schema;
 
 return new class extends Migration {
     public function up(): void
     {
-        DB::statement('ALTER TABLE template_routes MODIFY wod_ref LONGTEXT NULL');
+        Schema::table('template_routes', function (Blueprint $table) {
+            $table->longText('wod_ref')->nullable()->change();
+        });
     }
 
     public function down(): void
     {
-        DB::statement('ALTER TABLE template_routes MODIFY wod_ref VARCHAR(255) NULL');
+        Schema::table('template_routes', function (Blueprint $table) {
+            $table->string('wod_ref')->nullable()->change();
+        });
     }
 };

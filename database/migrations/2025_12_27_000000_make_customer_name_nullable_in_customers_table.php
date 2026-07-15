@@ -1,6 +1,7 @@
 <?php
 
 use Illuminate\Database\Migrations\Migration;
+use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 
@@ -9,17 +10,19 @@ return new class extends Migration
     public function up(): void
     {
         if (Schema::hasTable('customers')) {
-            # Use raw SQL to avoid requiring doctrine/dbal for column alteration
-            DB::statement('ALTER TABLE customers MODIFY customer_name VARCHAR(200) NULL');
+            Schema::table('customers', function (Blueprint $table) {
+                $table->string('customer_name', 200)->nullable()->change();
+            });
         }
     }
 
     public function down(): void
     {
         if (Schema::hasTable('customers')) {
-            # Backfill nulls to a safe value before restoring NOT NULL constraint
-            DB::statement('UPDATE customers SET customer_name = customer_code WHERE customer_name IS NULL');
-            DB::statement('ALTER TABLE customers MODIFY customer_name VARCHAR(200) NOT NULL');
+            DB::table('customers')->whereNull('customer_name')->update(['customer_name' => DB::raw('customer_code')]);
+            Schema::table('customers', function (Blueprint $table) {
+                $table->string('customer_name', 200)->nullable(false)->change();
+            });
         }
     }
 };

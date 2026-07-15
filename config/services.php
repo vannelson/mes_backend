@@ -33,6 +33,7 @@ return [
             'bot_user_oauth_token' => env('SLACK_BOT_USER_OAUTH_TOKEN'),
             'channel' => env('SLACK_BOT_USER_DEFAULT_CHANNEL'),
         ],
+        'calibration_webhook' => env('SLACK_CALIBRATION_WEBHOOK'),
     ],
     'openai' => [
         'key' => env('OPENAI_API_KEY'),

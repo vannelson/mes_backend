@@ -2,6 +2,7 @@
 
 use Illuminate\Foundation\Inspiring;
 use Illuminate\Support\Facades\Artisan;
+use Illuminate\Support\Facades\Schedule;
 use Illuminate\Http\UploadedFile;
 use App\Services\DiecutWorkbookImportService;
 use App\Services\TriggerEmailService;
@@ -68,3 +69,6 @@ Artisan::command('diecut:import-workbooks {--routing=} {--tooling=} {--batch=}',
 
     return 0;
 })->purpose('Import DIECUT routing and tooling Excel workbooks into normalized MES tables');
+
+// ── Scheduled jobs ──────────────────────────────────────────────────────────
+Schedule::command('calibration:slack-notify')->dailyAt('08:00')->timezone('Asia/Manila');

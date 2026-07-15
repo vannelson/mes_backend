@@ -76,6 +76,11 @@ Route::prefix('v1')->group(function () {
         Route::get('calibration-masters/{id}', [CalibrationMasterController::class, 'show'])->whereNumber('id');
         Route::put('calibration-masters/{id}', [CalibrationMasterController::class, 'update'])->whereNumber('id');
         Route::delete('calibration-masters/{id}', [CalibrationMasterController::class, 'destroy'])->whereNumber('id');
+        Route::patch('calibration-masters/{id}/status', [CalibrationMasterController::class, 'updateStatus'])->whereNumber('id');
+        Route::get('calibration-masters/{id}/history', [CalibrationMasterController::class, 'history'])->whereNumber('id');
+        Route::post('calibration-masters/{id}/history', [CalibrationMasterController::class, 'recordHistory'])->whereNumber('id');
+        Route::post('calibration-masters/{id}/images', [CalibrationMasterController::class, 'uploadImage'])->whereNumber('id');
+        Route::delete('calibration-masters/{id}/images/{imageId}', [CalibrationMasterController::class, 'deleteImage'])->whereNumber('id')->whereNumber('imageId');
         Route::get('quality/dashboard', [QualityManagementController::class, 'dashboard']);
         Route::get('quality/filters', [QualityManagementController::class, 'filterOptions']);
         Route::get('quality/issues', [QualityManagementController::class, 'issues']);

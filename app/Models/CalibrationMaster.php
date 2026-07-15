@@ -54,6 +54,11 @@ class CalibrationMaster extends Model
         return $this->hasMany(CalibrationMasterImage::class)->orderBy('sort_order');
     }
 
+    public function histories(): HasMany
+    {
+        return $this->hasMany(CalibrationMasterHistory::class)->orderByDesc('calibration_date')->orderByDesc('id');
+    }
+
     public function attachments(): MorphMany
     {
         return $this->morphMany(QualityAttachment::class, 'attachable');

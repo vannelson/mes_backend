@@ -9,7 +9,10 @@ return new class extends Migration
     public function up(): void
     {
         Schema::table('packings', function (Blueprint $table) {
-            $table->dropColumn(['product_image', 'core_image']);
+            $columns = array_filter(['product_image', 'core_image'], fn($col) => Schema::hasColumn('packings', $col));
+            if ($columns) {
+                $table->dropColumn(array_values($columns));
+            }
         });
     }
 
