@@ -26,6 +26,10 @@ class BatchLogUpdateRequest extends FormRequest
             ],
             'type' => ['sometimes', 'in:work_order,template_route,bom,packing,diecut'],
             'total_rows' => ['sometimes', 'integer', 'min:0'],
+            'inserted_rows' => ['sometimes', 'nullable', 'integer', 'min:0'],
+            'updated_rows' => ['sometimes', 'nullable', 'integer', 'min:0'],
+            'skipped_rows' => ['sometimes', 'nullable', 'integer', 'min:0'],
+            'failed_rows' => ['sometimes', 'nullable', 'integer', 'min:0'],
             'operator' => ['sometimes', 'string', 'max:120'],
             'sheet' => ['sometimes', 'nullable', 'string', 'max:255'],
         ];

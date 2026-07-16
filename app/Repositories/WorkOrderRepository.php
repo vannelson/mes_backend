@@ -32,6 +32,29 @@ class WorkOrderRepository extends BaseRepository implements WorkOrderRepositoryI
             ->with(['customer', 'templateRoute'])
             ->withCount('packingChecklist');
 
+        if ($queryText = trim((string) Arr::get($filters, 'q', ''))) {
+            $like = '%' . $queryText . '%';
+            $query->where(function ($search) use ($like) {
+                $search
+                    ->where('work_order_no', 'LIKE', $like)
+                    ->orWhere('batch_number', 'LIKE', $like)
+                    ->orWhere('sheet', 'LIKE', $like)
+                    ->orWhere('customer_code', 'LIKE', $like)
+                    ->orWhere('customer_name', 'LIKE', $like)
+                    ->orWhere('customer_part_number', 'LIKE', $like)
+                    ->orWhere('item_code', 'LIKE', $like)
+                    ->orWhere('mes_batch_no', 'LIKE', $like)
+                    ->orWhere('sales_person_code', 'LIKE', $like)
+                    ->orWhereRaw('CAST(quantity_to_produce AS CHAR) LIKE ?', [$like])
+                    ->orWhereRaw("DATE_FORMAT(production_due_date, '%Y-%m-%d') LIKE ?", [$like])
+                    ->orWhereHas('templateRoute', function ($templateRouteQuery) use ($like) {
+                        $templateRouteQuery
+                            ->where('template', 'LIKE', $like)
+                            ->orWhere('name', 'LIKE', $like);
+                    });
+            });
+        }
+
         if ($workOrderNo = Arr::get($filters, 'work_order_no')) {
             $query->where('work_order_no', 'LIKE', "%{$workOrderNo}%");
         }

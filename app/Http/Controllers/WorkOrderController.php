@@ -12,6 +12,7 @@ use App\Http\Requests\WorkOrder\WorkOrderStoreRequest;
 use App\Http\Requests\WorkOrder\WorkOrderTimeTrackerRequest;
 use App\Http\Requests\WorkOrder\WorkOrderUpdateRequest;
 use App\Services\Contracts\WorkOrderServiceInterface;
+use App\Services\AuditLogService;
 use App\Traits\ResponseTrait;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -26,7 +27,8 @@ class WorkOrderController extends Controller
     use ResponseTrait;
 
     public function __construct(
-        protected WorkOrderServiceInterface $workOrderService
+        protected WorkOrderServiceInterface $workOrderService,
+        protected AuditLogService $auditLogService
     ) {
     }
 
@@ -266,6 +268,12 @@ class WorkOrderController extends Controller
         // try {
         $payload = $request->validated();
         $result = $this->workOrderService->createBatch($payload['work_orders']);
+        $this->recordBatchImportAudit(
+            $request,
+            $result,
+            Arr::get($payload, 'work_orders.0.batch_number'),
+            false
+        );
 
         $meta = [
             'server_time' => now()->toIso8601String(),
@@ -469,13 +477,19 @@ class WorkOrderController extends Controller
         $batchNumber = trim((string) $request->get('batch_number', ''));
         $limit = (int) $request->get('limit', 10);
         $page = (int) $request->get('page', 1);
+        $search = trim((string) $request->get('q', ''));
 
         if ($batchNumber === '') {
             return $this->error('Batch number is required.', 422);
         }
 
         try {
-            $data = $this->workOrderService->listByBatch($batchNumber, $limit, $page);
+            $filters = [];
+            if ($search !== '') {
+                $filters['q'] = $search;
+            }
+
+            $data = $this->workOrderService->listByBatch($batchNumber, $limit, $page, $filters);
 
             return $this->successPagination('Work orders retrieved successfully!', $data);
         } catch (Throwable $e) {
@@ -529,10 +543,77 @@ class WorkOrderController extends Controller
         try {
             set_time_limit(120);
             $result = $this->workOrderService->replaceBatch($payload['batch_number'], $payload['work_orders']);
+            $this->recordBatchImportAudit($request, $result, $payload['batch_number'], true);
 
             return $this->success('Batch work orders replaced successfully!', $result);
         } catch (Throwable $e) {
             return $this->error('Failed to replace batch work orders.', 500);
+        }
+    }
+
+    protected function recordBatchImportAudit(
+        Request $request,
+        array $result,
+        ?string $batchNumber,
+        bool $isReplacement
+    ): void {
+        try {
+            $user = $request->user();
+            $inserted = (int) ($result['count'] ?? 0);
+            $updated = (int) ($result['updated'] ?? 0);
+            $skipped = (int) ($result['skipped'] ?? 0);
+            $failed = (int) ($result['failed'] ?? 0);
+
+            $action = $isReplacement
+                ? 'work_order_batch_replace'
+                : 'work_order_batch_import';
+
+            $parts = [];
+            if ($inserted > 0) {
+                $parts[] = "inserted {$inserted}";
+            }
+            if ($updated > 0) {
+                $parts[] = "updated {$updated}";
+            }
+            if ($skipped > 0) {
+                $parts[] = "skipped {$skipped}";
+            }
+            if ($failed > 0) {
+                $parts[] = "failed {$failed}";
+            }
+
+            $summaryPrefix = $isReplacement ? 'Replaced work order batch' : 'Imported work order batch';
+            $summary = trim($summaryPrefix . ' ' . ($batchNumber ?: '(no batch number)'));
+            if (!empty($parts)) {
+                $summary .= ': ' . implode(', ', $parts) . '.';
+            }
+
+            $this->auditLogService->record([
+                'user_id' => $user?->id,
+                'action' => $action,
+                'context' => 'import',
+                'entity_type' => 'work_order_batch',
+                'entity_id' => $batchNumber,
+                'actor_name' => $user?->name ?? $user?->username ?? $user?->email,
+                'actor_role' => $user?->user_type ?? $user?->role,
+                'summary' => $summary,
+                'details' => [
+                    'batch_number' => $batchNumber,
+                    'sheet' => $request->input('sheet'),
+                    'request_rows' => is_array($request->input('work_orders'))
+                        ? count($request->input('work_orders'))
+                        : 0,
+                    'inserted' => $inserted,
+                    'updated' => $updated,
+                    'skipped' => $skipped,
+                    'failed' => $failed,
+                    'skipped_items' => array_values($result['skipped_items'] ?? []),
+                    'errors' => array_values($result['errors'] ?? []),
+                    'replacement' => $isReplacement,
+                ],
+            ]);
+        } catch (Throwable) {
+            // Audit failures should not block imports.
         }
     }
 }

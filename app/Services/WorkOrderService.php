@@ -429,6 +429,7 @@ class WorkOrderService implements WorkOrderServiceInterface
     public function createBatch(array $workOrders): array
     {
         $created = [];
+        $skipped = [];
         $failed = [];
         $updated = 0;
         $compositeKeys = [];
@@ -491,6 +492,17 @@ class WorkOrderService implements WorkOrderServiceInterface
 
                 if ($workOrderId !== null && $matchedDate !== null) {
                     if ($incomingSheetDate === null || $incomingSheetDate <= $matchedDate) {
+                        $skipped[] = [
+                            'work_order_no' => $workOrder['work_order_no'] ?? null,
+                            'customer_code' => $workOrder['customer_code'] ?? null,
+                            'customer_part_number' => $workOrder['customer_part_number'] ?? null,
+                            'incoming_batch_number' => $workOrder['batch_number'] ?? null,
+                            'incoming_sheet' => $workOrder['sheet'] ?? null,
+                            'matched_batch_number' => $matchedBatch,
+                            'reason' => $incomingSheetDate === null
+                                ? 'Skipped because the incoming sheet name does not contain a valid ddmmyy date while an existing newer-dated record already exists.'
+                                : 'Skipped because the incoming sheet date is older than or equal to the existing record date.',
+                        ];
                         continue;
                     }
                 }
@@ -540,7 +552,9 @@ class WorkOrderService implements WorkOrderServiceInterface
             'items' => WorkOrderResource::collection(collect($created))->resolve(),
             'count' => count($created),
             'updated' => $updated,
+            'skipped' => count($skipped),
             'failed' => count($failed),
+            'skipped_items' => $skipped,
             'errors' => $failed,
         ];
     }
@@ -2145,11 +2159,11 @@ class WorkOrderService implements WorkOrderServiceInterface
     }
 
 
-    public function listByBatch(string $batchNumber, int $limit = 10, int $page = 1): array
+    public function listByBatch(string $batchNumber, int $limit = 10, int $page = 1, array $filters = []): array
     {
-        $filters = [
+        $filters = array_merge($filters, [
             'batch_number' => $batchNumber,
-        ];
+        ]);
 
         return WorkOrderResource::collection(
             $this->workOrderRepository->listing($filters, ['id', 'desc'], $limit, $page)

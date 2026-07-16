@@ -16,6 +16,7 @@ return [
         'Quantity to Produce' => 'quantity_to_produce',
         'Quantity Produced' => 'quantity_produced',
         'ForeCast Quantity' => 'forecast_quantity',
+        'Forecast Quantity' => 'forecast_quantity',
         'Die Cut' => 'die_cut',
         'Internal Remark' => 'internal_remark',
         'Requested Delivery Date' => 'requested_delivery_date',

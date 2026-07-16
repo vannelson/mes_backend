@@ -89,7 +89,7 @@ interface WorkOrderServiceInterface
     /**
      * Paginated list of work orders filtered by batch number.
      */
-    public function listByBatch(string $batchNumber, int $limit = 10, int $page = 1): array;
+    public function listByBatch(string $batchNumber, int $limit = 10, int $page = 1, array $filters = []): array;
 
     /**
      * Replace work orders for a specific batch (delete then re-import).

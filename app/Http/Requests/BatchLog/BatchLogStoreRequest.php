@@ -18,6 +18,10 @@ class BatchLogStoreRequest extends FormRequest
             'batch_no' => ['required', 'string', 'max:100', 'unique:batch_logs,batch_no'],
             'type' => ['required', 'in:work_order,template_route,bom,packing,diecut'],
             'total_rows' => ['required', 'integer', 'min:0'],
+            'inserted_rows' => ['nullable', 'integer', 'min:0'],
+            'updated_rows' => ['nullable', 'integer', 'min:0'],
+            'skipped_rows' => ['nullable', 'integer', 'min:0'],
+            'failed_rows' => ['nullable', 'integer', 'min:0'],
             'operator' => ['required', 'string', 'max:120'],
             'sheet' => ['nullable', 'string', 'max:255'],
         ];

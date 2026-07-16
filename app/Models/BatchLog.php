@@ -16,8 +16,20 @@ class BatchLog extends Model
         'batch_no',
         'type',
         'total_rows',
+        'inserted_rows',
+        'updated_rows',
+        'skipped_rows',
+        'failed_rows',
         'operator',
         'sheet',
+    ];
+
+    protected $casts = [
+        'total_rows' => 'integer',
+        'inserted_rows' => 'integer',
+        'updated_rows' => 'integer',
+        'skipped_rows' => 'integer',
+        'failed_rows' => 'integer',
     ];
 
     public function user(): BelongsTo
