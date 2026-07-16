@@ -381,6 +381,7 @@ class WorkOrderService implements WorkOrderServiceInterface
             if (array_key_exists('metadata', $data)) {
                 $data['metadata'] = $this->normalizeMetadata($data['metadata']);
                 $this->normalizeRouteFlowMetadata($data['metadata']);
+                $this->normalizeWorkOrderQuantityTargets($data);
                 $this->rebuildAssignmentSummary($data['metadata']);
             }
             $workOrder = $this->workOrderRepository->create($data)->load(['customer', 'templateRoute']);
@@ -584,6 +585,12 @@ class WorkOrderService implements WorkOrderServiceInterface
         if (array_key_exists('metadata', $data)) {
             $data['metadata'] = $this->normalizeMetadata($data['metadata']);
             $this->normalizeRouteFlowMetadata($data['metadata']);
+            $this->normalizeWorkOrderQuantityTargets($data, $beforeOrder);
+            $this->rebuildAssignmentSummary($data['metadata']);
+        } elseif (array_key_exists('quantity_to_produce', $data)) {
+            $data['metadata'] = $this->normalizeMetadata($beforeOrder->metadata);
+            $this->normalizeRouteFlowMetadata($data['metadata']);
+            $this->normalizeWorkOrderQuantityTargets($data, $beforeOrder);
             $this->rebuildAssignmentSummary($data['metadata']);
         }
 
@@ -698,12 +705,22 @@ class WorkOrderService implements WorkOrderServiceInterface
 
         $this->syncTemplateMetadata($changes);
         $this->syncReleaseFlag($changes);
+        if (array_key_exists('metadata', $changes)) {
+            $changes['metadata'] = $this->normalizeMetadata($changes['metadata']);
+            $this->normalizeRouteFlowMetadata($changes['metadata']);
+            $this->normalizeWorkOrderQuantityTargets($changes);
+            $this->rebuildAssignmentSummary($changes['metadata']);
+        }
 
         $updated = $this->workOrderRepository->updateByCustomerCodeAndPartNumber(
             $customerCode,
             $customerPartNumber,
             $changes
         );
+
+        if ($updated > 0 && (array_key_exists('quantity_to_produce', $changes) || array_key_exists('metadata', $changes))) {
+            $this->syncBulkUpdatedWorkOrderQuantities($customerCode, $customerPartNumber, $changes);
+        }
 
         return [
             'updated' => $updated,
@@ -790,9 +807,13 @@ class WorkOrderService implements WorkOrderServiceInterface
         $totalPrintedQty = isset($payload['total_printed_qty'])
             ? $this->numericValue($payload['total_printed_qty'])
             : null;
-        $targetPrintedQty = isset($payload['target_printed_qty'])
-            ? $this->numericValue($payload['target_printed_qty'])
-            : null;
+        $targetPrintedQty = $this->resolveCanonicalWorkOrderQty(
+            ['metadata' => $metadata],
+            $workOrder
+        );
+        if ($targetPrintedQty === null && isset($payload['target_printed_qty'])) {
+            $targetPrintedQty = $this->numericValue($payload['target_printed_qty']);
+        }
         $pauseReason = $payload['pause_reason'] ?? $payload['pauseReason'] ?? null;
         $pauseReasonKey = $payload['pause_reason_key'] ?? $payload['pauseReasonKey'] ?? null;
         $pauseNote = $payload['pause_note'] ?? $payload['pauseNote'] ?? null;
@@ -3679,6 +3700,36 @@ class WorkOrderService implements WorkOrderServiceInterface
         return "route-" . ($idx + 1);
     }
 
+    protected function syncBulkUpdatedWorkOrderQuantities(string $customerCode, string $customerPartNumber, array $changes): void
+    {
+        $orders = WorkOrder::query()
+            ->where('customer_code', $customerCode)
+            ->where('customer_part_number', $customerPartNumber)
+            ->get();
+
+        foreach ($orders as $order) {
+            $payload = [
+                'metadata' => $this->normalizeMetadata($order->metadata),
+            ];
+
+            if (array_key_exists('quantity_to_produce', $changes)) {
+                $payload['quantity_to_produce'] = $changes['quantity_to_produce'];
+            }
+
+            $this->normalizeRouteFlowMetadata($payload['metadata']);
+            $this->normalizeWorkOrderQuantityTargets($payload, $order);
+            $this->rebuildAssignmentSummary($payload['metadata']);
+
+            $this->workOrderRepository->update($order->id, [
+                'metadata' => $payload['metadata'],
+            ]);
+
+            if (array_key_exists('metadata', $changes)) {
+                $this->syncAssignmentsFromMetadata($order->id, $payload['metadata']);
+            }
+        }
+    }
+
     protected function resolveMetadataAssignedWorkOrderIds(string $operatorId): array
     {
         if ($operatorId === '') {
@@ -4454,6 +4505,124 @@ class WorkOrderService implements WorkOrderServiceInterface
         }
 
         return $this->numericValue($qty);
+    }
+
+    protected function normalizeWorkOrderQuantityTargets(array &$data, ?WorkOrder $existingOrder = null): void
+    {
+        if (!array_key_exists('metadata', $data) || !is_array($data['metadata'])) {
+            return;
+        }
+
+        $qty = $this->resolveCanonicalWorkOrderQty($data, $existingOrder);
+        if ($qty === null) {
+            return;
+        }
+
+        $this->syncCanonicalQtyIntoMetadata($data['metadata'], $qty);
+    }
+
+    protected function resolveCanonicalWorkOrderQty(array $data, ?WorkOrder $existingOrder = null): ?float
+    {
+        $existingMetadata = $existingOrder ? $this->normalizeMetadata($existingOrder->metadata) : [];
+        $candidates = [
+            $data['quantity_to_produce'] ?? null,
+            $existingOrder?->quantity_to_produce,
+            Arr::get($data, 'metadata.state.qty'),
+            Arr::get($existingMetadata, 'state.qty'),
+        ];
+
+        foreach ($candidates as $candidate) {
+            if ($candidate === null || $candidate === '') {
+                continue;
+            }
+
+            if (is_numeric($candidate)) {
+                return (float) $candidate;
+            }
+        }
+
+        return null;
+    }
+
+    protected function syncCanonicalQtyIntoMetadata(array &$metadata, float $qty): void
+    {
+        $state = is_array($metadata['state'] ?? null) ? $metadata['state'] : [];
+        $state['qty'] = $qty;
+        $metadata['state'] = $state;
+
+        $routesKey = $this->resolveRoutesKey($metadata);
+        $routes = $metadata[$routesKey] ?? [];
+        if (!is_array($routes)) {
+            return;
+        }
+
+        $this->syncCanonicalQtyIntoRouteCollection($routes, $qty);
+        $metadata[$routesKey] = $routes;
+    }
+
+    protected function syncCanonicalQtyIntoRouteCollection(array &$routes, float $qty): void
+    {
+        foreach ($routes as $index => $entry) {
+            if (!is_array($entry)) {
+                continue;
+            }
+
+            if (isset($entry['routes']) && is_array($entry['routes'])) {
+                $nestedRoutes = $entry['routes'];
+                $this->syncCanonicalQtyIntoRouteCollection($nestedRoutes, $qty);
+                $entry['routes'] = $nestedRoutes;
+                $routes[$index] = $entry;
+                continue;
+            }
+
+            $this->syncCanonicalQtyIntoRoute($entry, $qty);
+            $routes[$index] = $entry;
+        }
+    }
+
+    protected function syncCanonicalQtyIntoRoute(array &$route, float $qty): void
+    {
+        $this->assignCanonicalQtyFields($route, $qty);
+
+        $routeMetadata = is_array($route['metadata'] ?? null) ? $route['metadata'] : [];
+        $this->assignCanonicalQtyFields($routeMetadata, $qty);
+
+        $pressPlan = is_array($routeMetadata['pressPlan'] ?? null) ? $routeMetadata['pressPlan'] : [];
+        if (!empty($pressPlan)) {
+            $pressPlan['targetPrintedQty'] = $qty;
+            $pressPlan['target_printed_qty'] = $qty;
+            $routeMetadata['pressPlan'] = $pressPlan;
+        }
+
+        $timeTracker = $routeMetadata['timeTracker'] ?? $routeMetadata['time_tracker'] ?? null;
+        if (is_array($timeTracker)) {
+            $entries = is_array($timeTracker['entries'] ?? null) ? $timeTracker['entries'] : [];
+            foreach ($entries as $entryIndex => $entry) {
+                if (!is_array($entry)) {
+                    continue;
+                }
+
+                $entry['target_printed_qty'] = $qty;
+                $entry['targetPrintedQty'] = $qty;
+                $entries[$entryIndex] = $entry;
+            }
+            $timeTracker['entries'] = $entries;
+            $routeMetadata['timeTracker'] = $timeTracker;
+            unset($routeMetadata['time_tracker']);
+        }
+
+        $route['metadata'] = $routeMetadata;
+    }
+
+    protected function assignCanonicalQtyFields(array &$target, float $qty): void
+    {
+        $target['qty'] = $qty;
+        $target['quantity'] = $qty;
+        $target['plannedQty'] = $qty;
+        $target['workOrderQty'] = $qty;
+        $target['work_order_qty'] = $qty;
+        $target['targetPrintedQty'] = $qty;
+        $target['target_printed_qty'] = $qty;
     }
 
     protected function normalizeRouteFlowMetadata(array &$metadata): void
